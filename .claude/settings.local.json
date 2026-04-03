@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m venv .venv)",
+      "Bash(\"C:/Users/eren_/OneDrive/Masaüstü/sadik_v2/sadik-backend/.venv/Scripts/pip.exe\" install:*)",
+      "Bash(\"C:/Users/eren_/OneDrive/Masaüstü/sadik_v2/sadik-backend/.venv/Scripts/python.exe\" -c \"from app.main import app; print\\(''OK''\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" -c \"from app.main import app; print\\(''OK''\\)\")",
+      "Bash(npm install:*)",
+      "mcp__Desktop_Commander__list_directory",
+      "mcp__Desktop_Commander__read_file",
+      "Bash(npx tsc:*)",
+      "Bash(npx webpack:*)",
+      "Bash(pio run:*)",
+      "Bash(where pio:*)",
+      "Bash(where platformio:*)",
+      "Read(//c/Users/eren_/OneDrive/Masaüstü/sadik_v2/$USERPROFILE/.platformio/penv/Scripts/**)",
+      "Read(//c/Users/eren_/.platformio/penv/Scripts/**)",
+      "Bash(\"C:/Users/eren_/.platformio/penv/Scripts/pio.exe\" run:*)",
+      "mcp__Desktop_Commander__read_multiple_files",
+      "mcp__Desktop_Commander__get_file_info",
+      "Bash(python -c \":*)"
+    ]
+  }
+}
