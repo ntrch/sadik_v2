@@ -79,6 +79,16 @@ export function useAnimationEngine(deviceConnected: boolean) {
     });
   }, [deviceConnected]);
 
+  // Notify firmware of app authority changes so it can suppress or restore
+  // its autonomous idle orchestration (blink / look timers) accordingly.
+  useEffect(() => {
+    if (deviceConnected) {
+      deviceApi.sendCommand('APP_CONNECTED').catch(() => {});
+    }
+    // APP_DISCONNECTED is sent by the backend disconnect endpoint before closing
+    // the serial port, so the firmware receives it while the link is still open.
+  }, [deviceConnected]);
+
   const triggerEvent = useCallback(
     (event: AnimationEventType, payload?: { text?: string }) => {
       engine.triggerEvent(event, payload);

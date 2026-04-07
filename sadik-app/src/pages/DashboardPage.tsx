@@ -1,9 +1,9 @@
 import React, { useState, useContext, useEffect, useRef } from 'react';
-import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp } from 'lucide-react';
+import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Lightbulb } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { modesApi } from '../api/modes';
 import { tasksApi } from '../api/tasks';
-import { statsApi, ModeStat } from '../api/stats';
+import { statsApi, ModeStat, AppUsageStat, AppInsight } from '../api/stats';
 import { settingsApi } from '../api/settings';
 import ActivityChart from '../components/stats/ActivityChart';
 import { AnimationEventType } from '../engine/types';
@@ -36,13 +36,14 @@ export default function DashboardPage() {
   const {
     currentMode, setCurrentMode, showToast, pomodoroState,
     triggerEvent, showText, returnToIdle, playClipDirect, getLoadedClipNames,
-    engineState,
+    engineState, activeInsight,
   } = useContext(AppContext);
 
   const [customMode, setCustomMode] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [doneCount, setDoneCount] = useState(0);
   const [workSeconds, setWorkSeconds] = useState(0);
+  const [appUsage, setAppUsage] = useState<AppUsageStat[]>([]);
   const [loading, setLoading] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [selectedClip, setSelectedClip] = useState('');
@@ -60,6 +61,7 @@ export default function DashboardPage() {
         .reduce((acc, s) => acc + s.total_seconds, 0);
       setWorkSeconds(total);
     }).catch(() => {});
+    statsApi.appUsageDaily().then(setAppUsage).catch(() => {});
   }, []);
 
   const handleSetMode = async (mode: string, oledText?: string) => {
@@ -170,6 +172,12 @@ export default function DashboardPage() {
         <StatCard icon={<Activity size={18} className="text-accent-yellow" />} label="Aktif Mod" value={currentMode ? (modeLabel[currentMode] || currentMode) : '—'} color="yellow" />
       </div>
 
+      {/* Proactive insight card */}
+      <InsightCard insight={activeInsight} />
+
+      {/* App usage widget */}
+      <AppUsageWidget usage={appUsage} />
+
       {/* Activity chart */}
       <ActivityChart />
 
@@ -268,6 +276,113 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Proactive Insight Card ────────────────────────────────────────────────────
+
+const LEVEL_LABEL: Record<string, string> = {
+  gentle: 'Nazik öneri',
+  strong: 'Daha güçlü öneri',
+};
+
+const LEVEL_COLORS: Record<string, { card: string; badge: string; icon: string }> = {
+  gentle: {
+    card:  'border-accent-yellow/40 bg-accent-yellow/5',
+    badge: 'bg-accent-yellow/15 text-accent-yellow border-accent-yellow/30',
+    icon:  'text-accent-yellow',
+  },
+  strong: {
+    card:  'border-accent-red/40 bg-accent-red/5',
+    badge: 'bg-accent-red/15 text-accent-red border-accent-red/30',
+    icon:  'text-accent-red',
+  },
+};
+
+function InsightCard({ insight }: { insight: AppInsight | null }) {
+  if (!insight?.has_insight) {
+    // Subtle empty state — keeps users aware the feature is active
+    return (
+      <div className="bg-bg-card border border-border rounded-card p-4 mb-5 flex items-center gap-3">
+        <Lightbulb size={15} className="text-text-muted flex-shrink-0" />
+        <p className="text-xs text-text-muted">Şu an öneri yok. SADIK kullanımını izliyor.</p>
+      </div>
+    );
+  }
+
+  const level   = insight.level ?? 'gentle';
+  const colors  = LEVEL_COLORS[level] ?? LEVEL_COLORS.gentle;
+  const label   = LEVEL_LABEL[level] ?? 'Öneri';
+
+  return (
+    <div className={`border rounded-card p-4 mb-5 ${colors.card}`}>
+      <div className="flex items-start gap-3">
+        <Lightbulb size={16} className={`flex-shrink-0 mt-0.5 ${colors.icon}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colors.badge}`}>
+              {label}
+            </span>
+          </div>
+          <p className="text-xs text-text-primary leading-relaxed">{insight.message}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── App Usage Widget ──────────────────────────────────────────────────────────
+
+function formatAppDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0 && m > 0) return `${h} sa ${m} dk`;
+  if (h > 0) return `${h} sa`;
+  if (m > 0) return `${m} dk`;
+  return '< 1 dk';
+}
+
+function AppUsageWidget({ usage }: { usage: AppUsageStat[] }) {
+  const top = usage.slice(0, 3);
+  const maxSeconds = top[0]?.duration_seconds ?? 1;
+
+  return (
+    <div className="bg-bg-card border border-border rounded-card p-5 mb-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold text-text-primary">Bugünkü Uygulama Kullanımı</h2>
+        <span className="text-[10px] text-text-muted uppercase tracking-wide">Bugün</span>
+      </div>
+
+      {top.length === 0 ? (
+        <p className="text-xs text-text-muted text-center py-4">
+          Henüz uygulama kullanım verisi yok.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {top.map((item) => {
+            const pct = Math.round((item.duration_seconds / maxSeconds) * 100);
+            return (
+              <div key={item.app_name}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-text-primary truncate max-w-[60%]">
+                    {item.app_name}
+                  </span>
+                  <span className="text-xs text-text-muted ml-2 flex-shrink-0">
+                    {formatAppDuration(item.duration_seconds)}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-bg-input rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-accent-blue rounded-full transition-all duration-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -13,6 +13,31 @@ export interface SerialPort {
   hwid: string;
 }
 
+export interface AutoConnectResult {
+  connected: boolean;
+  port: string | null;
+  method: string | null;
+  message: string;
+  scanned_ports: number;
+  matched_ports: string[];
+  error: string | null;
+}
+
+export interface BrightnessResult {
+  success: boolean;
+  percent: number;
+  device_value: number;
+  message: string;
+}
+
+export interface SleepTimeoutResult {
+  success: boolean;
+  minutes: number;
+  device_value_ms: number;
+  response: string | null;
+  message: string;
+}
+
 export const deviceApi = {
   getStatus: () => http.get<DeviceStatus>('/api/device/status').then((r) => r.data),
   connect: (data: { method: string; port?: string; ip?: string }) =>
@@ -21,4 +46,10 @@ export const deviceApi = {
   listPorts: () => http.get<SerialPort[]>('/api/device/ports').then((r) => r.data),
   sendCommand: (command: string) =>
     http.post<{ success: boolean; error?: string }>('/api/device/command', { command }).then((r) => r.data),
+  autoConnect: () =>
+    http.post<AutoConnectResult>('/api/device/auto-connect').then((r) => r.data),
+  setBrightness: (percent: number) =>
+    http.post<BrightnessResult>('/api/device/brightness', { percent }).then((r) => r.data),
+  setSleepTimeout: (minutes: number) =>
+    http.post<SleepTimeoutResult>('/api/device/sleep-timeout', { minutes }).then((r) => r.data),
 };

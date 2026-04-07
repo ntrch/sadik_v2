@@ -29,6 +29,33 @@ class DeviceManager:
             return reachable
         return False
 
+    async def auto_connect(self, baudrate: int = 115200) -> dict:
+        """Auto-detect SADIK device via serial protocol verification and connect."""
+        # If already connected via WiFi, return success immediately
+        if self._method == "wifi":
+            return {
+                "connected": True,
+                "port": None,
+                "method": "auto",
+                "message": "SADIK cihazı WiFi üzerinden zaten bağlı.",
+                "scanned_ports": 0,
+                "matched_ports": [],
+                "error": None,
+            }
+
+        result = await serial_service.auto_detect_and_connect(baudrate)
+
+        if result["connected"]:
+            self._method = "serial"
+            self._port = result["port"]
+        else:
+            # Clear stale state if the connection we thought we had is gone
+            if self._method == "serial" and not serial_service.is_connected:
+                self._method = None
+                self._port = None
+
+        return result
+
     async def disconnect(self):
         if self._method == "serial":
             await serial_service.close()
@@ -46,6 +73,21 @@ class DeviceManager:
             ok = await wifi_device_service.send_command(self._ip, command)
             return ok, None if ok else "WiFi send failed"
         return False, "Unknown method"
+
+    async def send_command_and_read(self, command: str) -> tuple[bool, Optional[str], Optional[str]]:
+        """Send a command and read back the firmware's OK:/ERR: response line.
+        Returns (sent_ok, response_line_or_None, error_message_or_None).
+        """
+        if not self._method:
+            return False, None, "Not connected"
+        if self._method == "serial":
+            ok, response = await serial_service.send_and_read(command)
+            return ok, response, None if ok else "Serial send failed"
+        elif self._method == "wifi":
+            # WiFi path does not support synchronous read-back
+            ok = await wifi_device_service.send_command(self._ip, command)
+            return ok, None, None if ok else "WiFi send failed"
+        return False, None, "Unknown method"
 
     def get_status(self) -> dict:
         connected = False

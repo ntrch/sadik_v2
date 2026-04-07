@@ -18,7 +18,7 @@ async def get_settings_map(session: AsyncSession) -> dict:
 async def send_message(body: ChatMessageCreate, session: AsyncSession = Depends(get_session)):
     settings = await get_settings_map(session)
     api_key = settings.get("openai_api_key", "")
-    model = settings.get("llm_model", "gpt-4o-mini")
+    model = settings.get("llm_model", "gpt-4o")
     user_name = settings.get("user_name", "")
     greeting_style = settings.get("greeting_style", "")
 
@@ -37,6 +37,7 @@ async def send_message(body: ChatMessageCreate, session: AsyncSession = Depends(
     assistant_text = await chat_service.send_message(
         body.content, history, api_key, model, voice_mode=body.voice_mode,
         user_name=user_name, greeting_style=greeting_style,
+        session=session,
     )
 
     now2 = datetime.now(timezone.utc).replace(tzinfo=None)

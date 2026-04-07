@@ -1,15 +1,18 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Usb, Wifi, ChevronDown, X } from 'lucide-react';
+import React, { useContext, useState, useRef, useEffect } from 'react';
+import { Usb, Wifi, ChevronDown, X, RotateCw } from 'lucide-react';
 import { useDevice } from '../../hooks/useDevice';
 import { deviceApi, SerialPort } from '../../api/device';
+import { AppContext } from '../../context/AppContext';
 
 export default function DeviceStatus() {
   const { deviceStatus, connect, disconnect } = useDevice();
+  const { autoConnectDevice } = useContext(AppContext);
   const [showPopover, setShowPopover] = useState(false);
   const [tab, setTab] = useState<'serial' | 'wifi'>('serial');
   const [ports, setPorts] = useState<SerialPort[]>([]);
   const [wifiIp, setWifiIp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [autoConnecting, setAutoConnecting] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -47,6 +50,15 @@ export default function DeviceStatus() {
     setLoading(false);
   };
 
+  const handleAutoConnect = async () => {
+    setAutoConnecting(true);
+    try {
+      await autoConnectDevice();
+    } finally {
+      setAutoConnecting(false);
+    }
+  };
+
   const methodLabel = deviceStatus.method === 'serial' ? 'USB' : deviceStatus.method === 'wifi' ? 'WiFi' : null;
 
   return (
@@ -67,10 +79,20 @@ export default function DeviceStatus() {
             Kes
           </button>
         ) : (
-          <button onClick={openPopover}
-            className="text-xs text-accent-blue hover:text-blue-400 transition-colors flex items-center gap-1">
-            Bağlan <ChevronDown size={10} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleAutoConnect}
+              disabled={autoConnecting}
+              title="Otomatik bağlan"
+              className="text-xs text-text-muted hover:text-accent-blue transition-colors disabled:opacity-50"
+            >
+              <RotateCw size={12} className={autoConnecting ? 'animate-spin' : ''} />
+            </button>
+            <button onClick={openPopover}
+              className="text-xs text-accent-blue hover:text-blue-400 transition-colors flex items-center gap-1">
+              Bağlan <ChevronDown size={10} />
+            </button>
+          </div>
         )}
       </div>
 

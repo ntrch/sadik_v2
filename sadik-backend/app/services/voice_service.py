@@ -67,6 +67,11 @@ class VoiceService:
         """
         if not api_key:
             return ""
+
+        if len(audio_bytes) <= 512:
+            logger.warning("STT: audio_bytes too small (%d bytes), skipping Whisper", len(audio_bytes))
+            return ""
+
         try:
             client = AsyncOpenAI(api_key=api_key)
             audio_file = io.BytesIO(audio_bytes)
@@ -77,6 +82,10 @@ class VoiceService:
             transcript = await client.audio.transcriptions.create(**kwargs)
             return transcript.text
         except Exception as e:
+            err_str = str(e).lower()
+            if "could not be decoded" in err_str or "format is not supported" in err_str:
+                logger.warning("STT: invalid/undecodable audio, returning empty: %s", e)
+                return ""
             logger.error(f"STT error: {e}")
             raise
 

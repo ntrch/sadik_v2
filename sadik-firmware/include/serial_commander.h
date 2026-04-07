@@ -9,12 +9,17 @@
 
 enum CommandType {
     CMD_NONE,
-    CMD_PLAY_CLIP,      // PLAY_CLIP:<name>
-    CMD_STOP_CLIP,      // STOP_CLIP
-    CMD_SHOW_TEXT,      // SHOW_TEXT:<text>
-    CMD_RETURN_TO_IDLE, // RETURN_TO_IDLE
-    CMD_PING,           // PING  → firmware replies "PONG"
-    CMD_STATUS,         // STATUS → firmware replies with state summary
+    CMD_PLAY_CLIP,        // PLAY_CLIP:<name>
+    CMD_STOP_CLIP,        // STOP_CLIP
+    CMD_SHOW_TEXT,        // SHOW_TEXT:<text>
+    CMD_RETURN_TO_IDLE,   // RETURN_TO_IDLE
+    CMD_PING,             // PING  → firmware replies "PONG"
+    CMD_STATUS,           // STATUS → firmware replies with state summary
+    CMD_SET_BRIGHTNESS,       // SET_BRIGHTNESS:<0-255>
+    CMD_SET_SLEEP_TIMEOUT,    // SET_SLEEP_TIMEOUT_MS:<milliseconds>  (0 = disabled)
+    CMD_FORCE_SLEEP,          // FORCE_SLEEP → immediately enter power-save (debug aid)
+    CMD_APP_CONNECTED,        // APP_CONNECTED   → app becomes animation authority
+    CMD_APP_DISCONNECTED,     // APP_DISCONNECTED → firmware resumes autonomous idle
     CMD_UNKNOWN
 };
 
@@ -132,6 +137,25 @@ private:
 
         } else if (strcmp(_buf, "STATUS") == 0) {
             _parsed.type = CMD_STATUS;
+
+        } else if (strncmp(_buf, "SET_BRIGHTNESS:", 15) == 0) {
+            _parsed.type = CMD_SET_BRIGHTNESS;
+            strncpy(_parsed.argument, _buf + 15, sizeof(_parsed.argument) - 1);
+            _parsed.argument[sizeof(_parsed.argument) - 1] = '\0';
+
+        } else if (strncmp(_buf, "SET_SLEEP_TIMEOUT_MS:", 21) == 0) {
+            _parsed.type = CMD_SET_SLEEP_TIMEOUT;
+            strncpy(_parsed.argument, _buf + 21, sizeof(_parsed.argument) - 1);
+            _parsed.argument[sizeof(_parsed.argument) - 1] = '\0';
+
+        } else if (strcmp(_buf, "FORCE_SLEEP") == 0) {
+            _parsed.type = CMD_FORCE_SLEEP;
+
+        } else if (strcmp(_buf, "APP_CONNECTED") == 0) {
+            _parsed.type = CMD_APP_CONNECTED;
+
+        } else if (strcmp(_buf, "APP_DISCONNECTED") == 0) {
+            _parsed.type = CMD_APP_DISCONNECTED;
 
         } else {
             _parsed.type = CMD_UNKNOWN;

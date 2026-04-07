@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, ListTodo, Timer, MessageSquare, Mic, Settings
+  LayoutDashboard, ListTodo, Timer, MessageSquare, Mic, BarChart2, Settings
 } from 'lucide-react';
 import OledPreview from './OledPreview';
 import DeviceStatus from './DeviceStatus';
@@ -13,11 +13,16 @@ const navItems = [
   { to: '/focus', icon: Timer, label: 'Odaklanma' },
   { to: '/chat', icon: MessageSquare, label: 'Sohbet' },
   { to: '/voice', icon: Mic, label: 'Sesli Asistan' },
+  { to: '/insights', icon: BarChart2, label: 'İçgörüler' },
   { to: '/settings', icon: Settings, label: 'Ayarlar' },
 ];
 
 export default function Sidebar() {
-  const { wakeWordEnabled, wakeWordActive, toggleWakeWord, wakeWordSensitivity } = useContext(AppContext);
+  const {
+    wakeWordEnabled, wakeWordActive, toggleWakeWord, wakeWordSensitivity,
+    oledBrightnessPercent, setOledBrightness, deviceStatus,
+    oledSleepTimeoutMinutes,
+  } = useContext(AppContext);
 
   const SENSITIVITY_LABELS: Record<string, string> = {
     very_high: 'Çok Hassas',
@@ -31,6 +36,27 @@ export default function Sidebar() {
       <div className="p-4 flex-1 overflow-y-auto">
         <OledPreview />
         <DeviceStatus />
+
+        {/* ── OLED brightness ──────────────────────────────────────────────── */}
+        <div className="mt-2 px-2.5 py-2 bg-bg-card border border-border rounded-btn">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-text-secondary">Parlaklık</span>
+            <span className="text-xs text-text-muted tabular-nums">{oledBrightnessPercent}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={oledBrightnessPercent}
+            onChange={(e) => setOledBrightness(Number(e.target.value))}
+            title={deviceStatus.connected ? 'OLED parlaklığı' : 'OLED parlaklığı (cihaz bağlı değil — tercih kaydedilir)'}
+            className="w-full h-1 rounded-full accent-accent-blue cursor-pointer"
+          />
+          <p className="text-[10px] text-text-muted mt-1.5">
+            Uyku: {oledSleepTimeoutMinutes === 0 ? 'Kapalı' : `${oledSleepTimeoutMinutes} dk`}
+          </p>
+        </div>
 
         {/* ── Wake word status ─────────────────────────────────────────────── */}
         <div className="mt-2 px-2.5 py-2 bg-bg-card border border-border rounded-btn flex items-center gap-2">

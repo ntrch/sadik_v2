@@ -1,6 +1,12 @@
 import logging
 from typing import Optional
+from datetime import datetime, timezone, time as dt_time
 from openai import AsyncOpenAI
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+
+from app.models.app_usage_session import AppUsageSession
+from app.models.task import Task
 
 logger = logging.getLogger(__name__)
 
@@ -22,16 +28,110 @@ VOICE_SYSTEM_PROMPT = (
 )
 
 
+# ── Duration formatting helper ─────────────────────────────────────────────────
+
+def _fmt_duration_tr(total_seconds: int) -> str:
+    """
+    Return a compact Turkish duration string.
+      < 60 min  → '45 dk'
+      1 h+      → '2 sa 10 dk'  (minutes omitted when < 5 to stay compact)
+    """
+    h = total_seconds // 3600
+    m = (total_seconds % 3600) // 60
+    if h > 0 and m >= 5:
+        return f"{h} sa {m} dk"
+    if h > 0:
+        return f"{h} saat"
+    return f"{max(m, 1)} dk"
+
+
+# ── Local context builder ──────────────────────────────────────────────────────
+
+async def _build_local_context(session: AsyncSession) -> str:
+    """
+    Query today's local data and return a compact Turkish context block to
+    append to the system prompt.  Returns an empty string when there is
+    nothing meaningful to include (no usage data, no completed tasks).
+
+    Included:
+      1. Today's top-3 app usage entries (by total duration, descending).
+      2. Today's completed task count.
+         Approximation: tasks with status='done' whose updated_at falls today.
+         The Task model has no dedicated completed_at column, so updated_at is
+         the cleanest available proxy.  This may slightly over-count if a task
+         was done earlier but edited again today, but it remains safe and local.
+
+    Not included (deferred to a later phase):
+      - Pomodoro / focus state — skipped; pomodoro_service internal state API
+        was not confirmed without reading that service's source.
+    """
+    today     = datetime.now(timezone.utc).date()
+    day_start = datetime.combine(today, dt_time.min)
+    day_end   = datetime.combine(today, dt_time.max)
+
+    lines: list[str] = []
+
+    # ── 1. Top-3 app usage today ───────────────────────────────────────────
+    usage_rows = (
+        await session.execute(
+            select(
+                AppUsageSession.app_name,
+                func.sum(AppUsageSession.duration_seconds).label("total_sec"),
+            )
+            .where(AppUsageSession.started_at >= day_start)
+            .where(AppUsageSession.started_at <= day_end)
+            .group_by(AppUsageSession.app_name)
+            .order_by(func.sum(AppUsageSession.duration_seconds).desc())
+            .limit(3)
+        )
+    ).all()
+
+    if usage_rows:
+        parts = [
+            f"{row.app_name} ({_fmt_duration_tr(int(row.total_sec))})"
+            for row in usage_rows
+        ]
+        lines.append(f"- Bugünkü uygulama kullanımı: {', '.join(parts)}")
+
+    # ── 2. Completed tasks today ───────────────────────────────────────────
+    done_count: int = (
+        await session.execute(
+            select(func.count(Task.id))
+            .where(Task.status == "done")
+            .where(Task.updated_at >= day_start)
+            .where(Task.updated_at <= day_end)
+        )
+    ).scalar_one_or_none() or 0
+
+    if done_count > 0:
+        lines.append(f"- Bugün tamamlanan görev sayısı: {done_count}")
+
+    if not lines:
+        return ""
+
+    block = "\n".join([
+        "--- GÜNCEL YEREL BAĞLAM ---",
+        *lines,
+        # Tone instruction: use context only when naturally relevant, never repeat in every reply.
+        "Bu bağlamı yalnızca gerektiğinde doğal ve kısa şekilde kullan; her yanıtta tekrarlama.",
+        "--- GÜNCEL YEREL BAĞLAM SONU ---",
+    ])
+    return block
+
+
+# ── Chat service ───────────────────────────────────────────────────────────────
+
 class ChatService:
     async def send_message(
         self,
         user_content: str,
         history: list[dict],
         api_key: str,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-4o",
         voice_mode: bool = False,
         user_name: str = "",
         greeting_style: str = "",
+        session: Optional[AsyncSession] = None,
     ) -> Optional[str]:
         if not api_key:
             return "OpenAI API anahtarı ayarlanmamış. Lütfen ayarlardan API anahtarınızı girin."
@@ -39,17 +139,52 @@ class ChatService:
             client = AsyncOpenAI(api_key=api_key)
             recent = history[-20:] if len(history) > 20 else history
             system = VOICE_SYSTEM_PROMPT if voice_mode else SYSTEM_PROMPT
-            # Append personalization suffix only when values are configured.
-            persona_parts = []
-            if user_name:
-                persona_parts.append(f"Kullanıcının adı {user_name}.")
-            if greeting_style:
-                persona_parts.append(f"Ona '{greeting_style}' diye hitap et.")
-            if persona_parts:
-                system = system + "\n\n" + " ".join(persona_parts)
+
+            # Compute combined greeting explicitly — never rely on the model to combine parts.
+            if user_name and greeting_style:
+                combined_greeting = f"{user_name} {greeting_style}"
+            elif user_name:
+                combined_greeting = user_name
+            elif greeting_style:
+                combined_greeting = greeting_style
+            else:
+                combined_greeting = ""
+
+            # Inject a strong, authoritative profile block that overrides any stale history.
+            if user_name or greeting_style:
+                profile_lines = [
+                    "--- GÜNCEL KULLANICI PROFİLİ ---",
+                ]
+                if user_name:
+                    profile_lines.append(f"Kullanıcının adı kesin olarak: {user_name}")
+                if combined_greeting:
+                    profile_lines.append(
+                        f"Kullanıcıya hitap ederken kullanman gereken ifade: {combined_greeting}"
+                    )
+                profile_lines += [
+                    "Önceki konuşmalarda geçen farklı isimler veya hitaplar geçersizdir.",
+                    f"Kullanıcı 'Ben kimim?' diye sorarsa doğru adı söyle: {user_name if user_name else combined_greeting}",
+                    "Bu profil bilgisi önceki konuşma bağlamına göre daima önceliklidir.",
+                    "Eğer önceki mesajlarda farklı bir isim veya hitap geçtiyse, bunları yok say ve yalnızca güncel profili kullan.",
+                    "--- GÜNCEL KULLANICI PROFİLİ SONU ---",
+                ]
+                system = system + "\n\n" + "\n".join(profile_lines)
+
+            # Append local context block when a DB session is available.
+            # The block is empty-string if there is no data worth including.
+            if session is not None:
+                try:
+                    local_ctx = await _build_local_context(session)
+                    if local_ctx:
+                        system = system + "\n\n" + local_ctx
+                except Exception as ctx_err:
+                    # Context enrichment is best-effort — never block the reply.
+                    logger.warning(f"[ChatService] Local context build failed: {ctx_err}")
+
             messages = [{"role": "system", "content": system}]
             messages.extend(recent)
             messages.append({"role": "user", "content": user_content})
+
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,

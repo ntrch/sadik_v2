@@ -5,6 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "webpack serve --mode development --port 3000",
+    "dev:electron": "node electron/dev-launcher.js",
     "build": "webpack --mode production",
     "electron": "electron .",
     "convert:animation": "node scripts/convert-cpp-animation.js",

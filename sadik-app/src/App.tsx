@@ -9,6 +9,7 @@ import FocusPage from './pages/FocusPage';
 import ChatPage from './pages/ChatPage';
 import VoicePage from './pages/VoicePage';
 import SettingsPage from './pages/SettingsPage';
+import InsightsPage from './pages/InsightsPage';
 
 /**
  * Listens for wakeWordPending from AppContext and navigates to /voice
@@ -42,6 +43,7 @@ export default function App() {
               <Route path="/focus" element={<FocusPage />} />
               <Route path="/chat" element={<ChatPage />} />
               <Route path="/voice" element={<VoicePage />} />
+              <Route path="/insights" element={<InsightsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </main>

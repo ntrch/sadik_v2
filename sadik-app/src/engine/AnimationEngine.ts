@@ -360,11 +360,16 @@ export class AnimationEngine {
     }
 
     this.idleSubState = 'blink';
+    // Tell the physical device to play the same blink clip so preview and OLED stay in sync.
+    this.sendCommand('PLAY_CLIP:blink');
     this.playClip('blink', {
       loop: false,
       onFinish: () => {
         this.idleSubState = 'idle_loop';
         this.idleInitialized = false;
+        // Return device to idle loop; firmware will NOT re-arm its own timers
+        // while appConnected (see CMD_RETURN_TO_IDLE handler in main.cpp).
+        this.sendCommand('RETURN_TO_IDLE');
         this.scheduleBlink();
 
         // Collision: variation was deferred while this blink played — fire it now
@@ -409,11 +414,15 @@ export class AnimationEngine {
 
     this.lastVariationDirection = dir;
     this.idleSubState = 'variation';
+    // Tell the physical device to play the same look clip so preview and OLED stay in sync.
+    this.sendCommand(`PLAY_CLIP:${clipName}`);
     this.playClip(clipName, {
       loop: false,
       onFinish: () => {
         this.idleSubState = 'idle_loop';
         this.idleInitialized = false;
+        // Return device to idle loop without re-arming firmware autonomous timers.
+        this.sendCommand('RETURN_TO_IDLE');
         this.scheduleVariation();
       },
     });

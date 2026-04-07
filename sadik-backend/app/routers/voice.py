@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from typing import Optional
 from fastapi.responses import StreamingResponse
@@ -11,6 +12,8 @@ from app.services.voice_service import (
     DEFAULT_EDGE_VOICE,
     DEFAULT_OPENAI_VOICE,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 
@@ -84,6 +87,15 @@ async def speech_to_text(
         raise HTTPException(status_code=400, detail="OpenAI API key not configured")
 
     audio_bytes = await audio.read()
+    logger.info(
+        "STT upload: filename=%r, content_type=%r, size=%d bytes",
+        audio.filename, audio.content_type, len(audio_bytes),
+    )
+
+    if len(audio_bytes) <= 512:
+        logger.warning("STT: upload too small (%d bytes), returning empty", len(audio_bytes))
+        return {"text": ""}
+
     try:
         text = await voice_service.stt(audio_bytes, api_key, prompt=prompt)
     except Exception as e:

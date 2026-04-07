@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,7 +6,7 @@ from sqlalchemy import select
 import logging
 
 from app.database import engine, Base, AsyncSessionLocal
-from app.models import Task, ModeLog, ChatMessage, Setting
+from app.models import Task, ModeLog, ChatMessage, Setting, AppUsageSession
 from app.routers import tasks, modes, stats, pomodoro, device, chat, voice, settings, ws
 
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +24,8 @@ DEFAULT_SETTINGS = {
     "pomodoro_sessions_before_long_break": "4",
     "microphone_device": "default",
     "speaker_device": "default",
+    "audio_input_device_id": "default",
+    "audio_output_device_id": "default",
     "wake_word_enabled": "true",
     "tts_voice": "tr-TR-EmelNeural",
     "tts_provider": "elevenlabs",
@@ -30,10 +33,20 @@ DEFAULT_SETTINGS = {
     "elevenlabs_api_key": "",
     "elevenlabs_voice_id": "",
     "elevenlabs_model_id": "eleven_v3",
-    "llm_model": "gpt-4o-mini",
+    "llm_model": "gpt-4o",
     "continuous_conversation": "false",
     "user_name": "",
     "greeting_style": "dostum",
+    "oled_brightness_percent": "70",
+    "oled_sleep_timeout_minutes": "10",
+    "close_to_tray": "true",
+    "proactive_suggestions_enabled": "true",
+    "proactive_quiet_hours_start": "23:00",
+    "proactive_quiet_hours_end": "08:00",
+    "proactive_daily_limit": "3",
+    "proactive_cooldown_minutes": "60",
+    "spoken_proactive_enabled": "true",
+    "spoken_proactive_daily_limit": "1",
 }
 
 @asynccontextmanager
@@ -50,6 +63,28 @@ async def lifespan(app: FastAPI):
                 session.add(Setting(key=key, value=value))
         await session.commit()
     logger.info("Default settings seeded")
+
+    # Best-effort auto-connect on startup — must never block indefinitely.
+    # Each port gets a 2 s internal timeout; the whole scan gets a 10 s outer
+    # guard so startup always completes even if a port stalls in the OS layer.
+    try:
+        from app.services.device_manager import device_manager as _dm
+        async with AsyncSessionLocal() as session:
+            baud_result = await session.execute(select(Setting).where(Setting.key == "serial_baudrate"))
+            baud_setting = baud_result.scalar_one_or_none()
+            baudrate = int(baud_setting.value) if baud_setting else 115200
+        conn_result = await asyncio.wait_for(
+            _dm.auto_connect(baudrate=baudrate),
+            timeout=10.0,
+        )
+        if conn_result["connected"]:
+            logger.info(f"Startup auto-connect: connected to {conn_result['port']}")
+        else:
+            logger.info(f"Startup auto-connect: no device found ({conn_result['message']})")
+    except asyncio.TimeoutError:
+        logger.warning("Startup auto-connect timed out after 10 s — continuing without device")
+    except Exception as e:
+        logger.warning(f"Startup auto-connect skipped: {e}")
 
     yield
 

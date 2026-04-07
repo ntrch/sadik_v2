@@ -16,7 +16,9 @@
 class DisplayManager {
 public:
     DisplayManager()
-        : _u8g2(U8G2_R0, U8X8_PIN_NONE, OLED_SCL, OLED_SDA) {}
+        : _u8g2(U8G2_R0, U8X8_PIN_NONE, OLED_SCL, OLED_SDA),
+          _currentBrightness(127),
+          _sleeping(false) {}    // 127 = U8g2 SH1106 power-on default
 
     // Initialize I2C bus and display controller.
     void begin() {
@@ -84,6 +86,67 @@ public:
         _u8g2.sendBuffer();
     }
 
+    // Set OLED contrast/brightness (0 = darkest, 255 = maximum).
+    // SH1106 maps this value directly to the contrast register.
+    void setBrightness(uint8_t value) {
+        _currentBrightness = value;
+        _u8g2.setContrast(value);
+    }
+
+    // Return the last brightness value set via setBrightness().
+    // Reflects the boot default (127) until setBrightness() is called.
+    uint8_t getBrightness() const {
+        return _currentBrightness;
+    }
+
+    // Put the OLED panel into sleep mode.
+    //
+    // Two-stage sequence for reliable visual blanking on SH1106/SSD1306 clones:
+    //   1. Zero the internal buffer and push it to panel RAM via sendBuffer().
+    //      This writes 0x00 to every pixel so the screen is physically dark even
+    //      on panels whose 0xAE (display-off) command does not fully extinguish
+    //      the charge pump.
+    //   2. Issue setPowerSave(1) which sends 0xAE — the hardware display-off
+    //      command — to cut the panel's internal VCC/charge pump.
+    //
+    // Drawing can continue while sleeping; the pipeline resumes on wake.
+    void sleepDisplay() {
+        if (_sleeping) return;
+        _sleeping = true;
+        // Blank every pixel in panel RAM first.
+        _u8g2.clearBuffer();
+        _u8g2.sendBuffer();
+        // Then issue the hardware display-off command (0xAE).
+        _u8g2.setPowerSave(1);
+    }
+
+    // Restore the OLED from sleep mode.
+    //
+    //   1. Issue setPowerSave(0) which sends 0xAF — hardware display-on.
+    //   2. Restore contrast to the saved level; some panels reset the contrast
+    //      register during a power-save cycle.
+    //   3. Push a clean blank frame so the first rendered frame after wake
+    //      has no stale artefacts.  The animation pipeline overwrites this
+    //      on the very next clipPlayer.update() tick.
+    void wakeDisplay() {
+        if (!_sleeping) return;
+        _sleeping = false;
+        // Hardware display-on (0xAF).
+        _u8g2.setPowerSave(0);
+        // Restore contrast in case the panel reset it during power-save.
+        _u8g2.setContrast(_currentBrightness);
+        // Send a blank frame so the display comes up in a defined clean state.
+        _u8g2.clearBuffer();
+        _u8g2.sendBuffer();
+    }
+
+    // True while the display is in power-save (sleep) mode.
+    bool isSleeping() const {
+        return _sleeping;
+    }
+
 private:
     U8G2_SH1106_128X64_NONAME_F_HW_I2C _u8g2;
+    uint8_t _currentBrightness;
+    bool    _sleeping;
 };

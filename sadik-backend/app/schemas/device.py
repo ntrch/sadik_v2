@@ -14,3 +14,18 @@ class DeviceStatusResponse(BaseModel):
     method: Optional[str]
     port: Optional[str]
     ip: Optional[str]
+
+class AutoConnectResult(BaseModel):
+    connected: bool
+    port: Optional[str]
+    method: Optional[str]
+    message: str
+    scanned_ports: int
+    matched_ports: list[str]
+    error: Optional[str]
+
+class BrightnessRequest(BaseModel):
+    percent: int
+
+class SleepTimeoutRequest(BaseModel):
+    minutes: int
