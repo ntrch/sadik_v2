@@ -1,6 +1,6 @@
 import logging
 from typing import Optional
-from datetime import datetime, timezone, time as dt_time
+from datetime import datetime, timezone, timedelta, time as dt_time
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -10,13 +10,38 @@ from app.models.task import Task
 
 logger = logging.getLogger(__name__)
 
+# ── Turkish locale helpers (hardcoded, not locale-dependent) ───────────────────
+
+_TR_MONTHS = [
+    "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+    "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
+]
+# weekday() returns 0=Monday … 6=Sunday
+_TR_DAYS = [
+    "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar",
+]
+
+_TZ_TURKEY = timezone(timedelta(hours=3))  # UTC+3, no DST
+
+
+def _get_turkey_datetime_str() -> str:
+    """Return a Turkish-formatted current datetime string (Turkey time, UTC+3)."""
+    now = datetime.now(_TZ_TURKEY)
+    day_name   = _TR_DAYS[now.weekday()]
+    month_name = _TR_MONTHS[now.month - 1]
+    return f"Şu an: {now.day} {month_name} {now.year}, {day_name}, saat {now.strftime('%H:%M')}"
+
+
 # ── System prompts ─────────────────────────────────────────────────────────────
 
 # Used for text-based chat — allows full responses but forbids emojis.
 SYSTEM_PROMPT = (
     "Sen SADIK adında bir masaüstü asistanısın. Türkçe konuşuyorsun. "
     "Yardımsever, sıcak ve samimi bir kişiliğin var. Kısa ve öz cevaplar vermeyi tercih ediyorsun. "
-    "Asla emoji kullanma. Yanıtlarında hiçbir emoji veya özel karakter olmasın."
+    "Asla emoji kullanma. Yanıtlarında hiçbir emoji veya özel karakter olmasın. "
+    "Emin olmadığın bilgilerde 'emin değilim' veya 'bilmiyorum' de; kesinlikle bilgi uydurma. "
+    "İstatistik, tarih veya olgusal bilgi uydurmaktan kaçın. "
+    "Güncel olaylar veya anlık veriler için canlı verilere erişimin olmadığını açıkça belirt."
 )
 
 # Used for voice-mode chat — enforces short, natural, speakable responses.
@@ -24,7 +49,8 @@ VOICE_SYSTEM_PROMPT = (
     "Sen SADIK adında bir masaüstü asistanısın. Türkçe konuşuyorsun. "
     "Bu bir sesli konuşma. Çok kısa ve doğal cevaplar ver. En fazla 2-3 cümle kullan. "
     "Emoji kullanma. Listelemeler yapma. Madde işaretleri kullanma. "
-    "Doğal konuşma dili kullan. Düz metin yaz."
+    "Doğal konuşma dili kullan. Düz metin yaz. "
+    "Emin olmadığın bilgilerde 'emin değilim' de; bilgi uydurma ve canlı veriye erişimin olmadığını belirt."
 )
 
 
@@ -47,23 +73,22 @@ def _fmt_duration_tr(total_seconds: int) -> str:
 
 # ── Local context builder ──────────────────────────────────────────────────────
 
-async def _build_local_context(session: AsyncSession) -> str:
+async def _build_local_context(
+    session: AsyncSession,
+    current_mode: Optional[str] = None,
+    is_pomodoro_active: bool = False,
+) -> str:
     """
     Query today's local data and return a compact Turkish context block to
     append to the system prompt.  Returns an empty string when there is
-    nothing meaningful to include (no usage data, no completed tasks).
+    nothing meaningful to include.
 
     Included:
-      1. Today's top-3 app usage entries (by total duration, descending).
-      2. Today's completed task count.
+      1. Active mode (if provided).
+      2. Pomodoro state (if a session is running).
+      3. Today's top-3 app usage entries (by total duration, descending).
+      4. Today's completed task count.
          Approximation: tasks with status='done' whose updated_at falls today.
-         The Task model has no dedicated completed_at column, so updated_at is
-         the cleanest available proxy.  This may slightly over-count if a task
-         was done earlier but edited again today, but it remains safe and local.
-
-    Not included (deferred to a later phase):
-      - Pomodoro / focus state — skipped; pomodoro_service internal state API
-        was not confirmed without reading that service's source.
     """
     today     = datetime.now(timezone.utc).date()
     day_start = datetime.combine(today, dt_time.min)
@@ -71,7 +96,15 @@ async def _build_local_context(session: AsyncSession) -> str:
 
     lines: list[str] = []
 
-    # ── 1. Top-3 app usage today ───────────────────────────────────────────
+    # ── 1. Active mode ─────────────────────────────────────────────────────
+    if current_mode:
+        lines.append(f"- Aktif mod: {current_mode}")
+
+    # ── 2. Pomodoro state ──────────────────────────────────────────────────
+    if is_pomodoro_active:
+        lines.append("- Pomodoro oturumu şu an aktif.")
+
+    # ── 3. Top-3 app usage today ───────────────────────────────────────────
     usage_rows = (
         await session.execute(
             select(
@@ -93,7 +126,7 @@ async def _build_local_context(session: AsyncSession) -> str:
         ]
         lines.append(f"- Bugünkü uygulama kullanımı: {', '.join(parts)}")
 
-    # ── 2. Completed tasks today ───────────────────────────────────────────
+    # ── 4. Completed tasks today ───────────────────────────────────────────
     done_count: int = (
         await session.execute(
             select(func.count(Task.id))
@@ -132,6 +165,8 @@ class ChatService:
         user_name: str = "",
         greeting_style: str = "",
         session: Optional[AsyncSession] = None,
+        current_mode: Optional[str] = None,
+        is_pomodoro_active: bool = False,
     ) -> Optional[str]:
         if not api_key:
             return "OpenAI API anahtarı ayarlanmamış. Lütfen ayarlardan API anahtarınızı girin."
@@ -139,6 +174,9 @@ class ChatService:
             client = AsyncOpenAI(api_key=api_key)
             recent = history[-20:] if len(history) > 20 else history
             system = VOICE_SYSTEM_PROMPT if voice_mode else SYSTEM_PROMPT
+
+            # Inject current Turkey date/time so the model can give time-aware answers.
+            system = system + "\n\n" + _get_turkey_datetime_str()
 
             # Compute combined greeting explicitly — never rely on the model to combine parts.
             if user_name and greeting_style:
@@ -174,7 +212,11 @@ class ChatService:
             # The block is empty-string if there is no data worth including.
             if session is not None:
                 try:
-                    local_ctx = await _build_local_context(session)
+                    local_ctx = await _build_local_context(
+                        session,
+                        current_mode=current_mode,
+                        is_pomodoro_active=is_pomodoro_active,
+                    )
                     if local_ctx:
                         system = system + "\n\n" + local_ctx
                 except Exception as ctx_err:

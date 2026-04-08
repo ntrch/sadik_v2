@@ -54,7 +54,7 @@ const TINY_BLOB_FALLBACK = 3;      // consecutive tiny blobs before switching mi
 // silence or ambient noise, because the model reads it as a strong prior and
 // confabulates the named tokens.  A minimal prompt provides spelling guidance
 // without that false-positive amplification.
-const WAKE_WORD_PROMPT = "Sadık. Sağdık.";
+const WAKE_WORD_PROMPT = "Hey Sadık, sana nasıl yardımcı olabilirim? Sağdık.";
 
 // ── MIME-type helpers ─────────────────────────────────────────────────────────
 
@@ -291,12 +291,14 @@ export class WakeWordService {
     // Whisper's confidence on multi-phoneme phrases ("hey Sadık", "Sadıkçığım")
     // even though single-word "Sadık" is short enough to survive the ramp.
     //
-    // This 350 ms delay is unnoticeable to the user (onListening remains false
+    // This 500 ms delay is unnoticeable to the user (onListening remains false
     // during the wait, which is honest — we are not yet capturing usable audio)
     // and replicates the natural settling that the toggle-off/on path already
     // gets for free via the ~400 ms user-action latency.
+    // Raised from 350 ms → 500 ms to give Windows AGC/noise-suppression more
+    // time to fully stabilise before we capture the first real chunk.
     //
-    // The generation guard ensures that if stop() is called during the 350 ms
+    // The generation guard ensures that if stop() is called during the 500 ms
     // window the stale setTimeout fires but exits immediately without recording.
     const armGen = this.generation;
     setTimeout(() => {
@@ -306,7 +308,7 @@ export class WakeWordService {
       } else {
         console.log('[WakeWord] Arm delay elapsed but session changed — discarding (armGen', armGen, ')');
       }
-    }, 350);
+    }, 500);
   }
 
   /** Stop detection and release the microphone. */
@@ -540,13 +542,26 @@ export class WakeWordService {
       // strings are noise artifacts from near-empty audio, not real speech.
       const trimmed = text.trim();
       if (trimmed.length >= 3) {
-        const norm    = normalizeTR(trimmed);
+        const norm      = normalizeTR(trimmed);
+        const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+
+        // ── Word-count guard ────────────────────────────────────────────────
+        // A genuine wake-word invocation within a 2-second chunk is naturally
+        // short ("Sadık", "hey Sadık", "Sadık ışıkları aç").  More than 5
+        // words almost certainly means a TV broadcast or background
+        // conversation was captured rather than an intentional activation.
+        // Reject without checking the wake-word list to avoid false positives.
+        if (wordCount > 5) {
+          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" wordCount=${wordCount} rejected too-many-words`);
+          return;
+        }
+
         const matched = containsWakeWord(trimmed);
         if (matched !== null) {
-          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" normalized="${norm}" accepted variant="${matched}"`);
+          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" normalized="${norm}" wordCount=${wordCount} accepted variant="${matched}"`);
           this._triggerDetection();
         } else {
-          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" normalized="${norm}" rejected no-variant-match`);
+          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" normalized="${norm}" wordCount=${wordCount} rejected no-variant-match`);
         }
       } else {
         console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed || '(empty)'}" rejected too-short`);

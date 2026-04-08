@@ -7,6 +7,8 @@ from app.models.chat_message import ChatMessage
 from app.models.setting import Setting
 from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
 from app.services.chat_service import chat_service
+from app.services.mode_tracker import mode_tracker
+from app.services.pomodoro_service import pomodoro_service
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -34,10 +36,26 @@ async def send_message(body: ChatMessageCreate, session: AsyncSession = Depends(
     history = [{"role": m.role, "content": m.content} for m in result.scalars().all()]
     history = history[:-1]  # exclude the user message we just added
 
+    # Best-effort: fetch current mode and pomodoro state for context enrichment.
+    current_mode: str | None = None
+    is_pomodoro_active: bool = False
+    try:
+        mode_log = await mode_tracker.get_current()
+        if mode_log:
+            current_mode = mode_log.mode
+    except Exception:
+        pass
+    try:
+        is_pomodoro_active = pomodoro_service.is_running
+    except Exception:
+        pass
+
     assistant_text = await chat_service.send_message(
         body.content, history, api_key, model, voice_mode=body.voice_mode,
         user_name=user_name, greeting_style=greeting_style,
         session=session,
+        current_mode=current_mode,
+        is_pomodoro_active=is_pomodoro_active,
     )
 
     now2 = datetime.now(timezone.utc).replace(tzinfo=None)

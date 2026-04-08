@@ -536,11 +536,15 @@ export default function VoiceAssistant() {
       // ── Step 5: Understanding flash → speaking ────────────────────────────
       // Audio is in hand — flash understanding briefly then begin playback.
       triggerEvent('understanding_resolved');
-      await sleep(450, signal);          // hold understanding clip ≥ 450 ms
+      setStatusOverride('Anladım...');
+      await sleep(600, signal);          // hold understanding clip ≥ 600 ms
       if (signal.aborted) return;
 
+      setStatusOverride(null);
       setVoiceState('speaking');
       triggerEvent('assistant_speaking');   // talking animation — loops while audio plays
+      await sleep(50, signal);             // one-frame settle so talking animation renders before audio starts
+      if (signal.aborted) return;
 
       const url   = URL.createObjectURL(audioBlob);
       const audio = new Audio(url);
