@@ -28,19 +28,32 @@ class TTSRequest(BaseModel):
 # of hallucinations in Turkish-language transcription sessions.
 
 _HALLUCINATION_PATTERNS = [
+    # Subtitle / caption noise
     "altyazı", "altyazi", "alt yazı", "alt yazi",
     "altyazılar", "altyazilar",
     "m.k.", " mk ",
     "subtitles", "subtitle",
-    "thanks for watching",
-    "thank you for watching",
-    "abone ol",
-    "izlediğiniz için teşekkürler",
-    "izlediginiz icin tesekkurler",
-    "www.", "http",
-    ".com", ".net",
-    "♪", "♫",
-    "....",
+    # YouTube / social media
+    "thanks for watching", "thank you for watching",
+    "abone ol", "like and subscribe",
+    "lütfen abone olun", "lutfen abone olun",
+    "beğen", "begen", "yorumlar",
+    "bir sonraki video", "izlemeye devam",
+    # Gratitude hallucinations (very common in Turkish)
+    "teşekkürler", "tesekkurler",
+    "teşekkür ederim", "tesekkur ederim",
+    "izlediğiniz için", "izlediginiz icin",
+    "dinlediğiniz için", "dinlediginiz icin",
+    # URL / domain
+    "www.", "http", ".com", ".net",
+    # Music / noise symbols
+    "♪", "♫", "....",
+    # Common ambient / TV hallucinations
+    "sesli kitap", "devam ediyor",
+    "hoş geldiniz", "hos geldiniz",
+    "merhaba arkadaşlar", "merhaba arkadaslar",
+    "bu videoda", "bu bölümde", "bu bolumde",
+    "bir dahaki", "sonraki bölüm",
 ]
 
 
@@ -52,6 +65,12 @@ def _is_hallucination(text: str) -> bool:
     lower = stripped.lower()
     for pattern in _HALLUCINATION_PATTERNS:
         if pattern in lower:
+            return True
+    # Repetitive patterns — Whisper often loops the same short phrase
+    words = stripped.split()
+    if len(words) >= 4:
+        unique = set(w.lower() for w in words)
+        if len(unique) <= 2:
             return True
     return False
 

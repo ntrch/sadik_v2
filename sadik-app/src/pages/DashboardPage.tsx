@@ -62,6 +62,10 @@ export default function DashboardPage() {
       setWorkSeconds(total);
     }).catch(() => {});
     statsApi.appUsageDaily().then(setAppUsage).catch(() => {});
+    const pollInterval = setInterval(() => {
+      statsApi.appUsageDaily().then(setAppUsage).catch(() => {});
+    }, 60_000);
+    return () => clearInterval(pollInterval);
   }, []);
 
   const handleSetMode = async (mode: string, oledText?: string) => {

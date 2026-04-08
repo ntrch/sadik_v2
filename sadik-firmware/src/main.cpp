@@ -348,9 +348,10 @@ void processCommand(ParsedCommand& cmd) {
         // the firmware autonomous idle orchestrator.
         case CMD_APP_DISCONNECTED: {
             appConnected = false;
-            if (currentMode == MODE_IDLE) {
-                idleOrchestrator.resume();   // re-arms blink + variation timers
-            }
+            // Always return to idle orchestra on disconnect, regardless of current mode.
+            // Without this, a TEXT mode (e.g. "TOPLANTI") stays frozen on screen.
+            currentMode = MODE_IDLE;
+            idleOrchestrator.resume();
             Serial.println("OK:APP_DISCONNECTED");
             break;
         }

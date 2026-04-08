@@ -65,10 +65,10 @@ def _fmt_duration_tr(total_seconds: int) -> str:
     h = total_seconds // 3600
     m = (total_seconds % 3600) // 60
     if h > 0 and m >= 5:
-        return f"{h} sa {m} dk"
+        return f"{h} saat {m} dakika"
     if h > 0:
         return f"{h} saat"
-    return f"{max(m, 1)} dk"
+    return f"{max(m, 1)} dakika"
 
 
 # ── Local context builder ──────────────────────────────────────────────────────

@@ -51,7 +51,7 @@ async def log_app_usage(
     if body.duration_seconds < 1:
         raise HTTPException(status_code=422, detail="duration_seconds must be >= 1")
 
-    app_name_clean = body.app_name.strip() or "Unknown"
+    app_name_clean = body.app_name.strip().replace('.root', '').replace('.exe', '').replace('.app', '') or "Unknown"
     logger.info(
         "App usage session received: app=%s duration=%ds started=%s",
         app_name_clean,
@@ -182,10 +182,10 @@ def _format_duration_tr(total_seconds: int) -> str:
     h = total_seconds // 3600
     m = (total_seconds % 3600) // 60
     if h > 0 and m >= 5:
-        return f"yaklaşık {h} sa {m} dk"
+        return f"yaklaşık {h} saat {m} dakika"
     if h > 0:
         return f"yaklaşık {h} saat"
-    return f"yaklaşık {m} dk"
+    return f"yaklaşık {m} dakika"
 
 @router.get("/app-usage/insights")
 async def get_app_usage_insights(
