@@ -9,36 +9,43 @@
 }
 
 body {
-  background-color: #0a0f1a;
-  color: #e2e8f0;
-  font-family: 'Inter', system-ui, sans-serif;
+  background-color: #121212;
+  color: #e4e4e7;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
   font-size: 14px;
   overflow: hidden;
   height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
   height: 100vh;
   display: flex;
+  flex-direction: column;
 }
 
+/* ── Scrollbar — thin, minimal ─────────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0a0f1a;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e2a4a;
-  border-radius: 3px;
+  background: #505050;
+  border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #2a3a5a;
+  background: #666;
 }
+
+/* ── Animations ────────────────────────────────────────────────────────────── */
 
 @keyframes pulse-ring {
   0% { transform: scale(1); opacity: 1; }
@@ -55,7 +62,12 @@ body {
 .typing-dot:nth-child(3) { animation: typing-dot 1.2s infinite 0.4s; }
 
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -67,6 +79,61 @@ body {
   animation: fade-in 0.15s ease-out;
 }
 
+/* ── Glass effect utility ──────────────────────────────────────────────────── */
+
+.glass {
+  background: rgba(45, 45, 45, 0.55);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+}
+
+.glass-heavy {
+  background: rgba(30, 30, 30, 0.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* ── Universal glass for interactive elements ─────────────────────────────── */
+button, .glass-btn {
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+}
+
+/* ── iOS 26 glass card — applied to all bg-bg-card elements ──────────────── */
+
+.bg-bg-card {
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ── OLED preview glow ─────────────────────────────────────────────────────── */
+
+.oled-glow {
+  box-shadow:
+    0 0 1px rgba(167, 139, 250, 0.3),
+    0 0 8px rgba(167, 139, 250, 0.08);
+}
+
+/* ── Nav icon active indicator ─────────────────────────────────────────────── */
+
+.nav-indicator {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #a78bfa;
+  box-shadow: 0 0 6px rgba(167, 139, 250, 0.6);
+}
+
+/* ── Input field utility ───────────────────────────────────────────────────── */
+
 .input-field {
-  @apply w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent-blue transition-colors;
+  @apply w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors;
+}
+
+/* ── Smooth transitions on all interactive elements ────────────────────────── */
+
+button, a, input, select {
+  transition: all 0.15s ease;
 }

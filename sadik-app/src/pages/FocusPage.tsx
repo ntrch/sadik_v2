@@ -15,7 +15,7 @@ export default function FocusPage() {
   const state = location.state as LocationState | null;
   const [selectedTask, setSelectedTask] = useState<number | null>(state?.taskId ?? null);
   const { pomodoroState, start, pause, resume, stop } = usePomodoro();
-  const { showToast } = useContext(AppContext);
+  const { showToast, triggerEvent } = useContext(AppContext);
 
   const handleStart = async () => {
     try {
@@ -27,6 +27,7 @@ export default function FocusPage() {
 
   const handleStop = async () => {
     await stop();
+    triggerEvent('confirmation_success');
     showToast('Pomodoro durduruldu');
   };
 

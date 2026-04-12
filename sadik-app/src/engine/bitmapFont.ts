@@ -1,32 +1,31 @@
 /**
- * 5x7 bitmap font.
- * Each character: 7 bytes, each byte encodes 5 pixels (bits 7..3, MSB-left).
- * Pixel (col=0) is bit 7, pixel (col=4) is bit 3.
+ * Scalable bitmap font with auto-fit for 128×64 OLED.
+ * Each glyph: 5px wide × 7px tall, stored as 7 bytes (bits 7..3 = cols 0..4).
+ *
+ * Auto-fit picks the largest integer scale (1–4) that fits the full text.
+ * Turkish special characters (İ,ı,Ş,ş,Ğ,ğ,Ü,ü,Ö,ö,Ç,ç) supported via hex code points.
  */
 
-// Helper: encode a row as a byte given 5 bit values (left to right)
 function row(...bits: number[]): number {
   let b = 0;
   for (let i = 0; i < 5; i++) b |= (bits[i] ? 1 : 0) << (7 - i);
   return b;
 }
 
-// [charCode] = [7 bytes for rows 0-6]
 const FONT: Record<number, number[]> = {};
 
+function defCP(cp: number, r0: number, r1: number, r2: number, r3: number, r4: number, r5: number, r6: number) {
+  FONT[cp] = [r0, r1, r2, r3, r4, r5, r6];
+}
+
 function def(ch: string, r0: number, r1: number, r2: number, r3: number, r4: number, r5: number, r6: number) {
-  FONT[ch.codePointAt(0)!] = [r0, r1, r2, r3, r4, r5, r6];
+  defCP(ch.codePointAt(0)!, r0, r1, r2, r3, r4, r5, r6);
 }
 
 // Space
 def(' ',
-  row(0,0,0,0,0),
-  row(0,0,0,0,0),
-  row(0,0,0,0,0),
-  row(0,0,0,0,0),
-  row(0,0,0,0,0),
-  row(0,0,0,0,0),
-  row(0,0,0,0,0),
+  row(0,0,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0),
+  row(0,0,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0),
 );
 
 // A-Z
@@ -57,7 +56,7 @@ def('X', row(1,0,0,1,0), row(1,0,0,1,0), row(0,1,1,0,0), row(0,1,1,0,0), row(1,0
 def('Y', row(1,0,0,0,1), row(0,1,0,1,0), row(0,0,1,0,0), row(0,0,1,0,0), row(0,0,1,0,0), row(0,0,1,0,0), row(0,0,0,0,0));
 def('Z', row(1,1,1,1,0), row(0,0,0,1,0), row(0,0,1,0,0), row(0,1,0,0,0), row(1,0,0,0,0), row(1,1,1,1,0), row(0,0,0,0,0));
 
-// a-z (same as uppercase for simplicity on OLED)
+// a-z → same as uppercase for OLED
 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').forEach((ch) => {
   FONT[ch.toLowerCase().codePointAt(0)!] = FONT[ch.codePointAt(0)!];
 });
@@ -80,61 +79,78 @@ def('.', row(0,0,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0), row(0,0
 def('-', row(0,0,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0), row(1,1,1,0,0), row(0,0,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0));
 def('!', row(0,1,0,0,0), row(0,1,0,0,0), row(0,1,0,0,0), row(0,1,0,0,0), row(0,0,0,0,0), row(0,1,0,0,0), row(0,0,0,0,0));
 def('?', row(0,1,1,0,0), row(1,0,0,1,0), row(0,0,0,1,0), row(0,0,1,0,0), row(0,0,0,0,0), row(0,0,1,0,0), row(0,0,0,0,0));
+def("'", row(0,1,0,0,0), row(0,1,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0), row(0,0,0,0,0));
 
-// Turkish special characters
-// İ (capital I with dot above) — same shape as I
-FONT[0x130] = FONT['I'.codePointAt(0)!];
-// ı (dotless i) — like i without top dot
-def('ı', row(0,0,0,0,0), row(0,1,0,0,0), row(0,1,0,0,0), row(0,1,0,0,0), row(0,1,0,0,0), row(1,1,1,0,0), row(0,0,0,0,0));
-FONT[0x131] = FONT['ı'.codePointAt(0)!];
-// Ş (S with cedilla)
-def('Ş', row(0,1,1,1,0), row(1,0,0,0,0), row(0,1,1,0,0), row(0,0,0,1,0), row(1,0,0,1,0), row(0,1,1,0,0), row(0,1,0,0,0));
-FONT[0x15E] = FONT['Ş'.codePointAt(0)!];
-// ş
-def('ş', row(0,0,0,0,0), row(0,1,1,1,0), row(1,0,0,0,0), row(0,1,1,1,0), row(0,0,0,1,0), row(1,1,1,0,0), row(0,1,0,0,0));
-FONT[0x15F] = FONT['ş'.codePointAt(0)!];
-// Ğ (G with breve)
-def('Ğ', row(0,1,0,1,0), row(0,0,1,0,0), row(0,1,1,1,0), row(1,0,0,0,0), row(1,0,1,1,0), row(0,1,1,0,0), row(0,0,0,0,0));
-FONT[0x11E] = FONT['Ğ'.codePointAt(0)!];
-// ğ
-def('ğ', row(0,1,0,1,0), row(0,0,1,0,0), row(0,1,1,1,0), row(1,0,0,1,0), row(0,1,1,1,0), row(0,0,0,1,0), row(0,1,1,0,0));
-FONT[0x11F] = FONT['ğ'.codePointAt(0)!];
-// Ü (U with umlaut)
-def('Ü', row(1,0,0,1,0), row(0,0,0,0,0), row(1,0,0,1,0), row(1,0,0,1,0), row(1,0,0,1,0), row(0,1,1,0,0), row(0,0,0,0,0));
-FONT[0xDC] = FONT['Ü'.codePointAt(0)!];
-// ü
-def('ü', row(1,0,0,1,0), row(0,0,0,0,0), row(1,0,0,1,0), row(1,0,0,1,0), row(1,0,0,1,0), row(0,1,1,1,0), row(0,0,0,0,0));
-FONT[0xFC] = FONT['ü'.codePointAt(0)!];
-// Ö (O with umlaut)
-def('Ö', row(1,0,0,1,0), row(0,0,0,0,0), row(0,1,1,0,0), row(1,0,0,1,0), row(1,0,0,1,0), row(0,1,1,0,0), row(0,0,0,0,0));
-FONT[0xD6] = FONT['Ö'.codePointAt(0)!];
-// ö
-def('ö', row(1,0,0,1,0), row(0,0,0,0,0), row(0,1,1,0,0), row(1,0,0,1,0), row(1,0,0,1,0), row(0,1,1,0,0), row(0,0,0,0,0));
-FONT[0xF6] = FONT['ö'.codePointAt(0)!];
-// Ç (C with cedilla)
-def('Ç', row(0,1,1,0,0), row(1,0,0,1,0), row(1,0,0,0,0), row(1,0,0,0,0), row(1,0,0,1,0), row(0,1,1,0,0), row(0,1,0,0,0));
-FONT[0xC7] = FONT['Ç'.codePointAt(0)!];
-// ç
-def('ç', row(0,0,0,0,0), row(0,1,1,0,0), row(1,0,0,1,0), row(1,0,0,0,0), row(1,0,0,1,0), row(0,1,1,0,0), row(0,1,0,0,0));
-FONT[0xE7] = FONT['ç'.codePointAt(0)!];
+// ── Turkish special characters (hex code points for encoding safety) ─────────
 
-const CHAR_W = 5; // glyph width
-const CHAR_H = 7; // glyph height
-const CHAR_GAP = 1; // pixels between characters
+// İ — 0x130 — capital I with dot above
+defCP(0x130,
+  row(0,1,0,0,0), row(0,0,0,0,0), row(1,1,1,0,0), row(0,1,0,0,0),
+  row(0,1,0,0,0), row(1,1,1,0,0), row(0,0,0,0,0));
 
-/** Get glyph data for a character (fallback to '?') */
+// ı — 0x131 — dotless i
+defCP(0x131,
+  row(0,0,0,0,0), row(0,0,0,0,0), row(0,1,0,0,0), row(0,1,0,0,0),
+  row(0,1,0,0,0), row(1,1,1,0,0), row(0,0,0,0,0));
+
+// Ş — 0x15E — S with cedilla
+defCP(0x15E,
+  row(0,1,1,1,0), row(1,0,0,0,0), row(0,1,1,0,0), row(0,0,0,1,0),
+  row(1,1,1,0,0), row(0,1,0,0,0), row(0,0,0,0,0));
+
+// ş — 0x15F
+defCP(0x15F,
+  row(0,0,0,0,0), row(0,1,1,1,0), row(1,0,0,0,0), row(0,1,1,0,0),
+  row(0,0,0,1,0), row(1,1,1,0,0), row(0,1,0,0,0));
+
+// Ğ — 0x11E — G with breve
+defCP(0x11E,
+  row(0,1,0,1,0), row(0,0,1,0,0), row(0,1,1,0,0), row(1,0,0,0,0),
+  row(1,0,1,1,0), row(0,1,1,0,0), row(0,0,0,0,0));
+
+// ğ — 0x11F
+defCP(0x11F,
+  row(0,1,0,1,0), row(0,0,1,0,0), row(0,1,1,1,0), row(1,0,0,1,0),
+  row(0,1,1,1,0), row(0,0,0,1,0), row(0,1,1,0,0));
+
+// Ü — 0xDC — U with diaeresis
+defCP(0xDC,
+  row(1,0,0,1,0), row(0,0,0,0,0), row(1,0,0,1,0), row(1,0,0,1,0),
+  row(1,0,0,1,0), row(0,1,1,0,0), row(0,0,0,0,0));
+
+// ü — 0xFC
+defCP(0xFC,
+  row(1,0,0,1,0), row(0,0,0,0,0), row(1,0,0,1,0), row(1,0,0,1,0),
+  row(1,0,0,1,0), row(0,1,1,1,0), row(0,0,0,0,0));
+
+// Ö — 0xD6 — O with diaeresis
+defCP(0xD6,
+  row(1,0,0,1,0), row(0,0,0,0,0), row(0,1,1,0,0), row(1,0,0,1,0),
+  row(1,0,0,1,0), row(0,1,1,0,0), row(0,0,0,0,0));
+
+// ö — 0xF6
+defCP(0xF6,
+  row(1,0,0,1,0), row(0,0,0,0,0), row(0,1,1,0,0), row(1,0,0,1,0),
+  row(1,0,0,1,0), row(0,1,1,0,0), row(0,0,0,0,0));
+
+// Ç — 0xC7 — C with cedilla
+defCP(0xC7,
+  row(0,1,1,0,0), row(1,0,0,1,0), row(1,0,0,0,0), row(1,0,0,0,0),
+  row(0,1,1,0,0), row(0,1,0,0,0), row(0,0,0,0,0));
+
+// ç — 0xE7
+defCP(0xE7,
+  row(0,0,0,0,0), row(0,1,1,0,0), row(1,0,0,0,0), row(1,0,0,0,0),
+  row(0,1,1,0,0), row(0,1,0,0,0), row(0,0,0,0,0));
+
+const CHAR_W = 5;
+const CHAR_H = 7;
+const CHAR_GAP = 1;
+
 function getGlyph(cp: number): number[] {
   return FONT[cp] ?? FONT['?'.codePointAt(0)!] ?? [0, 0, 0, 0, 0, 0, 0];
 }
 
-/** Measure pixel width of a string */
-function measureText(text: string): number {
-  const codePoints = [...text].map((c) => c.codePointAt(0)!);
-  if (codePoints.length === 0) return 0;
-  return codePoints.length * (CHAR_W + CHAR_GAP) - CHAR_GAP;
-}
-
-/** Set a single pixel in the 1024-byte OLED buffer (128x64, horizontal bytes, MSB first) */
 function setPixel(buffer: Uint8Array, x: number, y: number): void {
   if (x < 0 || x >= 128 || y < 0 || y >= 64) return;
   const byteIndex = y * 16 + Math.floor(x / 8);
@@ -142,58 +158,90 @@ function setPixel(buffer: Uint8Array, x: number, y: number): void {
   buffer[byteIndex] |= 1 << bitIndex;
 }
 
+/**
+ * Find the largest integer scale (1–8) that fits text within 128×64.
+ * For multi-line text, evaluates the widest line.
+ */
+function autoScale(text: string): number {
+  const lines = text.split('\n');
+  let maxLineChars = 0;
+  for (const line of lines) {
+    const n = [...line].length;
+    if (n > maxLineChars) maxLineChars = n;
+  }
+  if (maxLineChars === 0) return 1;
+
+  const lineCount = lines.length;
+
+  // Try scales from 8 down to 1
+  for (let s = 8; s >= 1; s--) {
+    const charPxW = CHAR_W * s;
+    const gapPxW = CHAR_GAP * s;
+    const totalW = maxLineChars * charPxW + (maxLineChars - 1) * gapPxW;
+    const lineH = CHAR_H * s;
+    const lineGap = s; // gap between lines
+    const totalH = lineCount * lineH + (lineCount - 1) * lineGap;
+    if (totalW <= 128 && totalH <= 64) return s;
+  }
+  return 1;
+}
+
 export interface RenderTextOptions {
   x?: number;
   y?: number;
-  fontSize?: 'small' | 'large';
+  fontSize?: 'small' | 'large' | 'auto';
   centered?: boolean;
 }
 
 /**
- * Render text onto a 1024-byte OLED frame buffer (128x64, horizontal, MSB-first).
- * Supports multi-line text via \n.
+ * Render text onto a 1024-byte OLED frame buffer (128×64, horizontal, MSB-first).
+ * fontSize='auto' (default) picks the largest scale that fits.
  */
 export function renderTextToBuffer(
   buffer: Uint8Array,
   text: string,
   options: RenderTextOptions = {}
 ): void {
-  const scale = options.fontSize === 'large' ? 2 : 1;
+  const fontSize = options.fontSize ?? 'auto';
+  const scale = fontSize === 'auto' ? autoScale(text)
+              : fontSize === 'large' ? 2
+              : 1;
   const centered = options.centered !== false;
 
-  const gW = (CHAR_W + CHAR_GAP) * scale;
-  const gH = (CHAR_H + 1) * scale; // 1px line gap
-  const linePad = scale;
+  const charPxW = CHAR_W * scale;
+  const gapPxW = CHAR_GAP * scale;
+  const stepX = charPxW + gapPxW;
+  const lineH = CHAR_H * scale;
+  const lineGap = scale;
 
   const lines = text.split('\n');
-  const totalH = lines.length * gH - linePad;
+  const totalH = lines.length * lineH + (lines.length - 1) * lineGap;
 
   let startY = options.y !== undefined ? options.y : Math.floor((64 - totalH) / 2);
 
   for (const line of lines) {
-    const lineW = measureText(line) * scale;
+    const codePoints = [...line].map((c) => c.codePointAt(0)!);
+    const lineW = codePoints.length * charPxW + (codePoints.length - 1) * gapPxW;
     let startX = options.x !== undefined ? options.x : centered ? Math.floor((128 - lineW) / 2) : 0;
 
-    const codePoints = [...line].map((c) => c.codePointAt(0)!);
     let cx = startX;
-
     for (const cp of codePoints) {
       const glyph = getGlyph(cp);
-      for (let row = 0; row < CHAR_H; row++) {
-        const rowByte = glyph[row];
+      for (let r = 0; r < CHAR_H; r++) {
+        const rowByte = glyph[r];
         for (let col = 0; col < CHAR_W; col++) {
           const bit = (rowByte >> (7 - col)) & 1;
           if (bit) {
             for (let sy = 0; sy < scale; sy++) {
               for (let sx = 0; sx < scale; sx++) {
-                setPixel(buffer, cx + col * scale + sx, startY + row * scale + sy);
+                setPixel(buffer, cx + col * scale + sx, startY + r * scale + sy);
               }
             }
           }
         }
       }
-      cx += gW;
+      cx += stepX;
     }
-    startY += gH;
+    startY += lineH + lineGap;
   }
 }

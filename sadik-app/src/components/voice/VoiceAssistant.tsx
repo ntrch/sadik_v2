@@ -1,6 +1,7 @@
 import React, { useState, useRef, useContext, useEffect, useCallback } from 'react';
 import { Mic, MicOff, Volume2, Radio, X } from 'lucide-react';
 import axios from 'axios';
+import { MicVAD } from '@ricky0123/vad-web';
 import { voiceApi } from '../../api/voice';
 import { chatApi } from '../../api/chat';
 import { AppContext } from '../../context/AppContext';
@@ -77,6 +78,37 @@ function isConversationEnding(text: string): boolean {
   return endings.some(e => lower.includes(e));
 }
 
+/** Detect if the USER's message signals intent to end the conversation. */
+function isUserEndingConversation(text: string): boolean {
+  const lower = text.toLowerCase();
+  const endings = [
+    'görüşürüz', 'hoşça kal', 'hoşçakal',
+    'güle güle', 'bye', 'goodbye',
+    'iyi geceler', 'iyi günler', 'iyi akşamlar',
+    'konuşmayı bitir', 'konuşmayı kapat', 'konuşmayı sonlandır',
+    'bitirelim', 'kapatalım', 'sonlandıralım',
+    'bu kadar', 'yeter', 'tamam bu kadar',
+    'kendine iyi bak',
+    'sonra görüşürüz', 'sonra konuşuruz',
+  ];
+  return endings.some(e => lower.includes(e));
+}
+
+/** Detect if the LLM's response is a confirmation/acknowledgment. */
+function isConfirmation(text: string): boolean {
+  // Check only the first 200 chars — LLM often starts with confirmation
+  // then adds filler ("Başka bir şey ister misiniz?" etc.)
+  const lower = text.slice(0, 200).toLowerCase();
+  const patterns = [
+    'tamam', 'oldu', 'yapıldı', 'anlaşıldı', 'kabul',
+    'hallederim', 'bakarım', 'ayarladım', 'kaydettim',
+    'tamamdır', 'tabii', 'elbette', 'peki',
+    'hemen yapıyorum', 'hemen bakıyorum',
+    'not aldım', 'not edildi',
+  ];
+  return patterns.some(p => lower.includes(p));
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<VoiceState, string> = {
@@ -86,7 +118,7 @@ const STATUS_LABELS: Record<VoiceState, string> = {
   speaking:   'Konuşuyor...',
 };
 
-const NO_SPEECH_TIMEOUT_MS   = 30000;  // hard recording cap — auto-stops after 30 s
+const NO_SPEECH_TIMEOUT_MS   = 15000;  // safety net — VAD stops earlier; 15 s hard cap
 
 // Speaking-state direct interruption detector
 const INTERRUPT_THRESHOLD  = 0.03;  // RMS above this → user speaking during TTS
@@ -112,15 +144,22 @@ export default function VoiceAssistant() {
   const voiceStateRef      = useRef<VoiceState>('idle');
   const cancelledRef       = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const startListeningRef  = useRef<() => Promise<void>>(async () => {});
-  const lastReplyRef       = useRef('');
+  const startListeningRef  = useRef<(_fromWake?: boolean) => Promise<void>>(async () => {});
+  const lastReplyRef              = useRef('');
+  const userRequestedEndRef       = useRef(false);
 
   // ── Refs — silence detection ───────────────────────────────────────────────
   const silenceAudioCtxRef       = useRef<AudioContext | null>(null);
   const silenceDetectIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const noSpeechTimeoutRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const speechDetectedRef        = useRef(false);   // ref for use inside interval callback
+  const speechDetectedRef        = useRef(false);   // set true by VAD onSpeechStart
+  const vadSpeechActiveRef       = useRef(false);   // true whenever VAD thinks speech is happening (no recording guard)
   const silenceStartRef          = useRef<number | null>(null);
+  const vadRef                   = useRef<any | null>(null);  // MicVAD instance
+  const persistentStreamRef      = useRef<MediaStream | null>(null);
+  const recordingStartTimeRef    = useRef<number>(0);        // Date.now() when recorder.start() fires
+  const conversationActiveRef    = useRef(false);            // true while in an active voice conversation session
+  const didntHearCountRef        = useRef(0);                // consecutive didntHear retries (safety limit)
 
   // ── Refs — speaking interruption detector ─────────────────────────────────
   const interruptAudioCtxRef    = useRef<AudioContext | null>(null);
@@ -163,13 +202,22 @@ export default function VoiceAssistant() {
   // ── Silence detection cleanup ──────────────────────────────────────────────
 
   const stopSilenceDetection = useCallback(() => {
-    if (silenceDetectIntervalRef.current !== null) {
-      clearInterval(silenceDetectIntervalRef.current);
-      silenceDetectIntervalRef.current = null;
-    }
     if (noSpeechTimeoutRef.current !== null) {
       clearTimeout(noSpeechTimeoutRef.current);
       noSpeechTimeoutRef.current = null;
+    }
+    // In continuous mode, keep VAD running so the persistent MediaStream has an
+    // active consumer.  Chrome/Windows auto-releases capture devices when no
+    // AudioContext or MediaRecorder is consuming the stream, which kills the
+    // tracks after ~10-15s of inactivity (during LLM + TTS pipeline).
+    // The VAD callbacks are guarded to only act when recording is active.
+    if (vadRef.current && !continuousConversationRef.current) {
+      vadRef.current.pause().catch(() => {});
+    }
+    // These are null in VAD mode but harmless to clear
+    if (silenceDetectIntervalRef.current !== null) {
+      clearInterval(silenceDetectIntervalRef.current);
+      silenceDetectIntervalRef.current = null;
     }
     if (silenceAudioCtxRef.current) {
       silenceAudioCtxRef.current.close().catch(() => {});
@@ -177,6 +225,17 @@ export default function VoiceAssistant() {
     }
     speechDetectedRef.current = false;
     silenceStartRef.current   = null;
+  }, [continuousConversationRef]);
+
+  const destroyVAD = useCallback(() => {
+    if (vadRef.current) {
+      vadRef.current.destroy().catch(() => {});
+      vadRef.current = null;
+    }
+    if (persistentStreamRef.current) {
+      persistentStreamRef.current.getTracks().forEach(t => t.stop());
+      persistentStreamRef.current = null;
+    }
   }, []);
 
   // ── Speaking interruption detector cleanup ────────────────────────────────
@@ -251,18 +310,26 @@ export default function VoiceAssistant() {
 
   const handleDidntHear = useCallback(async (signal: AbortSignal) => {
     triggerEvent('didnt_hear');
+    didntHearCountRef.current += 1;
+    const attempt = didntHearCountRef.current;
+    console.log(`[Voice] handleDidntHear attempt ${attempt}, conversationActive=${conversationActiveRef.current}`);
     setStatusOverride('Duyamadım, tekrar söyler misiniz?');
     await sleep(2200, signal);
     setStatusOverride(null);
     if (signal.aborted) return;
-    if (continuousConversationRef.current) {
-      // Brief gap so the mic is fully released before re-acquisition.
+    // Only retry if: continuous mode is on, conversation is still active,
+    // and we haven't exceeded the retry limit (3 consecutive didntHears).
+    if (continuousConversationRef.current && conversationActiveRef.current && attempt < 3) {
       await sleep(200, signal);
       if (!signal.aborted) startListeningRef.current();
     } else {
+      if (attempt >= 3) console.log('[Voice] Max didntHear retries reached — returning to idle');
+      conversationActiveRef.current = false;
+      didntHearCountRef.current = 0;
+      destroyVAD();
       returnToIdleFlow();
     }
-  }, [triggerEvent, returnToIdleFlow, continuousConversationRef]);
+  }, [triggerEvent, returnToIdleFlow, continuousConversationRef, destroyVAD]);
 
   // ── beforeunload + unmount cleanup ────────────────────────────────────────
 
@@ -271,6 +338,7 @@ export default function VoiceAssistant() {
       abortControllerRef.current?.abort();
       stopPlayback();
       stopSilenceDetection();
+      destroyVAD();
       returnToIdle();
       fetch('http://localhost:8000/api/device/command', {
         method: 'POST',
@@ -287,6 +355,7 @@ export default function VoiceAssistant() {
       if (returnTimer.current)    clearTimeout(returnTimer.current);
       stopPlayback();
       stopSilenceDetection();
+      destroyVAD();
       stopSpeakingInterruptDetection();
       // Reset animation engine so it never stays stuck in a speaking/talking
       // state when the user navigates away from the Voice Assistant page while
@@ -303,10 +372,13 @@ export default function VoiceAssistant() {
 
   const cancelVoice = useCallback(() => {
     cancelledRef.current = true;
+    conversationActiveRef.current = false;
+    didntHearCountRef.current = 0;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
 
     stopSilenceDetection();
+    destroyVAD();
     stopSpeakingInterruptDetection();
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -322,7 +394,7 @@ export default function VoiceAssistant() {
     setVoiceState('idle');
     returnToIdle();
     resumeWakeWord();
-  }, [returnToIdle, resumeWakeWord, stopPlayback, stopSilenceDetection, stopSpeakingInterruptDetection]);
+  }, [returnToIdle, resumeWakeWord, stopPlayback, stopSilenceDetection, destroyVAD, stopSpeakingInterruptDetection]);
 
   // ── Speaking interruption detector — start ────────────────────────────────
   //
@@ -430,7 +502,7 @@ export default function VoiceAssistant() {
       // ── Step 0a: Blob size guard ──────────────────────────────────────────
       // Guard against empty or suspiciously tiny blobs before hitting STT.
       if (blob.size < 1000) {
-        console.warn('[Voice] Invalid or empty audio blob, skipping STT', { size: blob.size, type: blob.type });
+        console.log(`[Voice] Guard: blob too small (${blob.size} bytes) → didntHear`);
         await handleDidntHear(signal);
         return;
       }
@@ -443,14 +515,29 @@ export default function VoiceAssistant() {
       }
 
       // ── Step 1: STT ───────────────────────────────────────────────────────
-      const text = await voiceApi.stt(blob, signal);
+      let text = await voiceApi.stt(blob, signal);
       if (signal.aborted) return;
+
+      // ── Step 1b: STT retry for VAD-confirmed speech ────────────────────
+      // If Whisper returned empty but VAD confirmed speech and blob is substantial,
+      // retry once — transient Whisper failures shouldn't kill the turn.
+      if (text.trim().length < 2 && blob.size > 10000) {
+        console.log('[Voice] STT returned empty for substantial blob — retrying once');
+        await sleep(300, signal);
+        if (signal.aborted) return;
+        text = await voiceApi.stt(blob, signal);
+        if (signal.aborted) return;
+        console.log(`[Voice] STT retry result: "${text.trim()}" (${text.trim().length} chars)`);
+      }
 
       // ── Step 2: Validate transcript ───────────────────────────────────────
       const trimmed   = text.trim();
       const wordCount = trimmed.split(/\s+/).filter((w) => w.length > 1).length;
 
+      console.log(`[Voice] STT result: "${trimmed}" (${trimmed.length} chars, ${wordCount} words, blob ${blob.size} bytes)`);
+
       if (trimmed.length < 2 || wordCount < 1) {
+        console.log('[Voice] Guard: too short / no words → didntHear');
         await handleDidntHear(signal);
         return;
       }
@@ -472,7 +559,7 @@ export default function VoiceAssistant() {
 
       const hasLetter = /[a-zA-ZğüşıöçĞÜŞİÖÇ]/.test(trimmed);
       if (!hasLetter) {
-        // G1 — no alphabetic content at all
+        console.log('[Voice] Guard G1: no letters → didntHear');
         await handleDidntHear(signal);
         return;
       }
@@ -481,7 +568,7 @@ export default function VoiceAssistant() {
       // Whisper transcription variants and both pronunciation forms.
       // 'sagdik' is the normalizeTR form of "Sağdık" — must be listed because
       // 'sadik' is NOT a substring of 'sagdik' (the ğ→g shifts character positions).
-      const SOLO_WAKE_FORMS = ['sadik', 'sagdik', 'saddik', 'sadiq', 'sadick', 'sadig', 'sadika'];
+      const SOLO_WAKE_FORMS = ['sadik', 'sadek', 'sagdik', 'saddik', 'sadiq', 'sadick', 'sadig', 'sadika'];
 
       // Inline Turkish normalisation used for single-word comparison.
       const normWord = (w: string) =>
@@ -494,6 +581,7 @@ export default function VoiceAssistant() {
       // G2 — sole word is the wake name (with or without trailing punctuation)
       if (wordCount === 1) {
         if (SOLO_WAKE_FORMS.includes(normWord(trimmed.split(/\s+/)[0]))) {
+          console.log(`[Voice] Guard G2: solo wake word "${trimmed}" → didntHear`);
           await handleDidntHear(signal);
           return;
         }
@@ -509,6 +597,7 @@ export default function VoiceAssistant() {
           const w1 = normWord(parts[1]);
           const ATTENTION_CALLS = ['hey', 'ey', 'ah', 'merhaba', 'selam', 'alo'];
           if (ATTENTION_CALLS.includes(w0) && SOLO_WAKE_FORMS.includes(w1)) {
+            console.log(`[Voice] Guard G3: attention+wake "${trimmed}" → didntHear`);
             await handleDidntHear(signal);
             return;
           }
@@ -516,6 +605,10 @@ export default function VoiceAssistant() {
       }
 
       setBubbles((p) => [...p, { role: 'user', text: trimmed }]);
+
+      // Track if user is signalling end of conversation (e.g. "bitirelim", "görüşürüz").
+      userRequestedEndRef.current = isUserEndingConversation(trimmed);
+      didntHearCountRef.current = 0;  // Reset retry counter on successful speech
 
       // ── Step 3: LLM ───────────────────────────────────────────────────────
       // Thinking animation continues looping — no event change during LLM wait.
@@ -533,10 +626,16 @@ export default function VoiceAssistant() {
       const audioBlob = await voiceApi.tts(prepareTtsText(reply), signal);
       if (signal.aborted) return;
 
-      // ── Step 5: Understanding flash → speaking ────────────────────────────
-      // Audio is in hand — flash understanding briefly then begin playback.
-      triggerEvent('understanding_resolved');
-      await sleep(450, signal);          // hold understanding clip ≥ 450 ms
+      // ── Step 5: Understanding/Confirmation flash → speaking ───────────────
+      // Audio is in hand — flash understanding (or confirming) before playback.
+      const confirmatory = isConfirmation(reply);
+      console.log(`[Voice] Reply confirmation check: ${confirmatory} (first 80: "${reply.slice(0, 80)}")`);
+      if (confirmatory) {
+        triggerEvent('confirmation_success');
+      } else {
+        triggerEvent('understanding_resolved');
+      }
+      await sleep(1000, signal);         // hold understanding clip ≥ 1000 ms
       if (signal.aborted) return;
 
       setVoiceState('speaking');
@@ -562,12 +661,19 @@ export default function VoiceAssistant() {
       audio.onended = () => {
         URL.revokeObjectURL(url);
         stopSpeakingInterruptDetection();
-        if (continuousConversationRef.current && !isConversationEnding(lastReplyRef.current)) {
+        const shouldEnd = continuousConversationRef.current
+          ? userRequestedEndRef.current
+          : isConversationEnding(lastReplyRef.current) || userRequestedEndRef.current;
+        userRequestedEndRef.current = false;
+        if (continuousConversationRef.current && !shouldEnd) {
           // Continuous mode: loop straight back to listening — no goodbye animation.
           triggerEvent('user_speaking');
-          setTimeout(() => startListeningRef.current(), 150);
+          setTimeout(() => startListeningRef.current(), 800);
         } else {
           // Normal mode or conversation-ending response: goodbye animation → idle.
+          conversationActiveRef.current = false;
+          didntHearCountRef.current = 0;
+          destroyVAD();
           triggerEvent('conversation_finished');  // goodbye_to_idle animation
           // Pause wake word; returnToIdleFlow re-arms it with its 800 ms delay.
           pauseWakeWord();
@@ -585,8 +691,12 @@ export default function VoiceAssistant() {
       await audio.play();
 
       // Re-arm wake word during TTS playback so barge-in is possible.
-      // resumeWakeWord has an internal 800 ms delay before restarting the service.
-      resumeWakeWord();
+      // SKIP in continuous mode: resumeWakeWord opens a new getUserMedia session
+      // which kills the persistent voice stream on Windows WASAPI.  In continuous
+      // mode barge-in isn't needed — the user just speaks on the next turn.
+      if (!continuousConversationRef.current) {
+        resumeWakeWord();
+      }
 
       // Speaking interrupt detection disabled (safe mode):
       // startSpeakingInterruptDetection() opens getUserMedia + new AudioContext()
@@ -602,13 +712,14 @@ export default function VoiceAssistant() {
       setTimeout(() => returnToIdleFlow(), 2000);
       setVoiceState('idle');
     }
-  }, [triggerEvent, returnToIdleFlow, pauseWakeWord, resumeWakeWord, continuousConversationRef, handleDidntHear, stopSpeakingInterruptDetection]);
+  }, [triggerEvent, returnToIdleFlow, pauseWakeWord, resumeWakeWord, continuousConversationRef, handleDidntHear, stopSpeakingInterruptDetection, destroyVAD]);
 
   // ── Start listening ────────────────────────────────────────────────────────
 
-  const startListening = useCallback(async () => {
+  const startListening = useCallback(async (_fromWake?: boolean) => {
     setError(null);
     cancelledRef.current  = false;
+    conversationActiveRef.current = true;
     // Pause global wake word BEFORE acquiring mic — two services cannot share mic.
     pauseWakeWord();
 
@@ -620,21 +731,30 @@ export default function VoiceAssistant() {
       // immediately after the mic is ready rather than via a fixed timer.
       triggerEvent('wake_word_detected');
 
-      const stream = await (async () => {
+      // Reuse persistent stream if alive (continuous mode), otherwise acquire new.
+      let stream: MediaStream;
+      const existing = persistentStreamRef.current;
+      if (existing && existing.getAudioTracks().some(t => t.readyState === 'live')) {
+        stream = existing;
+        console.log('[Voice] Reusing persistent mic stream');
+      } else {
         const audioConstraints: boolean | MediaTrackConstraints =
           selectedAudioInputIdRef.current === 'default'
             ? true
             : { deviceId: { exact: selectedAudioInputIdRef.current } };
         try {
-          return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+          stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
         } catch {
           if (selectedAudioInputIdRef.current !== 'default') {
             console.warn('[Voice] Selected mic device unavailable, falling back to default');
-            return await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } else {
+            throw new Error('Mikrofon erişimi reddedildi');
           }
-          throw new Error('Mikrofon erişimi reddedildi');
         }
-      })();
+        persistentStreamRef.current = stream;
+        console.log('[Voice] New mic stream acquired');
+      }
       const recorder = mimeType
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
@@ -647,47 +767,151 @@ export default function VoiceAssistant() {
       };
 
       recorder.onstop = async () => {
+        const hadSpeech = speechDetectedRef.current;
         stopSilenceDetection();
-        stream.getTracks().forEach((t) => t.stop());
+        // In continuous mode, NEVER kill the persistent stream — VAD remains
+        // connected to it and must survive across turns (even didntHear turns).
+        if (!continuousConversationRef.current) {
+          stream.getTracks().forEach((t) => t.stop());
+          persistentStreamRef.current = null;
+        }
 
         if (cancelledRef.current) {
           cancelledRef.current = false;
           return;
         }
-
         cancelledRef.current = false;
+
+        if (!hadSpeech) {
+          console.log('[Voice] No speech detected — handleDidntHear');
+          setVoiceState('processing');
+          triggerEvent('processing');
+          const controller = new AbortController();
+          abortControllerRef.current = controller;
+          await handleDidntHear(controller.signal);
+          return;
+        }
+
         const actualMime = recorder.mimeType || mimeType || 'audio/webm';
-        const blob       = new Blob(audioChunks.current, { type: actualMime });
+        const blob = new Blob(audioChunks.current, { type: actualMime });
+        // Diagnostic: log stream health and chunk info to debug empty STT results
+        const tracks = stream.getAudioTracks();
+        const trackInfo = tracks.map(t => `${t.label}:${t.readyState}${t.muted ? '/muted' : ''}`);
+        const recDuration = Date.now() - recordingStartTimeRef.current;
+        console.log(`[Voice] Blob: ${audioChunks.current.length} chunks, ${blob.size} bytes, ${recDuration}ms, tracks=[${trackInfo}]`);
         const controller = new AbortController();
         abortControllerRef.current = controller;
         await processAudio(blob, controller.signal);
       };
 
-      recorder.start();
+      // ── Silero VAD speech detection ──────────────────────────────────────────
+      // VAD + stream persist across continuous mode turns.  Only create on first
+      // turn; resume on subsequent turns.  This avoids Windows WASAPI issues
+      // caused by rapidly creating/destroying AudioContexts.
+      //
+      // IMPORTANT: VAD must be started BEFORE recorder.start() so the AudioWorklet
+      // is already processing frames when the first audio arrives.  Otherwise,
+      // speech arriving in the first ~300ms is missed and the turn ends as didntHear.
+      try {
+        if (vadRef.current) {
+          // Existing VAD from previous turn — resume or reset it
+          speechDetectedRef.current = false;
+          silenceStartRef.current = null;
+          // In continuous mode VAD stays running (not paused) to keep the
+          // MediaStream alive.  Only call start() if it was actually paused.
+          if (continuousConversationRef.current) {
+            console.log('[Voice] VAD already running (continuous mode) — reset only');
+          } else {
+            vadRef.current.start();
+            console.log('[Voice] VAD resumed (persistent)');
+            // Allow VAD AudioWorklet to settle before recording begins.
+            await sleep(350);
+            console.log('[Voice] VAD warm-up complete');
+          }
+        } else {
+          // First turn — create VAD
+          const vad = await MicVAD.new({
+            getStream: async () => stream,
+            positiveSpeechThreshold: 0.5,
+            negativeSpeechThreshold: 0.35,
+            minSpeechMs: 250,
+            redemptionMs: 1200,
+            preSpeechPadMs: 30,
+            submitUserSpeechOnPause: false,
 
-      // getUserMedia has resolved — transition directly to listening.
+            onSpeechStart: () => {
+              vadSpeechActiveRef.current = true;
+              // Guard: only act when recorder is active (continuous mode keeps VAD
+              // running between turns — ignore speech during processing/speaking)
+              if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== 'recording') {
+                console.log('[Voice] VAD: speech started (ignored — not recording)');
+                return;
+              }
+              console.log('[Voice] VAD: speech started');
+              speechDetectedRef.current = true;
+            },
+            onSpeechEnd: (_audio: Float32Array) => {
+              vadSpeechActiveRef.current = false;
+              // Guard: only act when recorder is active
+              if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== 'recording') {
+                console.log('[Voice] VAD: speech ended (ignored — not recording)');
+                return;
+              }
+              // Minimum recording guard: don't cut off if recording < 1.5s.
+              // This prevents premature stops when the user pauses briefly after
+              // the first word (VAD fires speech-end on the breath gap).
+              const elapsed = Date.now() - recordingStartTimeRef.current;
+              if (elapsed < 1500) {
+                console.log(`[Voice] VAD: speech ended too early (${elapsed}ms < 1500ms) — ignoring`);
+                return;
+              }
+              console.log(`[Voice] VAD: speech ended after ${elapsed}ms — auto-stopping recorder`);
+              if (noSpeechTimeoutRef.current) {
+                clearTimeout(noSpeechTimeoutRef.current);
+                noSpeechTimeoutRef.current = null;
+              }
+              setVoiceState('processing');
+              triggerEvent('processing');
+              mediaRecorderRef.current.stop();
+            },
+            onVADMisfire: () => {
+              console.log('[Voice] VAD: misfire (speech too short)');
+            },
+
+            baseAssetPath: '/vad/',
+            onnxWASMBasePath: '/vad/',
+          });
+
+          vadRef.current = vad;
+          await vad.start();
+          console.log('[Voice] Silero VAD created and active');
+        }
+      } catch (e) {
+        console.warn('[Voice] VAD setup failed (non-fatal, falling back to timeout):', e);
+      }
+
+      recorder.start();
+      recordingStartTimeRef.current = Date.now();
+
+      // Fix: If VAD already detected speech before recorder was active,
+      // retroactively mark speech as detected so the turn isn't lost.
+      if (vadSpeechActiveRef.current) {
+        console.log('[Voice] VAD speech already active when recording started — retroactive speechDetected');
+        speechDetectedRef.current = true;
+      }
+
+      // getUserMedia has resolved, VAD is active — transition to listening.
       triggerEvent('user_speaking');
       setVoiceState('listening');
 
-      // ── Silence detection: disabled (Windows audio driver safe mode) ────────
-      //
-      // new AudioContext() opens a WASAPI render device while MediaRecorder holds
-      // a WASAPI capture session.  On this Windows audio driver that dual concurrent
-      // WASAPI access causes STATUS_ACCESS_VIOLATION (exitCode -1073741819), crashing
-      // the Electron renderer.
-      //
-      // Auto-stop is provided by the timeout below.
-      // Manual stop: user clicks the Stop (X) button.
-      speechDetectedRef.current = false;
-      silenceStartRef.current   = null;
-      console.log('[Voice] Recording started — manual stop mode (timeout: ' + NO_SPEECH_TIMEOUT_MS + 'ms)');
+      console.log('[Voice] Recording started — Silero VAD speech detection');
 
-      // Hard timeout: caps recording at NO_SPEECH_TIMEOUT_MS.
-      // Without silence detection speechDetectedRef is never set, so this always
-      // fires — providing a guaranteed auto-stop.
+      // ── No-speech timeout — safety net ──────────────────────────────────────
+      // If VAD never detects speech end within 15 s, force-stop.
       noSpeechTimeoutRef.current = setTimeout(() => {
-        console.log('[Voice] Recording timeout, auto-stopping');
-        stopSilenceDetection();
+        console.log('[Voice] Recording timeout — auto-stopping');
+        setVoiceState('processing');
+        triggerEvent('processing');
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
           mediaRecorderRef.current.stop();
         }
@@ -697,7 +921,7 @@ export default function VoiceAssistant() {
       setError('Mikrofon erişimi reddedildi');
       resumeWakeWord();
     }
-  }, [processAudio, triggerEvent, pauseWakeWord, resumeWakeWord, stopSilenceDetection]);
+  }, [processAudio, triggerEvent, pauseWakeWord, resumeWakeWord, stopSilenceDetection, handleDidntHear]);
 
   // Keep the ref up-to-date every render.
   useEffect(() => { startListeningRef.current = startListening; });
@@ -718,7 +942,7 @@ export default function VoiceAssistant() {
   // ── Button handlers ────────────────────────────────────────────────────────
 
   const handleMicClick = () => {
-    if (voiceState === 'idle')           startListening();
+    if (voiceState === 'idle')           startListening(false);
     else if (voiceState === 'listening') stopListening();
   };
 
@@ -796,7 +1020,7 @@ export default function VoiceAssistant() {
                 ? 'bg-accent-red hover:bg-red-600 scale-110'
                 : isProcessing || isSpeaking
                   ? 'bg-bg-card border border-border text-text-muted cursor-not-allowed opacity-70'
-                  : 'bg-accent-blue hover:bg-accent-blue-hover hover:scale-105'}`}
+                  : 'bg-accent-purple hover:bg-accent-purple-hover hover:scale-105'}`}
           >
             {isSpeaking ? (
               <Volume2 size={28} className="text-white" />
@@ -846,7 +1070,7 @@ export default function VoiceAssistant() {
               <div
                 className={`px-4 py-2.5 rounded-2xl text-sm max-w-[85%] leading-relaxed
                   ${b.role === 'user'
-                    ? 'bg-accent-blue text-white rounded-br-md'
+                    ? 'bg-accent-purple text-white rounded-br-md'
                     : 'bg-bg-card border border-border text-text-primary rounded-bl-md'}`}
               >
                 {b.text}

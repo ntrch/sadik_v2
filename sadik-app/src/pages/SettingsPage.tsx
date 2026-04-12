@@ -10,7 +10,7 @@ const DEFAULT_SETTINGS: Settings = {
   llm_model: 'gpt-4o',
   connection_method: 'serial',
   serial_port: 'auto',
-  serial_baudrate: '115200',
+  serial_baudrate: '460800',
   wifi_device_ip: '',
   pomodoro_work_minutes: '25',
   pomodoro_break_minutes: '5',
@@ -56,7 +56,7 @@ export default function SettingsPage() {
   // Tracks the last-persisted personalization values so we can detect changes on save.
   const savedPersonalizationRef = useRef({ user_name: '', greeting_style: '' });
   const {
-    showToast,
+    showToast, triggerEvent,
     wakeWordEnabled, toggleWakeWord,
     wakeWordSensitivity, setWakeWordSensitivity,
     continuousConversation, setContinuousConversation,
@@ -102,6 +102,7 @@ export default function SettingsPage() {
         (settings.user_name      ?? '') !== prevName ||
         (settings.greeting_style ?? '') !== prevStyle;
 
+      triggerEvent('confirmation_success');
       if (personalizationChanged) {
         await chatApi.clearHistory();
         savedPersonalizationRef.current = {
@@ -202,7 +203,7 @@ export default function SettingsPage() {
                   <input type="radio" name="connection_method" value={m}
                     checked={settings.connection_method === m}
                     onChange={() => set('connection_method', m)}
-                    className="accent-accent-blue" />
+                    className="accent-accent-purple" />
                   <span className="text-sm text-text-primary">{m === 'serial' ? 'USB Serial' : 'WiFi'}</span>
                 </label>
               ))}
@@ -290,8 +291,8 @@ export default function SettingsPage() {
                   onClick={() => set('greeting_style', p.value)}
                   className={`px-3 py-1.5 rounded-btn text-xs font-medium transition-colors
                     ${settings.greeting_style === p.value
-                      ? 'bg-accent-blue text-white border border-accent-blue'
-                      : 'bg-bg-input text-text-secondary border border-border hover:border-accent-blue/40 hover:text-text-primary'}`}
+                      ? 'bg-accent-purple text-white border border-accent-purple'
+                      : 'bg-bg-input text-text-secondary border border-border hover:border-accent-purple/40 hover:text-text-primary'}`}
                 >
                   {p.label}
                 </button>
@@ -340,7 +341,7 @@ export default function SettingsPage() {
                     value={value}
                     checked={settings.tts_provider === value}
                     onChange={() => set('tts_provider', value)}
-                    className="accent-accent-blue mt-0.5"
+                    className="accent-accent-purple mt-0.5"
                   />
                   <div>
                     <span className="text-sm text-text-primary block">{label}</span>
@@ -427,7 +428,7 @@ export default function SettingsPage() {
             <button
               onClick={toggleWakeWord}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors
-                ${wakeWordEnabled ? 'bg-accent-blue' : 'bg-bg-input border border-border'}`}>
+                ${wakeWordEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
                 ${wakeWordEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
@@ -458,7 +459,7 @@ export default function SettingsPage() {
             <button
               onClick={() => setContinuousConversation(!continuousConversation)}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                ${continuousConversation ? 'bg-accent-blue' : 'bg-bg-input border border-border'}`}>
+                ${continuousConversation ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
                 ${continuousConversation ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
@@ -527,7 +528,7 @@ export default function SettingsPage() {
               }
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
                 ${settings['close_to_tray'] !== 'false'
-                  ? 'bg-accent-blue'
+                  ? 'bg-accent-purple'
                   : 'bg-bg-input border border-border'}`}
             >
               <span
@@ -555,7 +556,7 @@ export default function SettingsPage() {
             <button
               onClick={() => setProactiveSuggestionsEnabled(!proactiveSuggestionsEnabled)}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                ${proactiveSuggestionsEnabled ? 'bg-accent-blue' : 'bg-bg-input border border-border'}`}
+                ${proactiveSuggestionsEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
             >
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
                 ${proactiveSuggestionsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
@@ -606,6 +607,10 @@ export default function SettingsPage() {
                   <option value="2">2 öneri</option>
                   <option value="3">3 öneri (önerilen)</option>
                   <option value="5">5 öneri</option>
+                  <option value="8">8 öneri</option>
+                  <option value="10">10 öneri</option>
+                  <option value="15">15 öneri</option>
+                  <option value="0">Sınırsız</option>
                 </select>
               </Field>
 
@@ -616,7 +621,9 @@ export default function SettingsPage() {
                   onChange={(e) => setProactiveCooldownMinutes(Number(e.target.value))}
                   className="input-field"
                 >
+                  <option value="15">15 dakika</option>
                   <option value="30">30 dakika</option>
+                  <option value="45">45 dakika</option>
                   <option value="60">60 dakika (önerilen)</option>
                   <option value="90">90 dakika</option>
                   <option value="120">120 dakika</option>
@@ -635,7 +642,7 @@ export default function SettingsPage() {
                   <button
                     onClick={() => setSpokenProactiveEnabled(!spokenProactiveEnabled)}
                     className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                      ${spokenProactiveEnabled ? 'bg-accent-blue' : 'bg-bg-input border border-border'}`}
+                      ${spokenProactiveEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
                   >
                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
                       ${spokenProactiveEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
@@ -653,6 +660,10 @@ export default function SettingsPage() {
                         <option value="0">Kapalı</option>
                         <option value="1">1 öneri (önerilen)</option>
                         <option value="2">2 öneri</option>
+                        <option value="3">3 öneri</option>
+                        <option value="5">5 öneri</option>
+                        <option value="8">8 öneri</option>
+                        <option value="10">10 öneri</option>
                       </select>
                     </Field>
                   </div>
@@ -663,7 +674,7 @@ export default function SettingsPage() {
         </Section>
 
         <button onClick={handleSave} disabled={saving}
-          className="w-full py-3 bg-accent-blue hover:bg-accent-blue-hover text-white font-semibold rounded-btn transition-colors disabled:opacity-60 text-sm mt-2">
+          className="w-full py-3 bg-accent-purple hover:bg-accent-purple-hover text-white font-semibold rounded-btn transition-colors disabled:opacity-60 text-sm mt-2">
           {saving ? 'Kaydediliyor...' : 'Kaydet'}
         </button>
       </div>

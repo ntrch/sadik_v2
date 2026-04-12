@@ -54,7 +54,7 @@ const TINY_BLOB_FALLBACK = 3;      // consecutive tiny blobs before switching mi
 // silence or ambient noise, because the model reads it as a strong prior and
 // confabulates the named tokens.  A minimal prompt provides spelling guidance
 // without that false-positive amplification.
-const WAKE_WORD_PROMPT = "Sadık. Sağdık.";
+const WAKE_WORD_PROMPT = "";
 
 // ── MIME-type helpers ─────────────────────────────────────────────────────────
 
@@ -134,7 +134,6 @@ const WAKE_WORDS_SINGLE: string[] = [
   'saddik',       // saddık — double-d variant
   'sadiq',        // sadıq — q-final (some locale keyboards)
   'sadick',       // sadick — trailing-ck English spelling
-  'sadig',        // voiced final consonant
   // ── Suffix-fused invocation forms ──────────────────────────────────────
   'sadikcigim',   // "sadıkçığım" — affectionate diminutive+possessive
 ];
@@ -539,7 +538,7 @@ export class WakeWordService {
       // Require at least 3 characters after trimming — single-char or two-char
       // strings are noise artifacts from near-empty audio, not real speech.
       const trimmed = text.trim();
-      if (trimmed.length >= 3) {
+      if (trimmed.length >= 4) {
         const norm    = normalizeTR(trimmed);
         const matched = containsWakeWord(trimmed);
         if (matched !== null) {

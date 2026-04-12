@@ -6,6 +6,7 @@ import { deviceApi } from '../api/device';
 import { pomodoroApi } from '../api/pomodoro';
 import { settingsApi } from '../api/settings';
 import { statsApi, AppInsight } from '../api/stats';
+import { tasksApi } from '../api/tasks';
 import { voiceApi } from '../api/voice';
 import { wakeWordService } from '../services/wakeWordService';
 import { useWebSocket, WSMessage } from '../hooks/useWebSocket';
@@ -31,6 +32,7 @@ interface AppContextType {
   showText: (text: string) => void;
   returnToIdle: () => void;
   playClipDirect: (name: string) => void;
+  playModClip: (name: string) => void;
   getLoadedClipNames: () => string[];
   frameBuffer: Uint8Array;
   frameVersion: number;
@@ -60,6 +62,8 @@ interface AppContextType {
   refreshAudioDevices: () => Promise<void>;
   // Proactive insights
   activeInsight: AppInsight | null;
+  acceptInsight: () => Promise<void>;
+  denyInsight: () => void;
   // Proactive suggestion controls
   proactiveSuggestionsEnabled: boolean;
   setProactiveSuggestionsEnabled: (value: boolean) => Promise<void>;
@@ -127,6 +131,7 @@ export const AppContext = createContext<AppContextType>({
   showText: () => {},
   returnToIdle: () => {},
   playClipDirect: () => {},
+  playModClip: () => {},
   getLoadedClipNames: () => [],
   frameBuffer: new Uint8Array(1024),
   frameVersion: 0,
@@ -152,6 +157,8 @@ export const AppContext = createContext<AppContextType>({
   setSelectedAudioOutputDeviceId: async () => {},
   refreshAudioDevices: async () => {},
   activeInsight: null,
+  acceptInsight: async () => {},
+  denyInsight: () => {},
   proactiveSuggestionsEnabled: true,
   setProactiveSuggestionsEnabled: async () => {},
   proactiveQuietHoursStart: '23:00',
@@ -197,6 +204,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Proactive insight state
   const [activeInsight, setActiveInsight] = useState<AppInsight | null>(null);
+  const activeInsightRef = useRef<AppInsight | null>(null);
+  activeInsightRef.current = activeInsight;
 
   // Proactive suggestion controls state
   const [proactiveSuggestionsEnabled, setProactiveSuggestionsEnabledState] = useState(true);
@@ -216,6 +225,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const continuousConversationRef = useRef(false);
   const audioInputDeviceIdRef    = useRef('default');
   const audioOutputDeviceIdRef   = useRef('default');
+  const wakeWordResumeTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   wakeWordEnabledRef.current       = wakeWordEnabled;
   wakeWordSensitivityRef.current   = wakeWordSensitivity;
   continuousConversationRef.current = continuousConversation;
@@ -305,6 +315,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showText,
     returnToIdle,
     playClipDirect,
+    playModClip,
     getLoadedClipNames,
   } = useAnimationEngine(deviceStatus.connected);
 
@@ -334,15 +345,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const pauseWakeWord = useCallback(() => {
+    // Cancel any pending resume timer to prevent the wake word service from
+    // restarting during an active voice session.  On Windows WASAPI, a competing
+    // getUserMedia call from the wake word service kills the persistent voice
+    // stream's tracks.
+    if (wakeWordResumeTimerRef.current !== null) {
+      clearTimeout(wakeWordResumeTimerRef.current);
+      wakeWordResumeTimerRef.current = null;
+    }
     wakeWordService.stop();
     setWakeWordActive(false);
   }, []);
 
-  /** Re-arm detection 800 ms after a voice turn ends. Uses refs — never stale. */
+  /** Re-arm detection 400 ms after a voice turn ends. Uses refs — never stale. */
   const resumeWakeWord = useCallback(() => {
     if (!wakeWordEnabledRef.current) return;
+    // Cancel any previous pending resume.
+    if (wakeWordResumeTimerRef.current !== null) {
+      clearTimeout(wakeWordResumeTimerRef.current);
+    }
     console.log('[WakeWord] Resuming in 400 ms...');
-    setTimeout(() => {
+    wakeWordResumeTimerRef.current = setTimeout(() => {
+      wakeWordResumeTimerRef.current = null;
       if (!wakeWordEnabledRef.current) return;
       startWakeWordRef.current();
     }, 400);
@@ -511,12 +535,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   /** Key of the last insight that triggered a toast/OLED notification. */
   const lastShownInsightKeyRef = useRef<string | null>(null);
+  /** Apps denied by the user in this session — skip them in rotation. */
+  const deniedAppInsightsRef = useRef<Set<string>>(new Set());
 
   // These refs always point to the latest function instances so the
   // setInterval callback never captures a stale closure.
   const _showToastRef    = useRef(showToast);
   const _showTextRef     = useRef(showText);
   const _returnToIdleRef = useRef(returnToIdle);
+  const acceptInsightRef = useRef<() => Promise<void>>(async () => {});
   _showToastRef.current    = showToast;
   _showTextRef.current     = showText;
   _returnToIdleRef.current = returnToIdle;
@@ -580,13 +607,79 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return cur >= s || cur < e;
     };
 
+    const checkTaskInsight = async (): Promise<AppInsight | null> => {
+      try {
+        const tasks = await tasksApi.list();
+        const now = Date.now();
+        const activeTasks = tasks.filter(t => t.status === 'todo' || t.status === 'in_progress');
+
+        // Check for overdue or approaching deadlines
+        let bestInsight: AppInsight | null = null;
+        for (const t of activeTasks) {
+          if (!t.due_date) continue;
+          const due = new Date(t.due_date).getTime();
+          const diffMin = (due - now) / 60000;
+
+          if (diffMin < 0) {
+            // Overdue
+            const overMin = Math.abs(diffMin);
+            const msg = overMin > 60
+              ? `"${t.title}" görevi ${Math.round(overMin / 60)} saattir gecikmiş durumda!`
+              : `"${t.title}" görevi ${Math.round(overMin)} dakikadır gecikmiş!`;
+            bestInsight = { has_insight: true, level: 'strong', message: msg, source: 'task' };
+            break; // Overdue is highest priority
+          } else if (diffMin <= 30) {
+            bestInsight = { has_insight: true, level: 'strong', message: `"${t.title}" görevinin teslim süresi 30 dakikadan az!`, source: 'task' };
+          } else if (diffMin <= 120 && !bestInsight) {
+            const h = Math.floor(diffMin / 60);
+            const m = Math.round(diffMin % 60);
+            const timeStr = h > 0 ? `${h} saat ${m} dakika` : `${Math.round(diffMin)} dakika`;
+            bestInsight = { has_insight: true, level: 'gentle', message: `"${t.title}" görevinin teslim süresine ${timeStr} kaldı.`, source: 'task' };
+          }
+        }
+        return bestInsight;
+      } catch {
+        return null;
+      }
+    };
+
     const poll = async () => {
       try {
-        const insight = await statsApi.appInsights();
+        const [appInsight, taskInsight] = await Promise.all([
+          statsApi.appInsights(),
+          checkTaskInsight(),
+        ]);
 
-        if (!insight.has_insight) {
+        // Pick the first non-denied app insight from the full list
+        let pickedAppInsight: AppInsight | null = null;
+        if (appInsight.has_insight && appInsight.insights && appInsight.insights.length > 0) {
+          const available = appInsight.insights.find(
+            (i) => !deniedAppInsightsRef.current.has(i.app_name)
+          );
+          if (available) {
+            pickedAppInsight = {
+              has_insight: true,
+              app_name: available.app_name,
+              level: available.level,
+              message: available.message,
+              insights: appInsight.insights,
+              source: 'app_usage',
+            };
+          }
+        } else if (appInsight.has_insight && !deniedAppInsightsRef.current.has(appInsight.app_name ?? '')) {
+          pickedAppInsight = { ...appInsight, source: 'app_usage' };
+        }
+
+        // Priority: strong task > app usage > gentle task
+        let insight: AppInsight;
+        if (taskInsight && taskInsight.level === 'strong') {
+          insight = taskInsight;
+        } else if (pickedAppInsight) {
+          insight = pickedAppInsight;
+        } else if (taskInsight) {
+          insight = taskInsight;
+        } else {
           setActiveInsight(null);
-          // Reset key so the same insight can re-fire once the threshold is crossed again
           lastShownInsightKeyRef.current = null;
           return;
         }
@@ -595,7 +688,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setActiveInsight(insight);
 
         // Deduplication — only notify when the insight is new or escalated
-        const key = `${insight.app_name}:${insight.level}`;
+        const key = `${insight.source}:${insight.app_name ?? insight.message?.slice(0, 30)}:${insight.level}`;
         if (key === lastShownInsightKeyRef.current) return; // identical — already notified
 
         // ── Suppression rules (gate toast + OLED only) ────────────────────────
@@ -628,6 +721,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dailyCountRef.current         += 1;
 
         _showToastRef.current(insight.message ?? '💡 Mola önerisi var', 'info');
+
+        // ── Windows native notification (Electron IPC) ─────────────────────────
+        const electron = (window as any).sadikElectron;
+        if (electron?.showNotification) {
+          const isTask = insight.source === 'task';
+          electron.showNotification(
+            isTask ? 'SADIK — Görev Hatırlatma' : 'SADIK — Mola Önerisi',
+            insight.message ?? 'Kısa bir mola zamanı!',
+          );
+        }
 
         // ── Spoken proactive (strong insights only) ───────────────────────────
         // Gates: spoken enabled + voice assistant idle + not already speaking +
@@ -673,6 +776,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentional: uses latest-ref pattern — no deps needed
 
+  // ── Proactive accept / deny ────────────────────────────────────────────────
+
+  const acceptInsight = useCallback(async () => {
+    try {
+      await modesApi.setMode('break');
+      setCurrentMode('break');
+      triggerEvent('confirmation_success');
+      showToast('Mola moduna geçildi', 'success');
+      // Start break animation after brief confirmation, or fall back to text
+      setTimeout(() => {
+        if (getLoadedClipNames().includes('mod_break')) {
+          playModClip('mod_break');
+        } else {
+          showText('MOLA');
+        }
+      }, 1200);
+    } catch {
+      showToast('Mod değiştirilemedi', 'error');
+    }
+    setActiveInsight(null);
+  }, [triggerEvent, showText, showToast, playModClip, getLoadedClipNames]);
+
+  const denyInsight = useCallback(() => {
+    const current = activeInsightRef.current;
+    if (current?.app_name && current.source === 'app_usage') {
+      deniedAppInsightsRef.current.add(current.app_name);
+    }
+    setActiveInsight(null);
+    returnToIdle();
+  }, [returnToIdle]);
+
+  acceptInsightRef.current = acceptInsight;
+
   // ── Safe startup policy ────────────────────────────────────────────────────
   //
   // STARTUP_WAKE_WORD_SAFE_MODE = true:
@@ -694,7 +830,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   //
   //   Set to false here (and restore startWakeWordRef.current() below) only after
   //   the wake word pipeline has been confirmed crash-free on this system.
-  const STARTUP_WAKE_WORD_SAFE_MODE = true;
+  const STARTUP_WAKE_WORD_SAFE_MODE = false;
 
   // ── Initial data load ─────────────────────────────────────────────────────
 
@@ -716,6 +852,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled        = false;
     let audioInitTimer:    ReturnType<typeof setTimeout> | null = null;
     let enumDevicesTimer:  ReturnType<typeof setTimeout> | null = null;
+
+    // Listen for notification clicks from Electron main process
+    const electron = (window as any).sadikElectron;
+    if (electron?.onNotificationClick) {
+      electron.onNotificationClick(() => {
+        // Accept the current insight (enter break mode) if it's an app usage insight
+        if (activeInsightRef.current?.source !== 'task') {
+          acceptInsightRef.current();
+        }
+      });
+    }
 
     modesApi.getCurrent().then((m) => setCurrentMode(m.mode)).catch(() => {});
     deviceApi.getStatus().then((status) => {
@@ -902,13 +1049,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setDeviceStatus(msg.data as unknown as DeviceStatus);
           break;
         case 'pomodoro_completed':
+          triggerEvent('confirmation_success');
           showToast('Pomodoro oturumu tamamlandı!', 'success');
           showText('TAMAMLANDI!');
           setTimeout(() => returnToIdle(), 3000);
           break;
       }
     },
-    [showToast, showText, returnToIdle]
+    [showToast, showText, returnToIdle, triggerEvent]
   );
 
   useWebSocket(handleWSMessage);
@@ -934,6 +1082,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showText,
         returnToIdle,
         playClipDirect,
+        playModClip,
         getLoadedClipNames,
         frameBuffer,
         frameVersion,
@@ -959,6 +1108,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSelectedAudioOutputDeviceId,
         refreshAudioDevices,
         activeInsight,
+        acceptInsight,
+        denyInsight,
         proactiveSuggestionsEnabled,
         setProactiveSuggestionsEnabled,
         proactiveQuietHoursStart,

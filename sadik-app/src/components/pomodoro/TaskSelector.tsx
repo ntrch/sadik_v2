@@ -23,7 +23,7 @@ export default function TaskSelector({ value, onChange }: Props) {
     <div className="relative w-72">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-bg-input border border-border rounded-btn text-sm transition-colors hover:border-accent-blue/50"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-bg-input border border-border rounded-btn text-sm transition-colors hover:border-accent-purple/50"
       >
         <span className={selected ? 'text-text-primary' : 'text-text-muted'}>
           {selected ? selected.title : 'Görev seç (opsiyonel)'}
@@ -47,7 +47,7 @@ export default function TaskSelector({ value, onChange }: Props) {
                 key={t.id}
                 onClick={() => { onChange(t.id); setOpen(false); }}
                 className={`w-full text-left px-3 py-2 text-sm transition-colors hover:bg-bg-hover
-                  ${t.id === value ? 'text-accent-blue' : 'text-text-primary'}`}
+                  ${t.id === value ? 'text-accent-purple' : 'text-text-primary'}`}
               >
                 {t.title}
               </button>

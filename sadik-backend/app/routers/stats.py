@@ -178,28 +178,29 @@ async def get_app_usage_range(
 # The endpoint is deterministic, local-only, and calls no external services.
 
 def _format_duration_tr(total_seconds: int) -> str:
-    """Return a human-readable Turkish duration string."""
+    """Return a human-readable Turkish duration string ending with -dır suffix."""
     h = total_seconds // 3600
     m = (total_seconds % 3600) // 60
     if h > 0 and m >= 5:
-        return f"yaklaşık {h} saat {m} dakika"
+        return f"yaklaşık {h} saat {m} dakikadır"
     if h > 0:
-        return f"yaklaşık {h} saat"
-    return f"yaklaşık {m} dakika"
+        return f"yaklaşık {h} saattir"
+    return f"yaklaşık {m} dakikadır"
 
 @router.get("/app-usage/insights")
 async def get_app_usage_insights(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Return a single rule-based proactive suggestion based on today's app usage.
-    Returns {has_insight: false} when no threshold is reached.
+    Return ALL apps exceeding usage thresholds for today.
+    Each item has app_name, level, message. Returns {has_insight: false, insights: []}
+    when no threshold is reached.
     """
     today     = datetime.now(timezone.utc).date()
     day_start = datetime.combine(today, dt_time.min)
     day_end   = datetime.combine(today, dt_time.max)
 
-    # Aggregate today's usage per app, take the top one
+    # Aggregate today's usage per app — all of them
     result = await session.execute(
         select(
             AppUsageSession.app_name,
@@ -209,32 +210,36 @@ async def get_app_usage_insights(
         .where(AppUsageSession.started_at <= day_end)
         .group_by(AppUsageSession.app_name)
         .order_by(func.sum(AppUsageSession.duration_seconds).desc())
-        .limit(1)
     )
-    top = result.first()
-    if not top:
-        return {"has_insight": False}
 
-    total_seconds = int(top.duration_seconds)
-    app_name      = top.app_name
-    duration_str  = _format_duration_tr(total_seconds)
+    insights = []
+    for row in result:
+        total_seconds = int(row.duration_seconds)
+        app_name      = row.app_name
+        duration_str  = _format_duration_tr(total_seconds)
 
-    # Rule B — 120 minutes
-    if total_seconds >= 7200:
-        return {
-            "has_insight": True,
-            "app_name":    app_name,
-            "level":       "strong",
-            "message":     f"{duration_str} süredir {app_name} kullanıyorsun. Uzun bir mola zamanı geldi.",
-        }
+        if total_seconds >= 7200:
+            insights.append({
+                "app_name": app_name,
+                "level":    "strong",
+                "message":  f"{duration_str} {app_name} kullanıyorsun. Uzun bir mola zamanı geldi.",
+            })
+        elif total_seconds >= 3600:
+            insights.append({
+                "app_name": app_name,
+                "level":    "gentle",
+                "message":  f"{duration_str} {app_name} kullanıyorsun. Kısa bir mola iyi gelebilir.",
+            })
 
-    # Rule A — 60 minutes
-    if total_seconds >= 3600:
-        return {
-            "has_insight": True,
-            "app_name":    app_name,
-            "level":       "gentle",
-            "message":     f"{duration_str} süredir {app_name} kullanıyorsun. Kısa bir mola iyi gelebilir.",
-        }
+    if not insights:
+        return {"has_insight": False, "insights": []}
 
-    return {"has_insight": False}
+    # Backward compat: top-level fields from the first (most used) app
+    top = insights[0]
+    return {
+        "has_insight": True,
+        "app_name":    top["app_name"],
+        "level":       top["level"],
+        "message":     top["message"],
+        "insights":    insights,
+    }

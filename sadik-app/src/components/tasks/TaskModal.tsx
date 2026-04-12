@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { X } from 'lucide-react';
 import { Task, TaskCreate, TaskUpdate, tasksApi } from '../../api/tasks';
+import { AppContext } from '../../context/AppContext';
 
 const STATUS_OPTIONS = [
   { value: 'todo', label: 'Yapılacak' },
@@ -26,11 +27,17 @@ interface Props {
 }
 
 export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSaved }: Props) {
+  const { triggerEvent } = useContext(AppContext);
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [notes, setNotes] = useState(task?.notes || '');
   const [dueDate, setDueDate] = useState(
     task?.due_date ? task.due_date.split('T')[0] : ''
+  );
+  const [dueTime, setDueTime] = useState(
+    task?.due_date && task.due_date.includes('T')
+      ? task.due_date.split('T')[1]?.slice(0, 5) || ''
+      : ''
   );
   const [priority, setPriority] = useState(task?.priority ?? 0);
   const [status, setStatus] = useState(task?.status || defaultStatus);
@@ -48,11 +55,14 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
     if (!title.trim()) return;
     setSaving(true);
     try {
+      const dueDateFull = dueDate
+        ? (dueTime ? `${dueDate}T${dueTime}:00` : `${dueDate}T23:59:00`)
+        : undefined;
       const data = {
         title: title.trim(),
         description: description || undefined,
         notes: notes || undefined,
-        due_date: dueDate || undefined,
+        due_date: dueDateFull,
         priority,
         status,
       };
@@ -61,6 +71,7 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
       } else {
         await tasksApi.create(data as TaskCreate);
       }
+      triggerEvent('confirmation_success');
       onSaved();
       onClose();
     } catch (e) {
@@ -75,6 +86,7 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
     setDeleting(true);
     try {
       await tasksApi.delete(task.id);
+      triggerEvent('confirmation_success');
       onSaved();
       onClose();
     } catch {}
@@ -100,7 +112,7 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
               autoFocus
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent-blue transition-colors"
+              className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors"
               placeholder="Görevi tanımla..."
             />
           </div>
@@ -111,7 +123,7 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent-blue transition-colors resize-none"
+              className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors resize-none"
               placeholder="Opsiyonel açıklama..."
             />
           </div>
@@ -122,19 +134,29 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent-blue transition-colors resize-none"
+              className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors resize-none"
               placeholder="Ek notlar..."
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-medium text-text-secondary mb-1.5 block">Teslim Tarihi</label>
               <input
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-blue transition-colors"
+                className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary outline-none focus:border-border-focus transition-colors"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-text-secondary mb-1.5 block">Teslim Saati</label>
+              <input
+                type="time"
+                value={dueTime}
+                onChange={(e) => setDueTime(e.target.value)}
+                disabled={!dueDate}
+                className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary outline-none focus:border-border-focus transition-colors disabled:opacity-40"
               />
             </div>
             <div>
@@ -142,7 +164,7 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
               <select
                 value={priority}
                 onChange={(e) => setPriority(Number(e.target.value))}
-                className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-blue transition-colors"
+                className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary outline-none focus:border-border-focus transition-colors"
               >
                 {PRIORITY_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
@@ -157,7 +179,7 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
-                className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-blue transition-colors"
+                className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary outline-none focus:border-border-focus transition-colors"
               >
                 {STATUS_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
@@ -194,7 +216,7 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
               İptal
             </button>
             <button onClick={handleSave} disabled={saving || !title.trim()}
-              className="text-sm px-4 py-2 rounded-btn bg-accent-blue hover:bg-accent-blue-hover text-white font-medium transition-colors disabled:opacity-50">
+              className="text-sm px-4 py-2 rounded-btn bg-accent-purple hover:bg-accent-purple-hover text-white font-medium transition-colors disabled:opacity-50">
               {saving ? 'Kaydediliyor...' : 'Kaydet'}
             </button>
           </div>

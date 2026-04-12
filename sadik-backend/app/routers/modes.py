@@ -25,6 +25,15 @@ async def set_mode(body: ModeSet, session: AsyncSession = Depends(get_session)):
     })
     return new_log
 
+@router.post("/end", status_code=200)
+async def end_current_mode():
+    await mode_tracker.end_current()
+    await ws_manager.broadcast({
+        "type": "mode_changed",
+        "data": {"mode": None}
+    })
+    return {"ok": True}
+
 @router.get("/history", response_model=list[ModeLogResponse])
 async def get_mode_history(session: AsyncSession = Depends(get_session)):
     result = await session.execute(

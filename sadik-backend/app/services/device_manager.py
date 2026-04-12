@@ -11,7 +11,7 @@ class DeviceManager:
         self._port: Optional[str] = None
         self._ip: Optional[str] = None
 
-    async def connect(self, method: str, port: Optional[str] = None, ip: Optional[str] = None, baudrate: int = 115200) -> bool:
+    async def connect(self, method: str, port: Optional[str] = None, ip: Optional[str] = None, baudrate: int = 460800) -> bool:
         await self.disconnect()
         if method == "serial":
             success = await serial_service.open(port or "auto", baudrate)
@@ -29,7 +29,7 @@ class DeviceManager:
             return reachable
         return False
 
-    async def auto_connect(self, baudrate: int = 115200) -> dict:
+    async def auto_connect(self, baudrate: int = 460800) -> dict:
         """Auto-detect SADIK device via serial protocol verification and connect."""
         # If already connected via WiFi, return success immediately
         if self._method == "wifi":

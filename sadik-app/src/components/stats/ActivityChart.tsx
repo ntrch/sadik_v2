@@ -7,11 +7,18 @@ import { statsApi, DayStat, ModeStat } from '../../api/stats';
 type Period = '7' | '14' | '30' | 'today';
 
 const MODE_COLORS: Record<string, string> = {
-  working: '#3b82f6',
-  coding: '#06b6d4',
-  break: '#10b981',
-  meeting: '#f59e0b',
-  default: '#8b5cf6',
+  working: '#a78bfa',
+  coding: '#67e8f9',
+  break: '#6ee7b7',
+  meeting: '#fcd34d',
+  default: '#fdba74',
+};
+
+const MODE_LABELS: Record<string, string> = {
+  working: 'Çalışıyor',
+  coding: 'Kod Yazıyor',
+  break: 'Mola',
+  meeting: 'Toplantı',
 };
 
 function getModeColor(mode: string): string {
@@ -23,7 +30,7 @@ function toHours(seconds: number): number {
 }
 
 export default function ActivityChart() {
-  const [period, setPeriod] = useState<Period>('7');
+  const [period, setPeriod] = useState<Period>('today');
   const [data, setData] = useState<Record<string, unknown>[]>([]);
   const [allModes, setAllModes] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -63,21 +70,21 @@ export default function ActivityChart() {
   };
 
   const tabs: { key: Period; label: string }[] = [
+    { key: 'today', label: 'Bugün' },
     { key: '7', label: '7 Gün' },
     { key: '14', label: '14 Gün' },
     { key: '30', label: '30 Gün' },
-    { key: 'today', label: 'Bugün' },
   ];
 
   return (
-    <div className="bg-bg-card border border-border rounded-card p-5">
+    <div className="bg-bg-card border border-border rounded-card p-5 shadow-card">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-text-primary">Aktivite Grafiği</h3>
+        <h3 className="text-sm font-semibold text-text-primary">Mod Grafiği</h3>
         <div className="flex gap-1">
           {tabs.map((t) => (
             <button key={t.key} onClick={() => setPeriod(t.key)}
               className={`text-xs px-3 py-1.5 rounded-btn transition-colors
-                ${period === t.key ? 'bg-accent-blue text-white' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}>
+                ${period === t.key ? 'bg-accent-purple text-white' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}>
               {t.label}
             </button>
           ))}
@@ -91,19 +98,23 @@ export default function ActivityChart() {
       ) : (
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e2a4a" vertical={false} />
-            <XAxis dataKey="date" tick={{ fill: '#8892b0', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: '#8892b0', fontSize: 11 }} axisLine={false} tickLine={false}
+            <CartesianGrid strokeDasharray="3 3" stroke="#404040" vertical={false} />
+            <XAxis dataKey="date" tick={{ fill: '#a1a1aa', fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: '#a1a1aa', fontSize: 11 }} axisLine={false} tickLine={false}
               tickFormatter={(v) => `${v}s`} />
             <Tooltip
-              contentStyle={{ background: '#131b2e', border: '1px solid #1e2a4a', borderRadius: 8, fontSize: 12 }}
-              labelStyle={{ color: '#e2e8f0', fontWeight: 600 }}
-              itemStyle={{ color: '#8892b0' }}
-              formatter={(v: number, name: string) => [`${v} saat`, name]}
+              contentStyle={{ background: '#2d2d2d', border: '1px solid #404040', borderRadius: 10, fontSize: 12 }}
+              labelStyle={{ color: '#e4e4e7', fontWeight: 600 }}
+              itemStyle={{ color: '#a1a1aa' }}
+              formatter={(v: number, name: string) => [`${v} saat`, MODE_LABELS[name] || name]}
             />
-            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: '#8892b0' }} />
+            <Legend
+              iconType="circle" iconSize={8}
+              wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }}
+              formatter={(value: string) => MODE_LABELS[value] || value}
+            />
             {allModes.map((mode) => (
-              <Bar key={mode} dataKey={mode} stackId="a" fill={getModeColor(mode)} radius={[0, 0, 0, 0]} />
+              <Bar key={mode} dataKey={mode} stackId="a" fill={getModeColor(mode)} radius={[4, 4, 0, 0]} />
             ))}
           </BarChart>
         </ResponsiveContainer>

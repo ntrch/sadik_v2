@@ -24,15 +24,45 @@ export function useAnimationEngine(deviceConnected: boolean) {
   // frameVersion increments to signal canvas needs a repaint
   const [frameVersion, setFrameVersion] = useState(0);
 
+  // Track frame streaming state with refs to avoid stale closures
+  const deviceConnectedRef = useRef(deviceConnected);
+  const lastFrameSendRef = useRef<number>(0);
+  const frameSendInFlightRef = useRef(false);
+
+  // Keep ref in sync
   useEffect(() => {
-    // Register device command handler
+    deviceConnectedRef.current = deviceConnected;
+  }, [deviceConnected]);
+
+  useEffect(() => {
+    // Register device command handler (control commands only: APP_CONNECTED, APP_DISCONNECTED, SET_BRIGHTNESS, SLEEP, WAKE)
     engine.onDeviceCommand(async (cmd: string) => {
-      if (!deviceConnected) return;
+      if (!deviceConnectedRef.current) return;
       try {
         await deviceApi.sendCommand(cmd);
       } catch (e) {
         console.warn('[AnimationEngine] device command failed:', cmd, e);
       }
+    });
+
+    // Register frame-ready callback — streams frame data to device at ~12fps
+    let frameCount = 0;
+    engine.onFrameReady((buffer: Uint8Array) => {
+      if (!deviceConnectedRef.current) return;
+
+      const now = performance.now();
+      // Throttle to ~12fps (83ms) and skip if a send is already in flight
+      if (now - lastFrameSendRef.current < 83 || frameSendInFlightRef.current) return;
+
+      lastFrameSendRef.current = now;
+      frameSendInFlightRef.current = true;
+      frameCount++;
+      if (frameCount <= 5 || frameCount % 60 === 0) {
+        console.log(`[FrameStream] sending frame #${frameCount}, buffer[0..3]=${buffer[0]},${buffer[1]},${buffer[2]},${buffer[3]}`);
+      }
+      deviceApi.sendFrame(buffer)
+        .catch((e: unknown) => console.warn('[FrameStream] send failed:', e))
+        .finally(() => { frameSendInFlightRef.current = false; });
     });
 
     // Register state change listener (throttled in the RAF loop instead)
@@ -67,18 +97,6 @@ export function useAnimationEngine(deviceConnected: boolean) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Update device command handler when connection status changes
-  useEffect(() => {
-    engine.onDeviceCommand(async (cmd: string) => {
-      if (!deviceConnected) return;
-      try {
-        await deviceApi.sendCommand(cmd);
-      } catch (e) {
-        console.warn('[AnimationEngine] device command failed:', cmd, e);
-      }
-    });
-  }, [deviceConnected]);
-
   // Notify firmware of app authority changes so it can suppress or restore
   // its autonomous idle orchestration (blink / look timers) accordingly.
   useEffect(() => {
@@ -108,6 +126,10 @@ export function useAnimationEngine(deviceConnected: boolean) {
     engine.playClipDirect(name);
   }, []);
 
+  const playModClip = useCallback((name: string) => {
+    engine.playModClip(name);
+  }, []);
+
   const getLoadedClipNames = useCallback(() => engine.getLoadedClipNames(), []);
 
   return {
@@ -118,6 +140,7 @@ export function useAnimationEngine(deviceConnected: boolean) {
     showText,
     returnToIdle,
     playClipDirect,
+    playModClip,
     getLoadedClipNames,
   };
 }

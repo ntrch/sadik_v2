@@ -15,12 +15,22 @@ export interface AppUsageStat {
   duration_seconds: number;
 }
 
+export interface AppInsightItem {
+  app_name: string;
+  level: 'gentle' | 'strong';
+  message: string;
+}
+
 export interface AppInsight {
   has_insight: boolean;
   app_name?: string;
   /** "gentle" = 60-min rule, "strong" = 120-min rule */
   level?: 'gentle' | 'strong';
   message?: string;
+  /** All apps exceeding thresholds */
+  insights?: AppInsightItem[];
+  /** Source of the insight: app usage or task deadline */
+  source?: 'app_usage' | 'task';
 }
 
 export interface AppUsageDailyTotal {

@@ -47,6 +47,7 @@ export class AnimationEngine {
 
   private deviceCommandCallback: ((cmd: string) => void) | null = null;
   private stateChangeCallback: ((state: EngineState) => void) | null = null;
+  private frameReadyCallback: ((buffer: Uint8Array) => void) | null = null;
 
   // Command debounce
   private lastCommandTime = 0;
@@ -65,6 +66,10 @@ export class AnimationEngine {
 
   onStateChange(cb: (state: EngineState) => void): void {
     this.stateChangeCallback = cb;
+  }
+
+  onFrameReady(cb: (buffer: Uint8Array) => void): void {
+    this.frameReadyCallback = cb;
   }
 
   async loadClips(): Promise<void> {
@@ -134,7 +139,6 @@ export class AnimationEngine {
     if (event === 'show_text' || event === 'show_timer') {
       const txt = payload?.text ?? '';
       this.enterTextMode(txt);
-      this.sendCommand(`SHOW_TEXT:${txt}`);
       this.emitState();
       return;
     }
@@ -162,12 +166,10 @@ export class AnimationEngine {
             }
           : undefined,
       });
-      this.sendCommand(`PLAY_CLIP:${clipName}`);
     } else {
       // Clip not loaded — fall back to text
       const displayText = EVENT_DISPLAY_TEXT[event] ?? event.toUpperCase();
       this.enterTextMode(displayText);
-      this.sendCommand(`SHOW_TEXT:${displayText}`);
     }
     this.emitState();
   }
@@ -180,6 +182,9 @@ export class AnimationEngine {
         renderTextToBuffer(this.frameBuffer, this.textContent, { centered: true });
         this.bufferDirty = false;
       }
+      // Always emit — the single bufferDirty callback can be dropped by
+      // throttle / in-flight guard; the receiver deduplicates via throttle.
+      this.frameReadyCallback?.(this.frameBuffer);
       return this.frameBuffer;
     }
 
@@ -206,6 +211,7 @@ export class AnimationEngine {
         }
 
         this.copyFrameToBuffer(this.pb.clip.frames[this.pb.frameIndex]);
+        this.frameReadyCallback?.(this.frameBuffer);
         this.emitState();
       }
     }
@@ -249,13 +255,24 @@ export class AnimationEngine {
         this.emitState();
       },
     });
-    this.sendCommand(`PLAY_CLIP:${name}`);
+    this.emitState();
+  }
+
+  /** Play a mod animation clip that loops indefinitely until returnToIdle.
+   *  When the clip ends it holds the last frame (loop handled by re-starting). */
+  playModClip(name: string): void {
+    if (!this.clips.has(name)) {
+      console.warn(`[AnimationEngine] Mod clip not found: ${name}`);
+      return;
+    }
+    this.cancelIdleTimers();
+    this.playbackMode = 'explicit_clip';
+    this.playClip(name, { loop: true });
     this.emitState();
   }
 
   showText(text: string): void {
     this.enterTextMode(text);
-    this.sendCommand(`SHOW_TEXT:${text}`);
     this.emitState();
   }
 
@@ -291,7 +308,6 @@ export class AnimationEngine {
     this.pb.isPlaying = false;
     this.pb.clip = null;
     this.pb.onFinish = null;
-    this.sendCommand('STOP_CLIP');
   }
 
   // ─── Idle orchestration — two independent timers ─────────────────────────────
@@ -360,16 +376,11 @@ export class AnimationEngine {
     }
 
     this.idleSubState = 'blink';
-    // Tell the physical device to play the same blink clip so preview and OLED stay in sync.
-    this.sendCommand('PLAY_CLIP:blink');
     this.playClip('blink', {
       loop: false,
       onFinish: () => {
         this.idleSubState = 'idle_loop';
         this.idleInitialized = false;
-        // Return device to idle loop; firmware will NOT re-arm its own timers
-        // while appConnected (see CMD_RETURN_TO_IDLE handler in main.cpp).
-        this.sendCommand('RETURN_TO_IDLE');
         this.scheduleBlink();
 
         // Collision: variation was deferred while this blink played — fire it now
@@ -414,15 +425,11 @@ export class AnimationEngine {
 
     this.lastVariationDirection = dir;
     this.idleSubState = 'variation';
-    // Tell the physical device to play the same look clip so preview and OLED stay in sync.
-    this.sendCommand(`PLAY_CLIP:${clipName}`);
     this.playClip(clipName, {
       loop: false,
       onFinish: () => {
         this.idleSubState = 'idle_loop';
         this.idleInitialized = false;
-        // Return device to idle loop without re-arming firmware autonomous timers.
-        this.sendCommand('RETURN_TO_IDLE');
         this.scheduleVariation();
       },
     });

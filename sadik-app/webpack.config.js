@@ -1,6 +1,7 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const CopyPlugin = require('copy-webpack-plugin');
 
 module.exports = (env, argv) => {
   const isDev = argv.mode === 'development';
@@ -39,11 +40,26 @@ module.exports = (env, argv) => {
         template: './src/index.html',
       }),
       ...(isDev ? [] : [new MiniCssExtractPlugin({ filename: 'styles.css' })]),
+      new CopyPlugin({
+        patterns: [
+          { from: 'node_modules/@ricky0123/vad-web/dist', to: 'vad', noErrorOnMissing: true },
+          { from: 'node_modules/onnxruntime-web/dist/*.wasm', to: 'vad/[name][ext]', noErrorOnMissing: true },
+          { from: 'node_modules/onnxruntime-web/dist/*.mjs', to: 'vad/[name][ext]', noErrorOnMissing: true },
+        ],
+      }),
+    ],
+    ignoreWarnings: [
+      // onnxruntime-web uses dynamic require() internally — harmless, assets
+      // are copied via CopyPlugin.  Suppress so the overlay stays clean.
+      { module: /onnxruntime-web/ },
     ],
     devServer: {
       historyApiFallback: true,
       port: 3000,
       hot: true,
+      client: {
+        overlay: { errors: true, warnings: false },
+      },
     },
     devtool: isDev ? 'source-map' : false,
   };

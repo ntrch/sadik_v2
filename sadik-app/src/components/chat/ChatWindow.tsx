@@ -4,6 +4,19 @@ import { ChatMessage as ChatMsg, chatApi } from '../../api/chat';
 import ChatMessage from './ChatMessage';
 import { AppContext } from '../../context/AppContext';
 
+/** Detect if the LLM's response is a confirmation/acknowledgment. */
+function isConfirmation(text: string): boolean {
+  const lower = text.slice(0, 200).toLowerCase();
+  const patterns = [
+    'tamam', 'oldu', 'yapıldı', 'anlaşıldı', 'kabul',
+    'hallederim', 'bakarım', 'ayarladım', 'kaydettim',
+    'tamamdır', 'tabii', 'elbette', 'peki',
+    'hemen yapıyorum', 'hemen bakıyorum',
+    'not aldım', 'not edildi',
+  ];
+  return patterns.some(p => lower.includes(p));
+}
+
 export default function ChatWindow() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
@@ -40,6 +53,11 @@ export default function ChatWindow() {
 
     try {
       const res = await chatApi.sendMessage(text);
+      const replyText = res.response ?? '';
+      if (isConfirmation(replyText)) {
+        triggerEvent('confirmation_success');
+        await new Promise(r => setTimeout(r, 1000));
+      }
       triggerEvent('assistant_speaking');
       const history = await chatApi.getHistory();
       setMessages(history);
@@ -55,6 +73,7 @@ export default function ChatWindow() {
 
   const handleClear = async () => {
     await chatApi.clearHistory().catch(() => {});
+    triggerEvent('confirmation_success');
     setMessages([]);
     showToast('Sohbet geçmişi temizlendi');
   };
@@ -88,8 +107,8 @@ export default function ChatWindow() {
         ))}
         {typing && (
           <div className="flex items-end gap-2 animate-fade-in">
-            <div className="w-7 h-7 rounded-full bg-accent-blue/20 border border-accent-blue/30 flex items-center justify-center flex-shrink-0 mb-4">
-              <span className="text-accent-blue text-xs">S</span>
+            <div className="w-7 h-7 rounded-full bg-accent-purple/20 border border-accent-purple/30 flex items-center justify-center flex-shrink-0 mb-4">
+              <span className="text-accent-purple text-xs">S</span>
             </div>
             <div className="bg-bg-card border border-border rounded-2xl rounded-bl-md px-4 py-3">
               <div className="flex gap-1 items-center h-4">
@@ -111,11 +130,11 @@ export default function ChatWindow() {
             onKeyDown={handleKey}
             rows={1}
             placeholder="Bir mesaj yazın..."
-            className="flex-1 bg-bg-input border border-border rounded-btn px-4 py-2.5 text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent-blue transition-colors resize-none"
+            className="flex-1 bg-bg-input border border-border rounded-btn px-4 py-2.5 text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent-purple transition-colors resize-none"
             style={{ maxHeight: '120px' }}
           />
           <button onClick={handleSend} disabled={!input.trim() || loading}
-            className="p-2.5 bg-accent-blue hover:bg-accent-blue-hover text-white rounded-btn transition-colors disabled:opacity-40 flex-shrink-0">
+            className="p-2.5 bg-accent-purple hover:bg-accent-purple-hover text-white rounded-btn transition-colors disabled:opacity-40 flex-shrink-0">
             <Send size={16} />
           </button>
         </div>

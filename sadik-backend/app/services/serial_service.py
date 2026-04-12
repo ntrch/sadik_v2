@@ -92,7 +92,7 @@ class SerialService:
             pass
         return None
 
-    async def auto_detect_and_connect(self, baudrate: int = 115200) -> dict:
+    async def auto_detect_and_connect(self, baudrate: int = 460800) -> dict:
         """Scan all serial ports, verify SADIK device via PING/PONG protocol,
         and keep the connection open on first match.
 
@@ -164,7 +164,7 @@ class SerialService:
                 "error": "No SADIK device responded to PING on any available port.",
             }
 
-    async def open(self, port: str, baudrate: int = 115200) -> bool:
+    async def open(self, port: str, baudrate: int = 460800) -> bool:
         loop = asyncio.get_event_loop()
         try:
             if port == "auto":
@@ -174,7 +174,7 @@ class SerialService:
                     return False
 
             def _open():
-                return serial.Serial(port, baudrate, timeout=1)
+                return serial.Serial(port, baudrate, timeout=1, write_timeout=1)
 
             self._serial = await loop.run_in_executor(None, _open)
             self._active_port = port

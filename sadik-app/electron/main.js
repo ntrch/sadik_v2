@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, Notification, session } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, Notification, session, ipcMain } = require('electron');
 const path    = require('path');
 const { execFile } = require('child_process');
 const fs      = require('fs');
@@ -610,12 +610,25 @@ function createWindow() {
     webPreferences: {
       nodeIntegration:  false,
       contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
     titleBarStyle:    process.platform === 'darwin' ? 'hidden' : 'default',
     autoHideMenuBar:  true,
   });
 
   mainWindow = win;
+
+  // ── Proactive notification IPC ───────────────────────────────────────────
+  ipcMain.on('show-notification', (_event, { title, body }) => {
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title, body, silent: false });
+    n.on('click', () => {
+      win.show();
+      win.focus();
+      win.webContents.send('notification-clicked');
+    });
+    n.show();
+  });
 
   // ── Window lifecycle diagnostics ──────────────────────────────────────────
   win.once('ready-to-show', () => tlog('[SADIK] Window ready-to-show'));

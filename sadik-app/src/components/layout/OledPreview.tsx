@@ -1,12 +1,16 @@
 import React, { useRef, useEffect, useContext } from 'react';
 import { AppContext } from '../../context/AppContext';
 
+// 1.3 inch SH1106 OLED: 128×64 native pixels, active area ≈ 30×15 mm
+// At ~96 DPI a 1.3″ diagonal ≈ 180×90 CSS px — close to real physical size
+const DISPLAY_W = 180;
+const DISPLAY_H = 90;
+
 export default function OledPreview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageDataRef = useRef<ImageData | null>(null);
   const { frameBuffer, frameVersion, engineState } = useContext(AppContext);
 
-  // Initialize canvas once
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -17,7 +21,6 @@ export default function OledPreview() {
     imageDataRef.current = ctx.createImageData(128, 64);
   }, []);
 
-  // Repaint whenever frameVersion changes
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -45,34 +48,15 @@ export default function OledPreview() {
     ctx.putImageData(imgData, 0, 0);
   }, [frameVersion, frameBuffer]);
 
-  const { playbackMode, currentClipName, currentFrameIndex, totalFrames } = engineState;
-  const clipLabel =
-    playbackMode === 'text'
-      ? 'metin modu'
-      : playbackMode === 'idle'
-      ? 'bekleme'
-      : currentClipName ?? '—';
-
   return (
-    <div className="mb-3">
-      <p className="text-xs text-text-muted mb-2 font-medium tracking-wide uppercase">Ekran Önizleme</p>
-      <div
-        className="border rounded-btn overflow-hidden bg-black"
-        style={{ aspectRatio: '2/1', borderColor: '#1e2a4a' }}
-      >
-        <canvas
-          ref={canvasRef}
-          style={{ width: '100%', height: '100%', imageRendering: 'pixelated' }}
-        />
-      </div>
-      <div className="flex items-center justify-between mt-1.5 px-0.5">
-        <span className="text-[10px] text-text-muted truncate max-w-[70%]">{clipLabel}</span>
-        {totalFrames > 0 && (
-          <span className="text-[10px] text-text-muted">
-            {currentFrameIndex + 1}/{totalFrames}
-          </span>
-        )}
-      </div>
+    <div
+      className="border border-border rounded-lg overflow-hidden bg-black oled-glow"
+      style={{ width: `${DISPLAY_W}px`, height: `${DISPLAY_H}px` }}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', height: '100%', imageRendering: 'pixelated' }}
+      />
     </div>
   );
 }

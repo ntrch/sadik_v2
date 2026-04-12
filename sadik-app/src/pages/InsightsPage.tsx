@@ -42,7 +42,7 @@ function SectionCard({ title, badge, children }: {
 
 function HorizontalBars({
   items,
-  color = 'bg-accent-blue',
+  color = 'bg-accent-purple',
 }: {
   items: AppUsageStat[];
   color?: string;
@@ -96,7 +96,7 @@ function DailyBarChart({ dailyTotals }: {
               title={`${d.date}: ${d.duration_seconds > 0 ? formatAppDuration(d.duration_seconds) : 'Veri yok'}`}
             >
               <div
-                className="w-full bg-accent-blue/60 hover:bg-accent-blue rounded-t-sm transition-all duration-500"
+                className="w-full bg-accent-purple/60 hover:bg-accent-purple rounded-t-sm transition-all duration-500"
                 style={{ height: `${rawPct}%` }}
               />
               <span className="text-[9px] text-text-muted mt-1.5 leading-none select-none">
@@ -136,7 +136,7 @@ export default function InsightsPage() {
   return (
     <div className="h-full overflow-y-auto p-6 page-transition">
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-xl font-bold text-text-primary mb-6">İçgörüler</h1>
+        <h1 className="text-xl font-bold text-text-primary mb-6">Kullanım</h1>
 
         {/* ── Section A: Today ─────────────────────────────────────────────── */}
         <SectionCard title="Bugünkü Kullanım" badge="Bugün">
@@ -148,7 +148,7 @@ export default function InsightsPage() {
               </p>
             </div>
           ) : (
-            <HorizontalBars items={todayUsage} color="bg-accent-blue" />
+            <HorizontalBars items={todayUsage} color="bg-accent-purple" />
           )}
         </SectionCard>
 
@@ -226,7 +226,7 @@ export default function InsightsPage() {
 
 const DOT_COLORS: Record<string, string> = {
   green:  'bg-accent-green',
-  blue:   'bg-accent-blue',
+  blue:   'bg-accent-purple',
   yellow: 'bg-accent-yellow',
 };
 

@@ -99,6 +99,11 @@ async def speech_to_text(
 
     Pass *prompt* to bias Whisper toward expected vocabulary — e.g. the wake
     word name.  Omit for normal conversational transcription.
+
+    Hallucination filtering is only applied for wake-word detection chunks
+    (filename starts with "wake").  Conversation recordings ("recording.*")
+    skip the filter because phrases like "teşekkür ederim" are legitimate
+    speech that happens to also appear in the hallucination list.
     """
     settings = await get_settings_map(session)
     api_key  = settings.get("openai_api_key", "")
@@ -106,9 +111,10 @@ async def speech_to_text(
         raise HTTPException(status_code=400, detail="OpenAI API key not configured")
 
     audio_bytes = await audio.read()
+    filename = audio.filename or ""
     logger.info(
         "STT upload: filename=%r, content_type=%r, size=%d bytes",
-        audio.filename, audio.content_type, len(audio_bytes),
+        filename, audio.content_type, len(audio_bytes),
     )
 
     if len(audio_bytes) <= 512:
@@ -120,11 +126,15 @@ async def speech_to_text(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Filter Whisper hallucinations — return empty string so the caller
-    # treats this the same as silence (didnt_hear / skip wake-word check).
-    if _is_hallucination(text):
+    # Hallucination filter — ONLY for wake-word detection chunks.
+    # Conversation recordings skip the filter; the frontend has its own
+    # guards (G1-G3) that handle noise without discarding real speech.
+    is_wake_word_chunk = filename.startswith("wake")
+    if is_wake_word_chunk and _is_hallucination(text):
+        logger.warning("STT: hallucination filtered (wake): %r", text)
         return {"text": ""}
 
+    logger.info("STT result (%s): %r", "wake" if is_wake_word_chunk else "conv", text)
     return {"text": text}
 
 
