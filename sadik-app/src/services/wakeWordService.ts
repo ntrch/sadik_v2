@@ -43,7 +43,7 @@ const CHUNK_DURATION_MS  = 2000;   // length of each recorded chunk
                                    // across a chunk boundary, which causes missed detections.
 const COOLDOWN_MS        = 6000;   // silence after a detection
 const STT_TIMEOUT_MS     = 12000;  // per-request Whisper timeout
-const MIN_BLOB_BYTES     = 2500;   // blobs smaller than this are treated as empty
+const MIN_BLOB_BYTES     = 1500;   // blobs smaller than this are treated as empty
                                    // (1.5 s WebM/Opus @ 16 kbps ≈ 3 KB; < 1500 is header-only)
 const TINY_BLOB_FALLBACK = 3;      // consecutive tiny blobs before switching mime type
 
@@ -54,7 +54,7 @@ const TINY_BLOB_FALLBACK = 3;      // consecutive tiny blobs before switching mi
 // silence or ambient noise, because the model reads it as a strong prior and
 // confabulates the named tokens.  A minimal prompt provides spelling guidance
 // without that false-positive amplification.
-const WAKE_WORD_PROMPT = "Hey Sadık, sana nasıl yardımcı olabilirim? Sağdık.";
+const WAKE_WORD_PROMPT = "Sadık. Sağdık.";
 
 // ── MIME-type helpers ─────────────────────────────────────────────────────────
 
@@ -171,7 +171,7 @@ const WAKE_WORDS_PHRASES: string[] = [
  *   Phrases like "hey sadik" are specific enough that a false substring match
  *   in ambient-noise output is extremely unlikely.  No boundary guard needed.
  */
-function containsWakeWord(transcript: string, sensitivity: string = 'normal'): string | null {
+function containsWakeWord(transcript: string): string | null {
   const norm = normalizeTR(transcript);
 
   // 1. Phrase variants — plain substring, already highly specific.
@@ -179,12 +179,11 @@ function containsWakeWord(transcript: string, sensitivity: string = 'normal'): s
     if (norm.includes(phrase)) return phrase;
   }
 
-  // 'low' sensitivity: only multi-word phrase matches (above). Skip single tokens.
-  if (sensitivity === 'low') return null;
-
   // 2. Single-token variants — whole-word boundary only.
-  //    'normal' and 'high' both reach here.
   for (const token of WAKE_WORDS_SINGLE) {
+    // Build the pattern once per call (list is short, < 10 entries).
+    // All tokens are plain ASCII after normalizeTR, so no escaping is needed,
+    // but we apply a light escape for future-safety.
     const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     if (new RegExp(`\\b${escaped}\\b`).test(norm)) return token;
   }
@@ -292,14 +291,12 @@ export class WakeWordService {
     // Whisper's confidence on multi-phoneme phrases ("hey Sadık", "Sadıkçığım")
     // even though single-word "Sadık" is short enough to survive the ramp.
     //
-    // This 500 ms delay is unnoticeable to the user (onListening remains false
+    // This 350 ms delay is unnoticeable to the user (onListening remains false
     // during the wait, which is honest — we are not yet capturing usable audio)
     // and replicates the natural settling that the toggle-off/on path already
     // gets for free via the ~400 ms user-action latency.
-    // Raised from 350 ms → 500 ms to give Windows AGC/noise-suppression more
-    // time to fully stabilise before we capture the first real chunk.
     //
-    // The generation guard ensures that if stop() is called during the 500 ms
+    // The generation guard ensures that if stop() is called during the 350 ms
     // window the stale setTimeout fires but exits immediately without recording.
     const armGen = this.generation;
     setTimeout(() => {
@@ -309,7 +306,7 @@ export class WakeWordService {
       } else {
         console.log('[WakeWord] Arm delay elapsed but session changed — discarding (armGen', armGen, ')');
       }
-    }, 500);
+    }, 350);
   }
 
   /** Stop detection and release the microphone. */
@@ -539,41 +536,17 @@ export class WakeWordService {
         return;
       }
 
-      // Require at least 3 characters after trimming.
+      // Require at least 3 characters after trimming — single-char or two-char
+      // strings are noise artifacts from near-empty audio, not real speech.
       const trimmed = text.trim();
       if (trimmed.length >= 3) {
-        const norm      = normalizeTR(trimmed);
-        const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
-
-        // ── Word-count guard ────────────────────────────────────────────────
-        // Wake word is at most 3 words ("hey sadık", "sadık dinle").
-        // Anything longer is background conversation / TV.
-        if (wordCount > 3) {
-          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" wordCount=${wordCount} rejected too-many-words`);
-          return;
-        }
-
-        // ── Frontend hallucination pre-filter ───────────────────────────────
-        // Catch common Whisper hallucinations that pass the backend filter
-        // but should never be treated as wake word candidates.
-        const lowerTrimmed = trimmed.toLowerCase();
-        const FRONTEND_HALLUCINATION_PATTERNS = [
-          'teşekkür', 'tesekkur', 'izlediğ', 'izledig', 'dinlediğ', 'dinledig',
-          'abone', 'altyazı', 'altyazi', 'video', 'bölüm', 'bolum',
-          'hoş geldin', 'hos geldin', 'merhaba arka',
-        ];
-        const isHallucination = FRONTEND_HALLUCINATION_PATTERNS.some(p => lowerTrimmed.includes(p));
-        if (isHallucination) {
-          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" rejected hallucination-filter`);
-          return;
-        }
-
-        const matched = containsWakeWord(trimmed, this._sensitivity);
+        const norm    = normalizeTR(trimmed);
+        const matched = containsWakeWord(trimmed);
         if (matched !== null) {
-          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" normalized="${norm}" wordCount=${wordCount} accepted variant="${matched}"`);
+          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" normalized="${norm}" accepted variant="${matched}"`);
           this._triggerDetection();
         } else {
-          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" normalized="${norm}" wordCount=${wordCount} rejected no-variant-match`);
+          console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed}" normalized="${norm}" rejected no-variant-match`);
         }
       } else {
         console.log(`[WakeWord][Decision] blob=${blob.size} raw="${trimmed || '(empty)'}" rejected too-short`);

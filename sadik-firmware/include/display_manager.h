@@ -50,35 +50,105 @@ public:
         }
     }
 
-    // Draw a single line of text centered on the display (small font).
+    // ── Font table for auto-fit ─────────────────────────────────────────────
+    // All fonts use _te suffix = Latin Extended A (includes Turkish: Ç Ğ İ Ö Ş Ü)
+    // drawUTF8 is used everywhere so multi-byte UTF-8 from serial works directly.
+
+    struct FontEntry {
+        const uint8_t* font;
+        uint8_t        height;   // ascent (used for vertical centering)
+    };
+
+    static constexpr int FONT_COUNT = 4;
+
+    // Returns the font table (largest first).
+    const FontEntry* fontTable() const {
+        static const FontEntry table[FONT_COUNT] = {
+            { u8g2_font_helvB24_te, 24 },
+            { u8g2_font_helvB18_te, 18 },
+            { u8g2_font_helvB12_te, 12 },
+            { u8g2_font_helvB08_te,  8 },
+        };
+        return table;
+    }
+
+    // Pick the largest font whose rendered width fits within maxW.
+    const FontEntry& pickFont(const char* text, int16_t maxW = SCREEN_WIDTH - 4) {
+        const FontEntry* ft = fontTable();
+        for (int i = 0; i < FONT_COUNT - 1; i++) {
+            _u8g2.setFont(ft[i].font);
+            if (_u8g2.getUTF8Width(text) <= maxW) return ft[i];
+        }
+        _u8g2.setFont(ft[FONT_COUNT - 1].font);
+        return ft[FONT_COUNT - 1];
+    }
+
+    // Draw a single line of text, auto-sized to fill the display, centered.
     void drawText(const char* text) {
         _u8g2.clearBuffer();
-        _u8g2.setFont(u8g2_font_6x10_tr);
-        int16_t strWidth = _u8g2.getStrWidth(text);
-        int16_t x = (SCREEN_WIDTH  - strWidth) / 2;
-        int16_t y = SCREEN_HEIGHT / 2 + 4;   // baseline ≈ vertical center
-        _u8g2.drawStr(x, y, text);
+        const FontEntry& fe = pickFont(text);
+        _u8g2.setFont(fe.font);
+        int16_t w = _u8g2.getUTF8Width(text);
+        int16_t x = (SCREEN_WIDTH - w) / 2;
+        int16_t y = (SCREEN_HEIGHT + fe.height) / 2;
+        _u8g2.drawUTF8(x, y, text);
     }
 
-    // Draw a single line of text centered on the display (large font).
+    // Draw a single line of text in the large timer font, centered.
     void drawTextLarge(const char* text) {
         _u8g2.clearBuffer();
-        _u8g2.setFont(u8g2_font_10x20_tr);
-        int16_t strWidth = _u8g2.getStrWidth(text);
-        int16_t x = (SCREEN_WIDTH  - strWidth) / 2;
-        int16_t y = SCREEN_HEIGHT / 2 + 8;
-        _u8g2.drawStr(x, y, text);
+        _u8g2.setFont(u8g2_font_helvB24_te);
+        int16_t w = _u8g2.getUTF8Width(text);
+        int16_t x = (SCREEN_WIDTH - w) / 2;
+        int16_t y = (SCREEN_HEIGHT + 24) / 2;
+        _u8g2.drawUTF8(x, y, text);
     }
 
-    // Draw two lines of text, each centered horizontally.
-    // line1 baseline ≈ y=24, line2 baseline ≈ y=48.
+    // Draw two lines of text, each centered horizontally, auto-sized.
     void drawTwoLineText(const char* line1, const char* line2) {
         _u8g2.clearBuffer();
-        _u8g2.setFont(u8g2_font_6x10_tr);
-        int16_t w1 = _u8g2.getStrWidth(line1);
-        int16_t w2 = _u8g2.getStrWidth(line2);
-        _u8g2.drawStr((SCREEN_WIDTH - w1) / 2, 24, line1);
-        _u8g2.drawStr((SCREEN_WIDTH - w2) / 2, 48, line2);
+        // Pick font that fits the wider line
+        const FontEntry& fe1 = pickFont(line1);
+        const FontEntry& fe2 = pickFont(line2);
+        // Use the smaller of the two so both fit
+        const FontEntry& fe = (fe1.height <= fe2.height) ? fe1 : fe2;
+        // Also ensure total height fits: 2 lines + gap ≤ 64
+        const FontEntry* ft = fontTable();
+        const FontEntry* chosen = &fe;
+        for (int i = 0; i < FONT_COUNT; i++) {
+            if (ft[i].height <= fe.height) {
+                if (ft[i].height * 2 + 6 <= SCREEN_HEIGHT) {
+                    chosen = &ft[i];
+                    break;
+                }
+            }
+        }
+        _u8g2.setFont(chosen->font);
+        int16_t gap = 6;
+        int16_t totalH = chosen->height * 2 + gap;
+        int16_t y1 = (SCREEN_HEIGHT - totalH) / 2 + chosen->height;
+        int16_t y2 = y1 + chosen->height + gap;
+        int16_t w1 = _u8g2.getUTF8Width(line1);
+        int16_t w2 = _u8g2.getUTF8Width(line2);
+        _u8g2.drawUTF8((SCREEN_WIDTH - w1) / 2, y1, line1);
+        _u8g2.drawUTF8((SCREEN_WIDTH - w2) / 2, y2, line2);
+    }
+
+    // Render a 1024-byte RAM bitmap into the internal buffer and send it.
+    // Same format as drawFrame() but reads from RAM instead of PROGMEM.
+    // Used for raw frames streamed over serial by the desktop app.
+    void showRawFrame(const uint8_t* data) {
+        _u8g2.clearBuffer();
+        for (uint8_t row = 0; row < SCREEN_HEIGHT; row++) {
+            for (uint8_t col = 0; col < SCREEN_WIDTH; col++) {
+                uint16_t byteIndex = (uint16_t)row * 16 + col / 8;
+                uint8_t  bitIndex  = 7 - (col & 0x07);
+                if ((data[byteIndex] >> bitIndex) & 1) {
+                    _u8g2.drawPixel(col, row);
+                }
+            }
+        }
+        _u8g2.sendBuffer();
     }
 
     // Push the internal buffer to the physical display.

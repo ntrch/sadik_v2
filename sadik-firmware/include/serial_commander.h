@@ -20,12 +20,14 @@ enum CommandType {
     CMD_FORCE_SLEEP,          // FORCE_SLEEP → immediately enter power-save (debug aid)
     CMD_APP_CONNECTED,        // APP_CONNECTED   → app becomes animation authority
     CMD_APP_DISCONNECTED,     // APP_DISCONNECTED → firmware resumes autonomous idle
+    CMD_FRAME_DATA,           // FRAME:<2048 hex chars> → raw 1024-byte frame for OLED
     CMD_UNKNOWN
 };
 
 struct ParsedCommand {
     CommandType type;
     char        argument[128];
+    uint8_t     frameData[1024];   // decoded bitmap for CMD_FRAME_DATA
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,9 +45,11 @@ public:
         _buf[0]              = '\0';
         _parsed.type         = CMD_NONE;
         _parsed.argument[0]  = '\0';
+        memset(_parsed.frameData, 0, sizeof(_parsed.frameData));
     }
 
     void begin() {
+        Serial.setRxBufferSize(4096);  // must be before Serial.begin()
         Serial.begin(SERIAL_BAUD);
         _reset();
     }
@@ -157,8 +161,36 @@ private:
         } else if (strcmp(_buf, "APP_DISCONNECTED") == 0) {
             _parsed.type = CMD_APP_DISCONNECTED;
 
+        } else if (strncmp(_buf, "FRAME:", 6) == 0) {
+            // Expect exactly 2048 hex characters after "FRAME:" → 1024 bytes
+            const char* hex = _buf + 6;
+            int hexLen = strlen(hex);
+            if (hexLen == 2048 && _decodeHex(hex, _parsed.frameData, 1024)) {
+                _parsed.type = CMD_FRAME_DATA;
+            } else {
+                _parsed.type = CMD_UNKNOWN;   // malformed frame data
+            }
+
         } else {
             _parsed.type = CMD_UNKNOWN;
         }
+    }
+
+    // Decode a hex string into a byte buffer.  Returns true on success.
+    static bool _decodeHex(const char* hex, uint8_t* out, size_t outLen) {
+        for (size_t i = 0; i < outLen; i++) {
+            uint8_t hi = _hexVal(hex[i * 2]);
+            uint8_t lo = _hexVal(hex[i * 2 + 1]);
+            if (hi > 15 || lo > 15) return false;   // invalid hex char
+            out[i] = (hi << 4) | lo;
+        }
+        return true;
+    }
+
+    static uint8_t _hexVal(char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        return 0xFF;   // invalid
     }
 };

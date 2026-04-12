@@ -4,20 +4,12 @@
 #include "clip_player.h"   // ClipDefinition
 
 // ── All clip frame data (PROGMEM) ─────────────────────────────────────────────
+// Only idle-mode clips are stored on-device.  All other animations are streamed
+// as raw frames by the desktop app via the FRAME: command.
 #include "clips/idle_clip.h"
 #include "clips/blink_clip.h"
 #include "clips/idle_alt_look_left_clip.h"
 #include "clips/idle_alt_look_right_clip.h"
-#include "clips/waking_clip.h"
-#include "clips/listening_clip.h"
-#include "clips/thinking_clip.h"
-#include "clips/talking_clip.h"
-#include "clips/confirming_clip.h"
-#include "clips/understanding_clip.h"
-#include "clips/confused_clip.h"
-#include "clips/didnt_hear_clip.h"
-#include "clips/error_soft_clip.h"
-#include "clips/goodbye_to_idle_clip.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ClipDefinition instances
@@ -59,105 +51,15 @@ static const ClipDefinition CLIP_LOOK_RIGHT = {
     false
 };
 
-static const ClipDefinition CLIP_WAKING = {
-    "waking",
-    waking_frames,
-    WAKING_FRAME_COUNT,
-    WAKING_FPS,
-    false
-};
-
-static const ClipDefinition CLIP_LISTENING = {
-    "listening",
-    listening_frames,
-    LISTENING_FRAME_COUNT,
-    LISTENING_FPS,
-    true
-};
-
-static const ClipDefinition CLIP_THINKING = {
-    "thinking",
-    thinking_frames,
-    THINKING_FRAME_COUNT,
-    THINKING_FPS,
-    true
-};
-
-static const ClipDefinition CLIP_TALKING = {
-    "talking",
-    talking_frames,
-    TALKING_FRAME_COUNT,
-    TALKING_FPS,
-    true
-};
-
-static const ClipDefinition CLIP_CONFIRMING = {
-    "confirming",
-    confirming_frames,
-    CONFIRMING_FRAME_COUNT,
-    CONFIRMING_FPS,
-    false
-};
-
-static const ClipDefinition CLIP_UNDERSTANDING = {
-    "understanding",
-    understanding_frames,
-    UNDERSTANDING_FRAME_COUNT,
-    UNDERSTANDING_FPS,
-    false
-};
-
-static const ClipDefinition CLIP_CONFUSED = {
-    "confused",
-    confused_frames,
-    CONFUSED_FRAME_COUNT,
-    CONFUSED_FPS,
-    false
-};
-
-static const ClipDefinition CLIP_DIDNT_HEAR = {
-    "didnt_hear",
-    didnt_hear_frames,
-    DIDNT_HEAR_FRAME_COUNT,
-    DIDNT_HEAR_FPS,
-    false
-};
-
-static const ClipDefinition CLIP_ERROR_SOFT = {
-    "error_soft",
-    error_soft_frames,
-    ERROR_SOFT_FRAME_COUNT,
-    ERROR_SOFT_FPS,
-    false
-};
-
-static const ClipDefinition CLIP_GOODBYE = {
-    "goodbye_to_idle",
-    goodbye_to_idle_frames,
-    GOODBYE_TO_IDLE_FRAME_COUNT,
-    GOODBYE_TO_IDLE_FPS,
-    false
-};
-
 // ── Registry table ────────────────────────────────────────────────────────────
 
-static const uint8_t ALL_CLIPS_COUNT = 14;
+static const uint8_t ALL_CLIPS_COUNT = 4;
 
 static const ClipDefinition* const ALL_CLIPS[ALL_CLIPS_COUNT] = {
     &CLIP_IDLE,
     &CLIP_BLINK,
     &CLIP_LOOK_LEFT,
     &CLIP_LOOK_RIGHT,
-    &CLIP_WAKING,
-    &CLIP_LISTENING,
-    &CLIP_THINKING,
-    &CLIP_TALKING,
-    &CLIP_CONFIRMING,
-    &CLIP_UNDERSTANDING,
-    &CLIP_CONFUSED,
-    &CLIP_DIDNT_HEAR,
-    &CLIP_ERROR_SOFT,
-    &CLIP_GOODBYE,
 };
 
 // Returns a pointer to the ClipDefinition whose name matches, or nullptr.

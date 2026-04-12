@@ -9,8 +9,8 @@
 #define SCREEN_HEIGHT  64
 
 // ── Serial ────────────────────────────────────────────────────────────────────
-#define SERIAL_BAUD         115200
-#define SERIAL_BUFFER_SIZE  256
+#define SERIAL_BAUD         460800
+#define SERIAL_BUFFER_SIZE  2112   // must hold FRAME: + 2048 hex chars
 
 // ── WiFi (reserved for future use) ───────────────────────────────────────────
 #define WIFI_SERVER_PORT 80

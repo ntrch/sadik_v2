@@ -86,11 +86,7 @@ const STATUS_LABELS: Record<VoiceState, string> = {
   speaking:   'Konuşuyor...',
 };
 
-const NO_SPEECH_TIMEOUT_MS      = 15000;  // hard recording cap — auto-stops after 15 s
-const RECORDER_TIMESLICE_MS     = 500;    // ondataavailable fires every 500 ms
-const SPEECH_RATIO              = 1.8;    // chunk must be ≥ minSeen * ratio to count as speech
-const SILENCE_CHUNKS_TO_STOP    = 4;      // consecutive non-speech chunks after speech → auto-stop (~2 s)
-const MIN_CHUNKS_BEFORE_STOP    = 4;      // need at least this many chunks before auto-stop eligible
+const NO_SPEECH_TIMEOUT_MS   = 30000;  // hard recording cap — auto-stops after 30 s
 
 // Speaking-state direct interruption detector
 const INTERRUPT_THRESHOLD  = 0.03;  // RMS above this → user speaking during TTS
@@ -113,11 +109,10 @@ export default function VoiceAssistant() {
   const audioRef           = useRef<HTMLAudioElement | null>(null);
   const listeningTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const returnTimer        = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const continuousTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceStateRef      = useRef<VoiceState>('idle');
   const cancelledRef       = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const startListeningRef  = useRef<(fromWakeWord?: boolean) => Promise<void>>(async () => {});
+  const startListeningRef  = useRef<() => Promise<void>>(async () => {});
   const lastReplyRef       = useRef('');
 
   // ── Refs — silence detection ───────────────────────────────────────────────
@@ -126,10 +121,6 @@ export default function VoiceAssistant() {
   const noSpeechTimeoutRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechDetectedRef        = useRef(false);   // ref for use inside interval callback
   const silenceStartRef          = useRef<number | null>(null);
-  const silenceChunksRef         = useRef(0);       // VBR heuristic: consecutive silent chunk counter
-  const minChunkSizeRef          = useRef(Infinity); // running minimum chunk size (≈ silence level)
-  const chunkCountRef            = useRef(0);        // total chunks received this recording
-  const speechEverDetectedRef    = useRef(false);    // has user spoken at all this recording?
 
   // ── Refs — speaking interruption detector ─────────────────────────────────
   const interruptAudioCtxRef    = useRef<AudioContext | null>(null);
@@ -267,7 +258,7 @@ export default function VoiceAssistant() {
     if (continuousConversationRef.current) {
       // Brief gap so the mic is fully released before re-acquisition.
       await sleep(200, signal);
-      if (!signal.aborted) startListeningRef.current(false);
+      if (!signal.aborted) startListeningRef.current();
     } else {
       returnToIdleFlow();
     }
@@ -324,9 +315,8 @@ export default function VoiceAssistant() {
 
     stopPlayback();
 
-    if (listeningTimer.current)  clearTimeout(listeningTimer.current);
-    if (returnTimer.current)     clearTimeout(returnTimer.current);
-    if (continuousTimer.current) clearTimeout(continuousTimer.current);
+    if (listeningTimer.current) clearTimeout(listeningTimer.current);
+    if (returnTimer.current)    clearTimeout(returnTimer.current);
 
     setStatusOverride(null);
     setVoiceState('idle');
@@ -403,7 +393,7 @@ export default function VoiceAssistant() {
 
               setVoiceState('idle');
               // Small delay so mic stream is fully released before re-acquisition.
-              setTimeout(() => startListeningRef.current(false), 200);
+              setTimeout(() => startListeningRef.current(), 200);
             }
           } else {
             // Energy dropped — reset the sustain timer.
@@ -433,12 +423,8 @@ export default function VoiceAssistant() {
   // never has an opportunity to return to idle between the two events.
 
   const processAudio = useCallback(async (blob: Blob, signal: AbortSignal) => {
-    const t0 = performance.now();
-    // VBR/timeout pre-transition may have already set processing state.
-    if (voiceStateRef.current !== 'processing') {
-      setVoiceState('processing');
-      triggerEvent('processing');
-    }
+    setVoiceState('processing');
+    triggerEvent('processing');   // thinking — loops until understanding_resolved
 
     try {
       // ── Step 0a: Blob size guard ──────────────────────────────────────────
@@ -457,9 +443,7 @@ export default function VoiceAssistant() {
       }
 
       // ── Step 1: STT ───────────────────────────────────────────────────────
-      const t1 = performance.now();
       const text = await voiceApi.stt(blob, signal);
-      console.log(`[Voice][Timing] STT: ${(performance.now() - t1).toFixed(0)}ms`);
       if (signal.aborted) return;
 
       // ── Step 2: Validate transcript ───────────────────────────────────────
@@ -534,9 +518,8 @@ export default function VoiceAssistant() {
       setBubbles((p) => [...p, { role: 'user', text: trimmed }]);
 
       // ── Step 3: LLM ───────────────────────────────────────────────────────
-      const t3 = performance.now();
+      // Thinking animation continues looping — no event change during LLM wait.
       const res = await chatApi.sendMessage(trimmed, true, signal);
-      console.log(`[Voice][Timing] LLM: ${(performance.now() - t3).toFixed(0)}ms`);
       if (signal.aborted) return;
 
       const reply = res.response;
@@ -547,26 +530,17 @@ export default function VoiceAssistant() {
       // understanding_resolved fires only after the audio blob is ready so the
       // understanding clip flows directly into speaking — the engine never has a
       // chance to return to idle between the two events.
-      const t4 = performance.now();
       const audioBlob = await voiceApi.tts(prepareTtsText(reply), signal);
-      console.log(`[Voice][Timing] TTS: ${(performance.now() - t4).toFixed(0)}ms`);
-      console.log(`[Voice][Timing] Total pipeline (STT+LLM+TTS): ${(performance.now() - t0).toFixed(0)}ms`);
       if (signal.aborted) return;
 
       // ── Step 5: Understanding flash → speaking ────────────────────────────
       // Audio is in hand — flash understanding briefly then begin playback.
       triggerEvent('understanding_resolved');
-      setStatusOverride('Anladım...');
-      // understanding clip: 12 frames @ 12 fps = 1000 ms, but 600 ms is enough
-      // for user to perceive the transition before speech begins.
-      await sleep(600, signal);
+      await sleep(450, signal);          // hold understanding clip ≥ 450 ms
       if (signal.aborted) return;
 
-      setStatusOverride(null);
       setVoiceState('speaking');
       triggerEvent('assistant_speaking');   // talking animation — loops while audio plays
-      await sleep(50, signal);             // one-frame settle so talking animation renders before audio starts
-      if (signal.aborted) return;
 
       const url   = URL.createObjectURL(audioBlob);
       const audio = new Audio(url);
@@ -588,14 +562,10 @@ export default function VoiceAssistant() {
       audio.onended = () => {
         URL.revokeObjectURL(url);
         stopSpeakingInterruptDetection();
-        if (cancelledRef.current) return;  // user hit cancel — do not re-enter
         if (continuousConversationRef.current && !isConversationEnding(lastReplyRef.current)) {
-          // Continuous mode: loop straight back to listening — no waking animation.
-          if (continuousTimer.current) clearTimeout(continuousTimer.current);
-          continuousTimer.current = setTimeout(() => {
-            if (cancelledRef.current) return;
-            startListeningRef.current(false);
-          }, 150);
+          // Continuous mode: loop straight back to listening — no goodbye animation.
+          triggerEvent('user_speaking');
+          setTimeout(() => startListeningRef.current(), 150);
         } else {
           // Normal mode or conversation-ending response: goodbye animation → idle.
           triggerEvent('conversation_finished');  // goodbye_to_idle animation
@@ -614,11 +584,9 @@ export default function VoiceAssistant() {
 
       await audio.play();
 
-      // Do NOT resume wake word during TTS playback.
-      // In Electron, TTS audio feeds back through the microphone, Whisper
-      // transcribes it and finds "Sadık" in the response text → false wake
-      // word trigger → infinite listening loop.  Wake word resumes only
-      // after the conversation fully ends (in audio.onended or returnToIdleFlow).
+      // Re-arm wake word during TTS playback so barge-in is possible.
+      // resumeWakeWord has an internal 800 ms delay before restarting the service.
+      resumeWakeWord();
 
       // Speaking interrupt detection disabled (safe mode):
       // startSpeakingInterruptDetection() opens getUserMedia + new AudioContext()
@@ -638,94 +606,44 @@ export default function VoiceAssistant() {
 
   // ── Start listening ────────────────────────────────────────────────────────
 
-  const startListening = useCallback(async (fromWakeWord = true) => {
+  const startListening = useCallback(async () => {
     setError(null);
     cancelledRef.current  = false;
+    // Pause global wake word BEFORE acquiring mic — two services cannot share mic.
     pauseWakeWord();
 
     try {
       const mimeType = getSupportedMimeType();
 
-      // Waking animation ONLY on actual wake word — not continuous conversation turns.
-      if (fromWakeWord) {
-        triggerEvent('wake_word_detected');
-      }
-      const wakingStart = fromWakeWord ? performance.now() : 0;
+      // Fire waking animation before getUserMedia — mic acquisition takes ~300ms,
+      // during which the animation plays naturally.  Transition to listening
+      // immediately after the mic is ready rather than via a fixed timer.
+      triggerEvent('wake_word_detected');
 
-      // Acquire microphone
-      const audioConstraints: boolean | MediaTrackConstraints =
-        selectedAudioInputIdRef.current === 'default'
-          ? true
-          : { deviceId: { exact: selectedAudioInputIdRef.current } };
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-      } catch {
-        if (selectedAudioInputIdRef.current !== 'default') {
-          console.warn('[Voice] Selected mic device unavailable, falling back to default');
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } else {
+      const stream = await (async () => {
+        const audioConstraints: boolean | MediaTrackConstraints =
+          selectedAudioInputIdRef.current === 'default'
+            ? true
+            : { deviceId: { exact: selectedAudioInputIdRef.current } };
+        try {
+          return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+        } catch {
+          if (selectedAudioInputIdRef.current !== 'default') {
+            console.warn('[Voice] Selected mic device unavailable, falling back to default');
+            return await navigator.mediaDevices.getUserMedia({ audio: true });
+          }
           throw new Error('Mikrofon erişimi reddedildi');
         }
-      }
-
-      // Wait for waking animation to play (only on wake word)
-      if (fromWakeWord) {
-        const elapsed = performance.now() - wakingStart;
-        const remaining = Math.max(0, 400 - elapsed);
-        if (remaining > 0) await new Promise(r => setTimeout(r, remaining));
-      }
-
-      // Setup recorder
+      })();
       const recorder = mimeType
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
 
-      mediaRecorderRef.current     = recorder;
-      audioChunks.current          = [];
-      silenceChunksRef.current     = 0;
-      minChunkSizeRef.current      = Infinity;
-      chunkCountRef.current        = 0;
-      speechEverDetectedRef.current = false;
+      mediaRecorderRef.current = recorder;
+      audioChunks.current      = [];
 
-      // ── Running-min VBR silence detection ───────────────────────────────────
-      // Tracks the smallest chunk seen so far (≈ silence level).
-      // Any chunk ≥ minSeen * SPEECH_RATIO counts as speech.
-      // After speech, consecutive chunks below that threshold → auto-stop.
-      // No calibration phase needed — works immediately.
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunks.current.push(e.data);
-        if (e.data.size === 0) return;
-
-        chunkCountRef.current++;
-        const size = e.data.size;
-
-        // Track running minimum
-        if (size < minChunkSizeRef.current) {
-          minChunkSizeRef.current = size;
-        }
-
-        const minSeen   = minChunkSizeRef.current;
-        const threshold = minSeen * SPEECH_RATIO;
-        const isSpeech  = size >= threshold;
-
-        console.log(`[Voice] Chunk #${chunkCountRef.current}: ${size} bytes, min=${minSeen}, threshold=${threshold.toFixed(0)}, speech=${isSpeech}`);
-
-        if (isSpeech) {
-          speechEverDetectedRef.current = true;
-          silenceChunksRef.current = 0;
-        } else if (speechEverDetectedRef.current && chunkCountRef.current >= MIN_CHUNKS_BEFORE_STOP) {
-          // Post-speech silence
-          silenceChunksRef.current++;
-          if (silenceChunksRef.current >= SILENCE_CHUNKS_TO_STOP) {
-            console.log(`[Voice] Silence detected (${silenceChunksRef.current} quiet chunks after speech), auto-stopping`);
-            setVoiceState('processing');
-            triggerEvent('processing');
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-              mediaRecorderRef.current.stop();
-            }
-          }
-        }
       };
 
       recorder.onstop = async () => {
@@ -745,17 +663,30 @@ export default function VoiceAssistant() {
         await processAudio(blob, controller.signal);
       };
 
-      recorder.start(RECORDER_TIMESLICE_MS);
+      recorder.start();
 
+      // getUserMedia has resolved — transition directly to listening.
       triggerEvent('user_speaking');
       setVoiceState('listening');
-      console.log('[Voice] Recording started — adaptive VBR silence (timeout: ' + NO_SPEECH_TIMEOUT_MS + 'ms)');
 
-      // Hard timeout safety net
+      // ── Silence detection: disabled (Windows audio driver safe mode) ────────
+      //
+      // new AudioContext() opens a WASAPI render device while MediaRecorder holds
+      // a WASAPI capture session.  On this Windows audio driver that dual concurrent
+      // WASAPI access causes STATUS_ACCESS_VIOLATION (exitCode -1073741819), crashing
+      // the Electron renderer.
+      //
+      // Auto-stop is provided by the timeout below.
+      // Manual stop: user clicks the Stop (X) button.
+      speechDetectedRef.current = false;
+      silenceStartRef.current   = null;
+      console.log('[Voice] Recording started — manual stop mode (timeout: ' + NO_SPEECH_TIMEOUT_MS + 'ms)');
+
+      // Hard timeout: caps recording at NO_SPEECH_TIMEOUT_MS.
+      // Without silence detection speechDetectedRef is never set, so this always
+      // fires — providing a guaranteed auto-stop.
       noSpeechTimeoutRef.current = setTimeout(() => {
         console.log('[Voice] Recording timeout, auto-stopping');
-        setVoiceState('processing');
-        triggerEvent('processing');
         stopSilenceDetection();
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
           mediaRecorderRef.current.stop();

@@ -18,6 +18,7 @@ enum PlaybackMode {
     MODE_IDLE,
     MODE_EXPLICIT_CLIP,
     MODE_TEXT,
+    MODE_FRAME_STREAM,     // app is streaming raw frames via FRAME: command
 };
 
 // ── Global singletons (construction order matters) ────────────────────────────
@@ -154,14 +155,9 @@ void processCommand(ParsedCommand& cmd) {
             textRenderer.clear();
             currentMode = MODE_EXPLICIT_CLIP;
 
-            // listening, thinking, and talking are indefinitely looping clips.
-            // Their ClipDefinition already has loop=true; forceLoop is a belt-
-            // and-suspenders guarantee that they never stop on their own.
-            bool shouldLoop = (strcmp(cmd.argument, "listening") == 0 ||
-                               strcmp(cmd.argument, "thinking")  == 0 ||
-                               strcmp(cmd.argument, "talking")   == 0);
-
-            clipPlayer.play(clip, shouldLoop);
+            // Use the clip's own loop flag.  The idle clip loops; blink and
+            // look variations do not.
+            clipPlayer.play(clip, clip->loop);
 
             snprintf(resp, sizeof(resp), "OK:PLAYING:%s", cmd.argument);
             Serial.println(resp);
@@ -253,8 +249,9 @@ void processCommand(ParsedCommand& cmd) {
                     modeStr  = "CLIP";
                     clipName = clipPlayer.currentClipName();
                     break;
-                case MODE_TEXT:         modeStr = "TEXT";    break;
-                default:                modeStr = "UNKNOWN"; break;
+                case MODE_TEXT:          modeStr = "TEXT";          break;
+                case MODE_FRAME_STREAM: modeStr = "FRAME_STREAM"; break;
+                default:                modeStr = "UNKNOWN";       break;
             }
 
             const char* appStr = appConnected ? "CONNECTED" : "DISCONNECTED";
@@ -350,9 +347,36 @@ void processCommand(ParsedCommand& cmd) {
             appConnected = false;
             // Always return to idle orchestra on disconnect, regardless of current mode.
             // Without this, a TEXT mode (e.g. "TOPLANTI") stays frozen on screen.
+            clipPlayer.stop();
+            textRenderer.clear();
             currentMode = MODE_IDLE;
             idleOrchestrator.resume();
             Serial.println("OK:APP_DISCONNECTED");
+            break;
+        }
+
+        // ── FRAME:<hex data> ─────────────────────────────────────────────────
+        // Raw 1024-byte frame streamed by the desktop app.  The firmware acts
+        // as a dumb display terminal: decode, render, acknowledge.
+        case CMD_FRAME_DATA: {
+            if (!appConnected) {
+                Serial.println("ERR:APP_NOT_CONNECTED");
+                break;
+            }
+
+            ensureAwake("FRAME");
+            markActivity("FRAME");
+
+            // Stop any playing clip / text on first frame
+            if (currentMode != MODE_FRAME_STREAM) {
+                idleOrchestrator.pause();
+                clipPlayer.stop();
+                textRenderer.clear();
+                currentMode = MODE_FRAME_STREAM;
+            }
+
+            display.showRawFrame(cmd.frameData);
+            // No response — avoids TX buffer deadlock at high frame rates
             break;
         }
 
@@ -413,6 +437,7 @@ void loop() {
     if (sleepTimeoutMs > 0 &&
         !display.isSleeping() &&
         currentMode != MODE_EXPLICIT_CLIP &&
+        currentMode != MODE_FRAME_STREAM &&
         currentMode != MODE_BOOT) {
 
         unsigned long elapsed = millis() - lastActivityMs;
