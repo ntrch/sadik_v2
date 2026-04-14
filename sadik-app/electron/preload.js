@@ -17,3 +17,10 @@ contextBridge.exposeInMainWorld('sadikElectron', {
   //          plain text for 'text' or a data:image/*;base64,... URL for 'image'.
   writeClipboard: (payload) => ipcRenderer.invoke('sadik:write-clipboard', payload),
 });
+
+// Separate namespace for new APIs (keeps sadikElectron stable for existing callers).
+contextBridge.exposeInMainWorld('electronAPI', {
+  // Toggle Windows Focus Assist / DND via main process IPC.
+  // Returns a Promise<{ ok: boolean; error?: string }>.
+  setDnd: (enabled) => ipcRenderer.invoke('set-dnd', enabled),
+});

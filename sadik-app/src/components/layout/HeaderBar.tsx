@@ -1,5 +1,5 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { Usb, Wifi, ChevronDown, X, RotateCw, Sun, SunDim, Mic, MicOff, Settings, Sunrise, CloudSun, Sunset, Moon, Radio } from 'lucide-react';
+import { Usb, Wifi, ChevronDown, X, RotateCw, Sun, SunDim, Mic, MicOff, Settings, Sunrise, CloudSun, Sunset, Moon, Radio, BellOff, Bell } from 'lucide-react';
 import { useDevice } from '../../hooks/useDevice';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { deviceApi, SerialPort } from '../../api/device';
@@ -29,6 +29,7 @@ export default function HeaderBar() {
     deviceStatus, oledBrightnessPercent, setOledBrightness,
     autoConnectDevice, wakeWordEnabled, wakeWordActive, toggleWakeWord,
     voiceAssistantActive, setVoiceUiVisible,
+    dndActive, setDndActive,
   } = useContext(AppContext);
   const { connect, disconnect } = useDevice();
   const navigate = useNavigate();
@@ -158,6 +159,18 @@ export default function HeaderBar() {
               </button>
             );
           })()}
+
+          <button
+            onClick={() => setDndActive(!dndActive)}
+            title="Rahatsız Etmeyin"
+            className={`p-2.5 rounded-full transition-all ${
+              dndActive
+                ? 'bg-accent-red/20 text-accent-red hover:bg-accent-red/30'
+                : 'bg-bg-input text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            {dndActive ? <BellOff size={20} /> : <Bell size={20} />}
+          </button>
 
           <div className="w-px h-5 bg-border/50" />
 

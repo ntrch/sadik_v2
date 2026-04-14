@@ -1,6 +1,6 @@
 import React, { useState, useContext, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Lightbulb, Calendar, ArrowRight, Briefcase, Code, Coffee, Users, Check, X as XIcon, Flag, CalendarClock, ListTodo, BarChart2 } from 'lucide-react';
+import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Lightbulb, Calendar, ArrowRight, Briefcase, Code, Coffee, Users, Check, X as XIcon, Flag, CalendarClock, ListTodo, BarChart2, BellOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { modesApi } from '../api/modes';
@@ -118,13 +118,14 @@ export default function DashboardPage() {
     triggerEvent, showText, returnToIdle, playClipDirect, playModClip, playModSequence, getLoadedClipNames,
     engineState, activeInsight, acceptInsight, denyInsight,
     debugForcePoll, debugTestTTS, debugResetCounters, debugSimulateInsight,
+    setDndActive,
   } = useContext(AppContext);
   const [simAppName, setSimAppName] = useState('League of Legends');
   const [simMinutes, setSimMinutes] = useState(125);
   const navigate = useNavigate();
 
   const {
-    customModes, getModeColor, nextFreeColor, setPresetColor,
+    customModes, getModeColor, getModeDnd, nextFreeColor, setPresetColor, setModeDnd,
     addCustomMode, setCustomModeColor, removeCustomMode,
   } = useModeColors();
   const [customMode, setCustomMode] = useState('');
@@ -206,6 +207,7 @@ export default function DashboardPage() {
     try {
       await modesApi.endCurrent();
       setCurrentMode(null);
+      setDndActive(false); // no active mode → clear DND
       returnToIdle();
       showToast('Mod sonlandırıldı', 'info');
     } catch {
@@ -225,6 +227,8 @@ export default function DashboardPage() {
     try {
       await modesApi.setMode(mode);
       setCurrentMode(mode);
+      // Auto-apply mode's DND setting
+      setDndActive(getModeDnd(mode));
       triggerEvent('confirmation_success');
       showToast(`Mod değiştirildi: ${mode}`, 'success');
       if (modeReturnTimer.current) clearTimeout(modeReturnTimer.current);
@@ -316,27 +320,31 @@ export default function DashboardPage() {
                   label={label}
                   name={key}
                   color={color}
+                  dnd={getModeDnd(key)}
                   active={isActive}
                   disabled={loading}
                   icon={IconComp ? <IconComp size={16} /> : null}
                   onClick={() => handleSetMode(key, oledText)}
                   onColorChange={(c) => handleColorChange(key, c)}
+                  onDndChange={(d) => setModeDnd(key, d)}
                   pickerOpen={colorPickerFor === key}
                   setPickerOpen={(v) => setColorPickerFor(v ? key : null)}
                 />
               );
             })}
             {/* Saved custom modes */}
-            {customModes.map(({ name, color }) => (
+            {customModes.map(({ name, color, dnd }) => (
               <ModeChip
                 key={`custom-${name}`}
                 label={name}
                 name={name}
                 color={color}
+                dnd={dnd}
                 active={currentMode === name}
                 disabled={loading}
                 onClick={() => handleSetMode(name, name.toUpperCase())}
                 onColorChange={(c) => handleColorChange(name, c)}
+                onDndChange={(d) => setModeDnd(name, d)}
                 onDelete={() => handleDeleteCustomMode(name)}
                 pickerOpen={colorPickerFor === name}
                 setPickerOpen={(v) => setColorPickerFor(v ? name : null)}
@@ -724,17 +732,19 @@ interface ModeChipProps {
   label: string;
   name: string;
   color: string;
+  dnd: boolean;
   active: boolean;
   disabled?: boolean;
   icon?: React.ReactNode;
   onClick: () => void;
   onColorChange: (color: string) => void;
+  onDndChange: (dnd: boolean) => void;
   onDelete?: () => void;
   pickerOpen: boolean;
   setPickerOpen: (open: boolean) => void;
 }
 
-function ModeChip({ label, color, active, disabled, icon, onClick, onColorChange, onDelete, pickerOpen, setPickerOpen }: ModeChipProps) {
+function ModeChip({ label, color, dnd, active, disabled, icon, onClick, onColorChange, onDndChange, onDelete, pickerOpen, setPickerOpen }: ModeChipProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
@@ -794,6 +804,19 @@ function ModeChip({ label, color, active, disabled, icon, onClick, onColorChange
             onChange={(e) => onColorChange(e.target.value)}
             className="w-8 h-8 rounded cursor-pointer bg-transparent border-0"
           />
+          {/* DND per-mode toggle */}
+          <button
+            onClick={() => onDndChange(!dnd)}
+            title="Rahatsız Etmeyin"
+            className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${
+              dnd
+                ? 'bg-accent-red/20 border-accent-red/50 text-accent-red'
+                : 'bg-bg-input border-border text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            <BellOff size={10} />
+            {dnd ? 'RET' : 'RET?'}
+          </button>
           <button
             onClick={() => setPickerOpen(false)}
             className="text-xs text-text-muted hover:text-text-primary px-2 py-1"

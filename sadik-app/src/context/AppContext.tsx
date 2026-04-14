@@ -89,6 +89,9 @@ interface AppContextType {
   /** True when ChatPage's voice tab is active — drives persistent VoiceAssistant visibility. */
   voiceUiVisible: boolean;
   setVoiceUiVisible: (visible: boolean) => void;
+  // DND
+  dndActive: boolean;
+  setDndActive: (v: boolean) => void;
   // Debug — for manual proactive testing from Dashboard
   debugForcePoll: () => void;
   debugTestTTS: (text?: string) => void;
@@ -190,6 +193,8 @@ export const AppContext = createContext<AppContextType>({
   voiceAssistantActive: false,
   voiceUiVisible: false,
   setVoiceUiVisible: () => {},
+  dndActive: false,
+  setDndActive: () => {},
   debugForcePoll: () => {},
   debugTestTTS: () => {},
   debugResetCounters: () => {},
@@ -550,6 +555,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setVoiceAssistantActiveState(active);
   }, []);
 
+  // ── DND state ──────────────────────────────────────────────────────────────
+  const [dndActive, setDndActiveState] = useState(false);
+  const dndActiveRef = useRef(false);
+  dndActiveRef.current = dndActive;
+
+  const setDndActive = useCallback((v: boolean) => {
+    setDndActiveState(v);
+    dndActiveRef.current = v;
+    // Persist
+    settingsApi.update({ dnd_active: String(v) }).catch(() => {});
+    // OS-level DND via Electron IPC
+    try { (window as any).electronAPI?.setDnd?.(v); } catch { /* best-effort */ }
+  }, []);
+
   // ── OLED burn-in protection — idle detection ───────────────────────────────
   //
   // Authority model:
@@ -765,6 +784,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         // Rule A: feature disabled
         if (!proactiveSuggestionsEnabledRef.current) { console.log('[Proactive] ✗ Rule A — feature disabled'); return; }
+
+        // Rule F: DND active — suppress all proactive toast/voice/OLED
+        if (dndActiveRef.current) { console.log('[Proactive] ✗ Rule F — DND aktif'); return; }
 
         // Rule B: quiet hours (overnight-aware)
         if (isInQuietHours(proactiveQuietHoursStartRef.current, proactiveQuietHoursEndRef.current)) { console.log('[Proactive] ✗ Rule B — quiet hours', proactiveQuietHoursStartRef.current, '→', proactiveQuietHoursEndRef.current); return; }
@@ -1099,6 +1121,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         spokenProactiveDailyLimitRef.current = isNaN(spokenLimit) ? 1 : spokenLimit;
         setSpokenProactiveEnabledState(spokenEnabled);
         setSpokenProactiveDailyLimitState(isNaN(spokenLimit) ? 1 : spokenLimit);
+        // Load DND
+        const savedDnd = s['dnd_active'] === 'true';
+        setDndActiveState(savedDnd);
+        dndActiveRef.current = savedDnd;
       })
       .catch(() => {});
 
@@ -1267,6 +1293,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         voiceAssistantActive,
         voiceUiVisible,
         setVoiceUiVisible,
+        dndActive,
+        setDndActive,
         debugForcePoll,
         debugTestTTS,
         debugResetCounters,

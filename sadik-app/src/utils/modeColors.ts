@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react';
 import { settingsApi } from '../api/settings';
 
-export interface CustomModeEntry { name: string; color: string; }
+export interface CustomModeEntry { name: string; color: string; dnd: boolean; }
 
 export const DEFAULT_PRESET_COLORS: Record<string, string> = {
   working: '#a78bfa',
   coding:  '#67e8f9',
   break:   '#6ee7b7',
   meeting: '#fcd34d',
+};
+
+export const DEFAULT_PRESET_DND: Record<string, boolean> = {
+  working: false,
+  coding:  false,
+  break:   false,
+  meeting: false,
 };
 
 export const CUSTOM_DEFAULT_COLOR = '#fb923c';
@@ -20,12 +27,14 @@ export const PALETTE = [
 
 type State = {
   presetColors: Record<string, string>;
+  presetDnd: Record<string, boolean>;
   customModes: CustomModeEntry[];
   loaded: boolean;
 };
 
 const state: State = {
   presetColors: { ...DEFAULT_PRESET_COLORS },
+  presetDnd: { ...DEFAULT_PRESET_DND },
   customModes: [],
   loaded: false,
 };
@@ -37,7 +46,17 @@ export async function loadModeColors(): Promise<void> {
   if (state.loaded) return;
   try {
     const s = await settingsApi.getAll();
-    if (s.preset_mode_colors) {
+    // Migrate: preset_mode_settings supersedes preset_mode_colors (adds dnd).
+    if (s.preset_mode_settings) {
+      try {
+        const parsed = JSON.parse(s.preset_mode_settings) as Record<string, { color: string; dnd?: boolean }>;
+        Object.entries(parsed).forEach(([k, v]) => {
+          if (v.color) state.presetColors[k] = v.color;
+          if (typeof v.dnd === 'boolean') state.presetDnd[k] = v.dnd;
+        });
+      } catch { /* ignore */ }
+    } else if (s.preset_mode_colors) {
+      // Legacy: old shape — only colors, no dnd
       try {
         const parsed = JSON.parse(s.preset_mode_colors);
         state.presetColors = { ...state.presetColors, ...parsed };
@@ -47,9 +66,13 @@ export async function loadModeColors(): Promise<void> {
       try {
         const parsed = JSON.parse(s.custom_modes);
         state.customModes = (Array.isArray(parsed) ? parsed : []).map((e: unknown) => {
-          if (typeof e === 'string') return { name: e, color: CUSTOM_DEFAULT_COLOR };
+          if (typeof e === 'string') return { name: e, color: CUSTOM_DEFAULT_COLOR, dnd: false };
           const o = e as Partial<CustomModeEntry>;
-          return { name: String(o.name ?? ''), color: String(o.color ?? CUSTOM_DEFAULT_COLOR) };
+          return {
+            name: String(o.name ?? ''),
+            color: String(o.color ?? CUSTOM_DEFAULT_COLOR),
+            dnd: typeof o.dnd === 'boolean' ? o.dnd : false,
+          };
         }).filter((m) => m.name);
       } catch { /* ignore */ }
     }
@@ -63,6 +86,12 @@ export function getModeColor(name: string): string {
   const c = state.customModes.find((m) => m.name === name);
   if (c) return c.color;
   return CUSTOM_DEFAULT_COLOR;
+}
+
+export function getModeDnd(name: string): boolean {
+  if (name in state.presetDnd) return state.presetDnd[name];
+  const c = state.customModes.find((m) => m.name === name);
+  return c?.dnd ?? false;
 }
 
 function usedColors(excludeName?: string): Set<string> {
@@ -80,8 +109,13 @@ export function nextFreeColor(): string {
 
 async function persist(): Promise<void> {
   try {
+    // Build preset_mode_settings blob combining color + dnd
+    const presetSettings: Record<string, { color: string; dnd: boolean }> = {};
+    Object.keys(state.presetColors).forEach((k) => {
+      presetSettings[k] = { color: state.presetColors[k], dnd: state.presetDnd[k] ?? false };
+    });
     await settingsApi.update({
-      preset_mode_colors: JSON.stringify(state.presetColors),
+      preset_mode_settings: JSON.stringify(presetSettings),
       custom_modes: JSON.stringify(state.customModes),
     });
   } catch { /* best-effort */ }
@@ -93,9 +127,19 @@ export async function setPresetColor(mode: string, color: string): Promise<void>
   await persist();
 }
 
+export async function setModeDnd(mode: string, dnd: boolean): Promise<void> {
+  if (mode in state.presetDnd || DEFAULT_PRESET_COLORS[mode] !== undefined) {
+    state.presetDnd = { ...state.presetDnd, [mode]: dnd };
+  } else {
+    state.customModes = state.customModes.map((m) => (m.name === mode ? { ...m, dnd } : m));
+  }
+  emit();
+  await persist();
+}
+
 export async function addCustomMode(name: string, color: string): Promise<boolean> {
   if (state.customModes.some((m) => m.name === name)) return false;
-  state.customModes = [...state.customModes, { name, color }];
+  state.customModes = [...state.customModes, { name, color, dnd: false }];
   emit();
   await persist();
   return true;
@@ -115,8 +159,9 @@ export async function removeCustomMode(name: string): Promise<void> {
 
 export function getCustomModes(): CustomModeEntry[] { return state.customModes; }
 export function getPresetColors(): Record<string, string> { return state.presetColors; }
+export function getPresetDnd(): Record<string, boolean> { return state.presetDnd; }
 
-/** Subscribe hook — rerenders on any color/custom-mode change. */
+/** Subscribe hook — rerenders on any color/custom-mode/dnd change. */
 export function useModeColors() {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -127,10 +172,13 @@ export function useModeColors() {
   }, []);
   return {
     presetColors: state.presetColors,
+    presetDnd: state.presetDnd,
     customModes: state.customModes,
     getModeColor,
+    getModeDnd,
     nextFreeColor,
     setPresetColor,
+    setModeDnd,
     addCustomMode,
     setCustomModeColor,
     removeCustomMode,

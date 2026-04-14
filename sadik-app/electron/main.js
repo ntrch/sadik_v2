@@ -652,6 +652,34 @@ function createWindow() {
     }
   });
 
+  // ── DND IPC — toggle Windows Focus Assist via registry ──────────────────
+  //
+  // Registry key: HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings
+  // Value: NOC_GLOBAL_SETTING_TOASTS_ENABLED  (DWORD)  1=on 0=off (inverted for DND)
+  //
+  // NOTE: This path controls "notification banners" globally (Focus Assist level 1).
+  // It does NOT require elevation — it's a per-user registry key. However, on some
+  // Windows 11 builds the key may be ignored if Focus Assist is managed via Group Policy.
+  // If the PowerShell call fails, we log the error and return ok:false — the in-app
+  // DND state (frontend toggle) still works regardless.
+  ipcMain.handle('set-dnd', async (_event, enabled) => {
+    const value = enabled ? 0 : 1; // 0 = toasts disabled (DND on), 1 = toasts enabled
+    const regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings';
+    const script = `Set-ItemProperty -Path '${regPath}' -Name 'NOC_GLOBAL_SETTING_TOASTS_ENABLED' -Value ${value} -Type DWord -Force`;
+    return new Promise((resolve) => {
+      const { exec } = require('child_process');
+      exec(`powershell.exe -NoProfile -NonInteractive -Command "${script}"`, { timeout: 5000 }, (err) => {
+        if (err) {
+          tlog(`[DND] Registry toggle failed (non-fatal): ${err.message}`);
+          resolve({ ok: false, error: err.message });
+        } else {
+          tlog(`[DND] Focus Assist toasts set to ${value} (DND ${enabled ? 'ON' : 'OFF'})`);
+          resolve({ ok: true });
+        }
+      });
+    });
+  });
+
   // ── Proactive notification IPC ───────────────────────────────────────────
   ipcMain.on('show-notification', (_event, { title, body }) => {
     if (!Notification.isSupported()) return;
