@@ -17,8 +17,8 @@ def task_to_dict(task: Task) -> dict:
         "notes": task.notes,
         "status": task.status,
         "priority": task.priority,
-        "created_at": task.created_at.isoformat() if task.created_at else None,
-        "updated_at": task.updated_at.isoformat() if task.updated_at else None,
+        "created_at": (task.created_at.isoformat() + 'Z') if task.created_at else None,
+        "updated_at": (task.updated_at.isoformat() + 'Z') if task.updated_at else None,
         "due_date": task.due_date.isoformat() if task.due_date else None,
         "pomodoro_count": task.pomodoro_count,
     }

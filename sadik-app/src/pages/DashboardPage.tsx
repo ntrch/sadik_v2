@@ -291,9 +291,12 @@ export default function DashboardPage() {
 
   return (
     <div className="h-full overflow-y-auto p-6 page-transition">
+      {/* Proactive insight — pinned at top */}
+      <InsightCard insight={activeInsight} onAccept={acceptInsight} onDeny={denyInsight} />
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
-        <StatCard icon={<Clock size={18} className="text-accent-blue" />} label="Toplam Çalışma" value={formatDuration(totalWorkSeconds)} color="blue" />
+        <StatCard icon={<Clock size={18} className="text-accent-blue" />} label="Toplam Aktiflik" value={formatDuration(totalWorkSeconds)} color="blue" />
         <StatCard icon={<CheckSquare size={18} className="text-accent-green" />} label="Tamamlanan" value={`${doneToday} görev`} color="green" />
         <StatCard icon={<Flame size={18} className="text-accent-orange" />} label="Pomodoro" value={`${pomodoroState.current_session} oturum`} color="orange" />
         <StatCard icon={<Activity size={18} className="text-accent-purple" />} label="Aktif Mod" value={currentMode ? (MODE_LABELS[currentMode] || currentMode) : '—'} color="purple" />
@@ -382,9 +385,6 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
-
-      {/* Proactive insight */}
-      <InsightCard insight={activeInsight} onAccept={acceptInsight} onDeny={denyInsight} />
 
       {/* Mode duration summary — accordion */}
       {modeStats.length > 0 && (
@@ -492,8 +492,8 @@ export default function DashboardPage() {
                     const color = heatColor(i, sorted.length);
                     return (
                       <div key={item.app_name}
-                        className="relative bg-bg-input border-2 rounded-card p-2.5 shadow-card transition-all hover:-translate-y-0.5"
-                        style={{ borderColor: color }}>
+                        className="relative bg-bg-input border border-border rounded-card p-2.5 shadow-card transition-all hover:-translate-y-0.5"
+                        >
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="text-[10px] font-semibold" style={{ color }}>#{i + 1}</span>
                           <span className="text-[10px] text-text-secondary font-medium tabular-nums">{formatDuration(item.duration_seconds)}</span>

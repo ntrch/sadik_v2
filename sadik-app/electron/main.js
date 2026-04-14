@@ -613,8 +613,9 @@ function createWindow() {
     minHeight:       700,
     backgroundColor: '#0a0f1a',
     webPreferences: {
-      nodeIntegration:  false,
-      contextIsolation: true,
+      nodeIntegration:        false,
+      contextIsolation:       true,
+      backgroundThrottling:   false,
       preload: path.join(__dirname, 'preload.js'),
     },
     titleBarStyle:    process.platform === 'darwin' ? 'hidden' : 'default',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { Task, TaskCreate, TaskUpdate, tasksApi } from '../../api/tasks';
 import { AppContext } from '../../context/AppContext';
@@ -44,6 +44,17 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  const notesRef = useRef<HTMLTextAreaElement>(null);
+
+  const autoResize = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }, []);
+
+  useEffect(() => { autoResize(descRef.current); }, [description]);
+  useEffect(() => { autoResize(notesRef.current); }, [notes]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -124,10 +135,11 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
           <div>
             <label className="text-xs font-medium text-text-secondary mb-1.5 block">Açıklama</label>
             <textarea
+              ref={descRef}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors resize-none"
+              style={{ minHeight: '60px' }}
+              className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors resize-none overflow-hidden"
               placeholder="Opsiyonel açıklama..."
             />
           </div>
@@ -135,10 +147,11 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
           <div>
             <label className="text-xs font-medium text-text-secondary mb-1.5 block">Görev Notu</label>
             <textarea
+              ref={notesRef}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors resize-none"
+              style={{ minHeight: '60px' }}
+              className="w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors resize-none overflow-hidden"
               placeholder="Ek notlar..."
             />
           </div>
