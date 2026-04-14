@@ -3,3 +3,4 @@ from app.models.mode_log import ModeLog
 from app.models.chat_message import ChatMessage
 from app.models.setting import Setting
 from app.models.app_usage_session import AppUsageSession
+from app.models.memory import ClipboardItem, BrainstormNote

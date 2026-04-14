@@ -120,6 +120,16 @@ const STATUS_LABELS: Record<VoiceState, string> = {
 
 const NO_SPEECH_TIMEOUT_MS   = 15000;  // safety net — VAD stops earlier; 15 s hard cap
 
+const MIN_RECORDING_MS     = 1500;  // minimum recording duration before VAD end is honored
+const POST_ROLL_SILENCE_MS = 800;   // hangover after onSpeechEnd; if user resumes within this window, cancel stop
+const VAD_CONFIG = {
+  positiveSpeechThreshold: 0.6,
+  negativeSpeechThreshold: 0.35,
+  redemptionFrames: 24,
+  minSpeechFrames: 4,
+  preSpeechPadFrames: 10,
+};
+
 // Speaking-state direct interruption detector
 const INTERRUPT_THRESHOLD  = 0.03;  // RMS above this → user speaking during TTS
 const INTERRUPT_SUSTAIN_MS = 300;   // must sustain for this long to trigger interrupt
@@ -156,6 +166,7 @@ export default function VoiceAssistant() {
   const vadSpeechActiveRef       = useRef(false);   // true whenever VAD thinks speech is happening (no recording guard)
   const silenceStartRef          = useRef<number | null>(null);
   const vadRef                   = useRef<any | null>(null);  // MicVAD instance
+  const postRollTimerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistentStreamRef      = useRef<MediaStream | null>(null);
   const recordingStartTimeRef    = useRef<number>(0);        // Date.now() when recorder.start() fires
   const conversationActiveRef    = useRef(false);            // true while in an active voice conversation session
@@ -206,6 +217,10 @@ export default function VoiceAssistant() {
       clearTimeout(noSpeechTimeoutRef.current);
       noSpeechTimeoutRef.current = null;
     }
+    if (postRollTimerRef.current) {
+      clearTimeout(postRollTimerRef.current);
+      postRollTimerRef.current = null;
+    }
     // In continuous mode, keep VAD running so the persistent MediaStream has an
     // active consumer.  Chrome/Windows auto-releases capture devices when no
     // AudioContext or MediaRecorder is consuming the stream, which kills the
@@ -228,6 +243,10 @@ export default function VoiceAssistant() {
   }, [continuousConversationRef]);
 
   const destroyVAD = useCallback(() => {
+    if (postRollTimerRef.current) {
+      clearTimeout(postRollTimerRef.current);
+      postRollTimerRef.current = null;
+    }
     if (vadRef.current) {
       vadRef.current.destroy().catch(() => {});
       vadRef.current = null;
@@ -831,16 +850,17 @@ export default function VoiceAssistant() {
         } else {
           // First turn — create VAD
           const vad = await MicVAD.new({
+            ...VAD_CONFIG,
             getStream: async () => stream,
-            positiveSpeechThreshold: 0.5,
-            negativeSpeechThreshold: 0.35,
-            minSpeechMs: 250,
-            redemptionMs: 1200,
-            preSpeechPadMs: 30,
             submitUserSpeechOnPause: false,
 
             onSpeechStart: () => {
               vadSpeechActiveRef.current = true;
+              if (postRollTimerRef.current) {
+                clearTimeout(postRollTimerRef.current);
+                postRollTimerRef.current = null;
+                console.log('[Voice] VAD: speech resumed — post-roll cancelled');
+              }
               // Guard: only act when recorder is active (continuous mode keeps VAD
               // running between turns — ignore speech during processing/speaking)
               if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== 'recording') {
@@ -857,22 +877,30 @@ export default function VoiceAssistant() {
                 console.log('[Voice] VAD: speech ended (ignored — not recording)');
                 return;
               }
-              // Minimum recording guard: don't cut off if recording < 1.5s.
+              // Minimum recording guard: don't cut off if recording < MIN_RECORDING_MS.
               // This prevents premature stops when the user pauses briefly after
               // the first word (VAD fires speech-end on the breath gap).
               const elapsed = Date.now() - recordingStartTimeRef.current;
-              if (elapsed < 1500) {
-                console.log(`[Voice] VAD: speech ended too early (${elapsed}ms < 1500ms) — ignoring`);
+              if (elapsed < MIN_RECORDING_MS) {
+                console.log(`[Voice] VAD: speech ended too early (${elapsed}ms < ${MIN_RECORDING_MS}ms) — ignoring`);
                 return;
               }
-              console.log(`[Voice] VAD: speech ended after ${elapsed}ms — auto-stopping recorder`);
-              if (noSpeechTimeoutRef.current) {
-                clearTimeout(noSpeechTimeoutRef.current);
-                noSpeechTimeoutRef.current = null;
+              console.log(`[Voice] VAD: speech ended after ${elapsed}ms — post-roll armed (${POST_ROLL_SILENCE_MS}ms)`);
+              if (postRollTimerRef.current) {
+                clearTimeout(postRollTimerRef.current);
               }
-              setVoiceState('processing');
-              triggerEvent('processing');
-              mediaRecorderRef.current.stop();
+              postRollTimerRef.current = setTimeout(() => {
+                postRollTimerRef.current = null;
+                if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== 'recording') return;
+                console.log('[Voice] VAD: post-roll expired — stopping recorder');
+                if (noSpeechTimeoutRef.current) {
+                  clearTimeout(noSpeechTimeoutRef.current);
+                  noSpeechTimeoutRef.current = null;
+                }
+                setVoiceState('processing');
+                triggerEvent('processing');
+                mediaRecorderRef.current.stop();
+              }, POST_ROLL_SILENCE_MS);
             },
             onVADMisfire: () => {
               console.log('[Voice] VAD: misfire (speech too short)');

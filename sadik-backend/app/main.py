@@ -7,7 +7,7 @@ import logging
 
 from app.database import engine, Base, AsyncSessionLocal
 from app.models import Task, ModeLog, ChatMessage, Setting, AppUsageSession
-from app.routers import tasks, modes, stats, pomodoro, device, chat, voice, settings, ws
+from app.routers import tasks, modes, stats, pomodoro, device, chat, voice, settings, ws, memory
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -117,6 +117,7 @@ app.include_router(chat.router)
 app.include_router(voice.router)
 app.include_router(settings.router)
 app.include_router(ws.router)
+app.include_router(memory.router)
 
 @app.get("/")
 async def root():

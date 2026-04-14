@@ -44,6 +44,14 @@ _HALLUCINATION_PATTERNS = [
     "teşekkür ederim", "tesekkur ederim",
     "izlediğiniz için", "izlediginiz icin",
     "dinlediğiniz için", "dinlediginiz icin",
+    # Farewell / social-filler hallucinations (Whisper loops on silence)
+    "hoşçakalın", "hoscakalin", "hoşça kalın", "hosca kalin",
+    "güle güle", "gule gule",
+    "afiyet olsun",
+    "kolay gelsin",
+    "iyi günler", "iyi gunler",
+    "iyi akşamlar", "iyi aksamlar",
+    "hayırlı olsun", "hayirli olsun",
     # URL / domain
     "www.", "http", ".com", ".net",
     # Music / noise symbols

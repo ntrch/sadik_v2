@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, ListTodo, Timer, MessageSquare, Mic, BarChart2, Settings
+  LayoutDashboard, ListTodo, Timer, MessageSquare, Mic, BarChart2, Settings, Sun, SunDim,
 } from 'lucide-react';
 import OledPreview from './OledPreview';
 import DeviceStatus from './DeviceStatus';
@@ -37,26 +37,31 @@ export default function Sidebar() {
         <OledPreview />
         <DeviceStatus />
 
-        {/* ── OLED brightness ──────────────────────────────────────────────── */}
-        <div className="mt-2 px-2.5 py-2 bg-bg-card border border-border rounded-btn">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-text-secondary">Parlaklık</span>
-            <span className="text-xs text-text-muted tabular-nums">{oledBrightnessPercent}%</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={5}
-            value={oledBrightnessPercent}
-            onChange={(e) => setOledBrightness(Number(e.target.value))}
-            title={deviceStatus.connected ? 'OLED parlaklığı' : 'OLED parlaklığı (cihaz bağlı değil — tercih kaydedilir)'}
-            className="w-full h-1 rounded-full accent-accent-blue cursor-pointer"
-          />
-          <p className="text-[10px] text-text-muted mt-1.5">
-            Uyku: {oledSleepTimeoutMinutes === 0 ? 'Kapalı' : `${oledSleepTimeoutMinutes} dk`}
-          </p>
-        </div>
+        {/* ── OLED brightness toggle (dim / full — two states only) ────────── */}
+        {(() => {
+          // Hardware effectively only has dim vs full, so expose two states.
+          // Anything <= 50% is treated as "dim"; toggling flips to the other.
+          const isFull = oledBrightnessPercent > 50;
+          const nextValue = isFull ? 30 : 100;
+          return (
+            <div className="mt-2 px-2.5 py-2 bg-bg-card border border-border rounded-btn flex items-center justify-between">
+              <button
+                onClick={() => setOledBrightness(nextValue)}
+                title={isFull ? 'Ekstra Parlaklık: Açık' : 'Ekstra Parlaklık: Kapalı'}
+                className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                  isFull
+                    ? 'bg-accent-yellow/20 text-accent-yellow ring-1 ring-accent-yellow/40'
+                    : 'bg-bg-input text-text-muted border border-border'
+                }`}
+              >
+                {isFull ? <Sun size={18} /> : <SunDim size={18} />}
+              </button>
+              <span className="text-[10px] text-text-muted">
+                Uyku: {oledSleepTimeoutMinutes === 0 ? 'Kapalı' : `${oledSleepTimeoutMinutes} dk`}
+              </span>
+            </div>
+          );
+        })()}
 
         {/* ── Wake word status ─────────────────────────────────────────────── */}
         <div className="mt-2 px-2.5 py-2 bg-bg-card border border-border rounded-btn flex items-center gap-2">

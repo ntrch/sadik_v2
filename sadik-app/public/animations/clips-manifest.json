@@ -140,9 +140,19 @@
     "loop": false
   },
   {
-    "name": "mod_working",
+    "name": "mod_break",
     "category": "core",
-    "source": "mods/working.json",
+    "source": "mods/break.json",
+    "frameCount": 46,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "mod_break_text",
+    "category": "core",
+    "source": "mods/break_text.json",
     "frameCount": 24,
     "width": 128,
     "height": 64,
@@ -150,10 +160,20 @@
     "loop": true
   },
   {
-    "name": "mod_break",
+    "name": "mod_working",
     "category": "core",
-    "source": "mods/break.json",
-    "frameCount": 46,
+    "source": "mods/working.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "mod_working_text",
+    "category": "core",
+    "source": "mods/working_text.json",
+    "frameCount": 24,
     "width": 128,
     "height": 64,
     "fps": 12,

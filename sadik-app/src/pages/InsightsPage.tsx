@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Shield } from 'lucide-react';
+import { BarChart2, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import { statsApi, AppUsageStat, AppUsageRangeSummary } from '../api/stats';
 
 // ── Duration formatting ───────────────────────────────────────────────────────
-// Kept local — same logic as AppUsageWidget on the dashboard.
 
 function formatAppDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -14,57 +13,56 @@ function formatAppDuration(seconds: number): string {
   return '< 1 dk';
 }
 
+function formatTotalDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0 && m > 0) return `${h} sa ${m} dk`;
+  if (h > 0) return `${h} sa`;
+  if (m > 0) return `${m} dk`;
+  return '—';
+}
+
 /** Return a short Turkish weekday label for a "YYYY-MM-DD" string. */
 function shortDayLabel(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00`);
   return d.toLocaleDateString('tr-TR', { weekday: 'short' });
 }
 
+// ── Period type ───────────────────────────────────────────────────────────────
+
+type Period = 'today' | '7' | '14' | '30';
+
+const PERIOD_TABS: { key: Period; label: string }[] = [
+  { key: 'today', label: 'Bugün' },
+  { key: '7',     label: '7 Gün' },
+  { key: '14',    label: '14 Gün' },
+  { key: '30',    label: '30 Gün' },
+];
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function SectionCard({ title, badge, children }: {
-  title: string;
-  badge?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="bg-bg-card border border-border rounded-card p-5 mb-5">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
-        {badge && (
-          <span className="text-[10px] text-text-muted uppercase tracking-wide">{badge}</span>
-        )}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function HorizontalBars({
-  items,
-  color = 'bg-accent-purple',
-}: {
-  items: AppUsageStat[];
-  color?: string;
-}) {
+function HorizontalBars({ items }: { items: AppUsageStat[] }) {
   const maxSeconds = items[0]?.duration_seconds ?? 1;
   return (
     <div className="space-y-3">
-      {items.map((item) => {
+      {items.map((item, idx) => {
         const pct = Math.round((item.duration_seconds / maxSeconds) * 100);
         return (
           <div key={item.app_name}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-text-primary truncate max-w-[60%]">
+            <div className="flex items-center justify-between mb-1 gap-2">
+              <span className="text-xs text-text-muted tabular-nums flex-shrink-0 w-5">
+                #{idx + 1}
+              </span>
+              <span className="text-xs font-medium text-text-primary truncate flex-1">
                 {item.app_name}
               </span>
-              <span className="text-xs text-text-muted ml-2 flex-shrink-0">
+              <span className="text-xs text-text-muted tabular-nums flex-shrink-0">
                 {formatAppDuration(item.duration_seconds)}
               </span>
             </div>
-            <div className="h-1.5 bg-bg-input rounded-full overflow-hidden">
+            <div className="h-1.5 bg-bg-input rounded-full overflow-hidden ml-7">
               <div
-                className={`h-full ${color} rounded-full transition-all duration-500`}
+                className="h-full bg-accent-green rounded-full transition-all duration-500"
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -85,7 +83,6 @@ function DailyBarChart({ dailyTotals }: {
       <p className="text-xs text-text-muted mb-3">Günlük toplam kullanım</p>
       <div className="flex items-end gap-1 h-20">
         {dailyTotals.map((d) => {
-          // Minimum visible height for days with any data; zero days stay flat.
           const rawPct = d.duration_seconds > 0
             ? Math.max(Math.round((d.duration_seconds / maxSeconds) * 100), 5)
             : 0;
@@ -96,7 +93,7 @@ function DailyBarChart({ dailyTotals }: {
               title={`${d.date}: ${d.duration_seconds > 0 ? formatAppDuration(d.duration_seconds) : 'Veri yok'}`}
             >
               <div
-                className="w-full bg-accent-purple/60 hover:bg-accent-purple rounded-t-sm transition-all duration-500"
+                className="w-full bg-accent-green/60 hover:bg-accent-green rounded-t-sm transition-all duration-500"
                 style={{ height: `${rawPct}%` }}
               />
               <span className="text-[9px] text-text-muted mt-1.5 leading-none select-none">
@@ -113,116 +110,172 @@ function DailyBarChart({ dailyTotals }: {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function InsightsPage() {
+  const [period, setPeriod] = useState<Period>('today');
   const [todayUsage, setTodayUsage] = useState<AppUsageStat[]>([]);
   const [rangeSummary, setRangeSummary] = useState<AppUsageRangeSummary | null>(null);
-  const [rangeLoading, setRangeLoading] = useState(true);
-  const [rangeError, setRangeError]     = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
 
   useEffect(() => {
-    // Fetch both in parallel — fail independently so one bad response doesn't
-    // block the other section from rendering.
-    statsApi.appUsageDaily().then(setTodayUsage).catch(() => {});
+    setLoading(true);
+    setError(false);
+    setRangeSummary(null);
+    setTodayUsage([]);
 
-    statsApi
-      .appUsageRange(7)
-      .then((data) => {
-        setRangeSummary(data);
-        setRangeError(false);
-      })
-      .catch(() => setRangeError(true))
-      .finally(() => setRangeLoading(false));
-  }, []);
+    if (period === 'today') {
+      statsApi
+        .appUsageDaily()
+        .then(setTodayUsage)
+        .catch(() => setError(true))
+        .finally(() => setLoading(false));
+    } else {
+      const days = parseInt(period) as 7 | 14 | 30;
+      statsApi
+        .appUsageRange(days)
+        .then((data) => { setRangeSummary(data); setError(false); })
+        .catch(() => setError(true))
+        .finally(() => setLoading(false));
+    }
+  }, [period]);
+
+  // Derived stats for subtitle
+  const currentApps: AppUsageStat[] =
+    period === 'today' ? todayUsage : (rangeSummary?.top_apps ?? []);
+  const totalSeconds = currentApps.reduce((s, a) => s + a.duration_seconds, 0);
 
   return (
     <div className="h-full overflow-y-auto p-6 page-transition">
-      <div className="max-w-2xl mx-auto">
-        <h1 className="text-xl font-bold text-text-primary mb-6">Kullanım</h1>
+      <div className="max-w-4xl mx-auto">
 
-        {/* ── Section A: Today ─────────────────────────────────────────────── */}
-        <SectionCard title="Bugünkü Kullanım" badge="Bugün">
-          {todayUsage.length === 0 ? (
-            <div className="text-center py-6">
-              <p className="text-xs text-text-muted">Bugün henüz uygulama kullanım verisi yok.</p>
-              <p className="text-[11px] text-text-muted mt-1">
-                Arka plan izleyici aktifken veriler otomatik olarak kaydedilir.
-              </p>
-            </div>
-          ) : (
-            <HorizontalBars items={todayUsage} color="bg-accent-purple" />
-          )}
-        </SectionCard>
-
-        {/* ── Section B: 7-day range ───────────────────────────────────────── */}
-        <SectionCard title="Son 7 Gün" badge="7 gün">
-          {rangeLoading ? (
-            <p className="text-xs text-text-muted text-center py-6">Yükleniyor…</p>
-          ) : rangeError ? (
-            <p className="text-xs text-text-muted text-center py-6">
-              7 günlük veriler şu an yüklenemedi.
+        {/* ── Page header ────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-accent-green/20 ring-1 ring-accent-green/40 flex items-center justify-center">
+            <BarChart2 className="text-accent-green" size={22} />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-text-primary">Kullanım</h1>
+            <p className="text-xs text-text-muted">
+              Hangi uygulamaları ne kadar kullanıyorsun — Sadık bu verilerle sana daha iyi hizmet veriyor.
             </p>
-          ) : !rangeSummary || rangeSummary.top_apps.length === 0 ? (
-            <div className="text-center py-6">
-              <p className="text-xs text-text-muted">Son 7 günde kayıtlı kullanım verisi yok.</p>
-              <p className="text-[11px] text-text-muted mt-1">
-                Uygulama kullanıldıkça bu bölüm dolmaya başlayacak.
-              </p>
+          </div>
+        </div>
+
+        {/* ── Unified usage card ─────────────────────────────────────────── */}
+        <div className="bg-bg-card border border-border rounded-card shadow-card p-5 mb-5">
+          {/* Period tabs + aggregate stats */}
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <div className="flex gap-1">
+              {PERIOD_TABS.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setPeriod(t.key)}
+                  className={`text-xs px-3 py-1.5 rounded-btn transition-colors ${
+                    period === t.key
+                      ? 'bg-accent-green text-white'
+                      : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
+            {!loading && !error && currentApps.length > 0 && (
+              <div className="flex items-center gap-3 text-[11px] text-text-muted tabular-nums">
+                <span>{currentApps.length} uygulama</span>
+                <span className="w-px h-3 bg-border" />
+                <span>{formatTotalDuration(totalSeconds)} toplam</span>
+              </div>
+            )}
+          </div>
+
+          {/* Card body */}
+          {loading ? (
+            <div className="py-10 text-center text-xs text-text-muted">Yükleniyor…</div>
+          ) : error ? (
+            <div className="py-10 text-center text-xs text-text-muted">
+              Kullanım verisi şu an yüklenemedi.
+            </div>
+          ) : period === 'today' ? (
+            todayUsage.length === 0 ? (
+              <div className="py-10 text-center">
+                <p className="text-xs text-text-muted">Bugün henüz uygulama kullanım verisi yok.</p>
+                <p className="text-[11px] text-text-muted mt-1">
+                  Arka plan izleyici aktifken veriler otomatik olarak kaydedilir.
+                </p>
+              </div>
+            ) : (
+              <HorizontalBars items={todayUsage} />
+            )
           ) : (
-            <div className="space-y-6">
-              {/* Daily bar chart */}
-              <DailyBarChart dailyTotals={rangeSummary.daily_totals} />
+            !rangeSummary || rangeSummary.top_apps.length === 0 ? (
+              <div className="py-10 text-center">
+                <p className="text-xs text-text-muted">Bu dönemde kayıtlı kullanım verisi yok.</p>
+                <p className="text-[11px] text-text-muted mt-1">
+                  Uygulama kullanıldıkça bu bölüm dolmaya başlayacak.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                <DailyBarChart dailyTotals={rangeSummary.daily_totals} />
+                <div className="border-t border-border" />
+                <div>
+                  <p className="text-xs text-text-muted mb-3">En çok kullanılan uygulamalar</p>
+                  <HorizontalBars items={rangeSummary.top_apps.slice(0, 7)} />
+                </div>
+              </div>
+            )
+          )}
+        </div>
 
-              {/* Divider */}
-              <div className="border-t border-border" />
-
-              {/* Top apps over range */}
-              <div>
-                <p className="text-xs text-text-muted mb-3">En çok kullanılan uygulamalar</p>
-                <HorizontalBars
-                  items={rangeSummary.top_apps.slice(0, 7)}
-                  color="bg-accent-purple"
-                />
+        {/* ── Privacy / explainability — collapsible ─────────────────────── */}
+        <div className="bg-bg-card border border-border rounded-card shadow-card overflow-hidden mb-5">
+          <button
+            onClick={() => setPrivacyOpen((o) => !o)}
+            className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <span className="w-7 h-7 rounded-lg bg-accent-green/20 ring-1 ring-accent-green/40 flex items-center justify-center">
+                <Shield size={14} className="text-accent-green" />
+              </span>
+              Sadık Bu Bilgileri Nasıl Kullanıyor?
+            </span>
+            {privacyOpen
+              ? <ChevronUp size={14} className="text-text-muted" />
+              : <ChevronDown size={14} className="text-text-muted" />}
+          </button>
+          {privacyOpen && (
+            <div className="px-5 pb-5 pt-1 border-t border-border">
+              <div className="space-y-3 text-xs text-text-secondary leading-relaxed">
+                <InfoRow color="green">
+                  Tüm kullanım verileri yalnızca bu cihazda yerel olarak saklanır.
+                </InfoRow>
+                <InfoRow color="green">
+                  Hiçbir veri harici sunuculara veya üçüncü taraf servislere gönderilmez.
+                </InfoRow>
+                <InfoRow color="blue">
+                  Aynı uygulamada 60 dakikadan fazla çalışıldığında nazik, 120 dakikayı aşınca
+                  daha güçlü bir mola önerisi gösterilir.
+                </InfoRow>
+                <InfoRow color="blue">
+                  Sohbet yanıtlarını bağlamsal hale getirmek için günlük kullanım özeti asistan
+                  sistem mesajına eklenir; bağlamı doğal biçimde ve yalnızca gerektiğinde kullanır.
+                </InfoRow>
+                <InfoRow color="yellow">
+                  Sessiz saatler, günlük limit ve öneriler arası bekleme süresi Ayarlar
+                  sayfasındaki "Proaktif Öneriler" bölümünden ayarlanabilir.
+                </InfoRow>
               </div>
             </div>
           )}
-        </SectionCard>
-
-        {/* ── Section C: Privacy / explainability ──────────────────────────── */}
-        <div className="bg-bg-card border border-border rounded-card p-5 mb-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Shield size={15} className="text-accent-green flex-shrink-0" />
-            <h2 className="text-sm font-semibold text-text-primary">
-              Sadık Bunu Nasıl Kullanıyor?
-            </h2>
-          </div>
-
-          <div className="space-y-3 text-xs text-text-secondary leading-relaxed">
-            <InfoRow color="green">
-              Tüm kullanım verileri yalnızca bu cihazda yerel olarak saklanır.
-            </InfoRow>
-            <InfoRow color="green">
-              Hiçbir veri harici sunuculara veya üçüncü taraf servislere gönderilmez.
-            </InfoRow>
-            <InfoRow color="blue">
-              Aynı uygulamada 60 dakikadan fazla çalışıldığında nazik, 120 dakikayı aşınca
-              daha güçlü bir mola önerisi gösterilir.
-            </InfoRow>
-            <InfoRow color="blue">
-              Sohbet yanıtlarını bağlamsal hale getirmek için günlük kullanım özeti asistan
-              sistem mesajına eklenir; bağlamı doğal biçimde ve yalnızca gerektiğinde kullanır.
-            </InfoRow>
-            <InfoRow color="yellow">
-              Sessiz saatler, günlük limit ve öneriler arası bekleme süresi Ayarlar
-              sayfasındaki "Proaktif Öneriler" bölümünden ayarlanabilir.
-            </InfoRow>
-          </div>
         </div>
+
       </div>
     </div>
   );
 }
 
-// ── Tiny helper used only in Section C ───────────────────────────────────────
+// ── Tiny helper ───────────────────────────────────────────────────────────────
 
 const DOT_COLORS: Record<string, string> = {
   green:  'bg-accent-green',

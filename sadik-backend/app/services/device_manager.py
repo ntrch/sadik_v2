@@ -74,6 +74,28 @@ class DeviceManager:
             return ok, None if ok else "WiFi send failed"
         return False, "Unknown method"
 
+    async def send_frame_acked(self, hex_data: str, timeout: float = 0.25) -> tuple[bool, Optional[str]]:
+        """Send FRAME:<hex> and wait for firmware's OK:FRAME ack.
+
+        Returns (ok, error). When timeout elapses without ack we return
+        (False, "timeout") so the caller can drop the frame rather than
+        block the next one.
+        """
+        if not self._method:
+            return False, "Not connected"
+        if self._method == "serial":
+            ok, response = await serial_service.send_and_read(
+                f"FRAME:{hex_data}", read_timeout=timeout,
+            )
+            if not ok:
+                return False, "Serial send failed"
+            if response is None:
+                return False, "timeout"
+            return True, None
+        # WiFi path has no ack; fall back to fire-and-forget.
+        ok = await wifi_device_service.send_command(self._ip, f"FRAME:{hex_data}")
+        return ok, None if ok else "WiFi send failed"
+
     async def send_command_and_read(self, command: str) -> tuple[bool, Optional[str], Optional[str]]:
         """Send a command and read back the firmware's OK:/ERR: response line.
         Returns (sent_ok, response_line_or_None, error_message_or_None).

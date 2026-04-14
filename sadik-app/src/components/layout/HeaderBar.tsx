@@ -1,5 +1,5 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { Usb, Wifi, ChevronDown, X, RotateCw, Sun, Mic, MicOff, Settings, Sunrise, CloudSun, Sunset, Moon } from 'lucide-react';
+import { Usb, Wifi, ChevronDown, X, RotateCw, Sun, SunDim, Mic, MicOff, Settings, Sunrise, CloudSun, Sunset, Moon, Radio } from 'lucide-react';
 import { useDevice } from '../../hooks/useDevice';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { deviceApi, SerialPort } from '../../api/device';
@@ -28,6 +28,7 @@ export default function HeaderBar() {
   const {
     deviceStatus, oledBrightnessPercent, setOledBrightness,
     autoConnectDevice, wakeWordEnabled, wakeWordActive, toggleWakeWord,
+    voiceAssistantActive, setVoiceUiVisible,
   } = useContext(AppContext);
   const { connect, disconnect } = useDevice();
   const navigate = useNavigate();
@@ -128,16 +129,35 @@ export default function HeaderBar() {
 
         {/* Right — brightness + mic + settings */}
         <div className="flex items-center gap-3 justify-self-end">
-          <div className="flex items-center gap-2">
-            <Sun size={20} style={{ color: `rgba(255, 255, 255, ${0.3 + (oledBrightnessPercent / 100) * 0.7})` }} />
-            <input
-              type="range" min={0} max={100} step={5}
-              value={oledBrightnessPercent}
-              onChange={(e) => setOledBrightness(Number(e.target.value))}
-              className="w-20 h-1 rounded-full accent-accent-purple cursor-pointer"
-            />
-            <span className="text-xs text-text-muted tabular-nums w-8">{oledBrightnessPercent}%</span>
-          </div>
+          {voiceAssistantActive && (
+            <button
+              onClick={() => { navigate('/chat'); setVoiceUiVisible(true); }}
+              title="Sesli asistan çalışıyor — görmek için tıkla"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent-cyan/15 border border-accent-cyan/40 text-accent-cyan text-xs font-semibold animate-pulse"
+            >
+              <Radio size={12} />
+              Sesli Asistan Aktif
+            </button>
+          )}
+          {(() => {
+            // OLED effectively has two usable levels (dim / full), so expose a
+            // toggle instead of a misleading 0-100 slider. Icon reflects state.
+            const isFull = oledBrightnessPercent > 50;
+            const nextValue = isFull ? 30 : 100;
+            return (
+              <button
+                onClick={() => setOledBrightness(nextValue)}
+                title={isFull ? 'Ekstra Parlaklık: Açık' : 'Ekstra Parlaklık: Kapalı'}
+                className={`p-2.5 rounded-full transition-all ${
+                  isFull
+                    ? 'bg-accent-yellow/20 text-accent-yellow hover:bg-accent-yellow/30'
+                    : 'bg-bg-input text-text-muted hover:text-text-secondary'
+                }`}
+              >
+                {isFull ? <Sun size={20} /> : <SunDim size={20} />}
+              </button>
+            );
+          })()}
 
           <div className="w-px h-5 bg-border/50" />
 

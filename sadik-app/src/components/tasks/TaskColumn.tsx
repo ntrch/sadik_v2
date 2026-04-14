@@ -5,7 +5,7 @@ import TaskCard from './TaskCard';
 
 const STATUS_STYLES: Record<string, { border: string; bg: string }> = {
   todo:        { border: '#6b6b73', bg: 'rgba(107, 107, 115, 0.08)' },
-  in_progress: { border: '#fcd34d', bg: 'rgba(252, 211, 77, 0.08)' },
+  in_progress: { border: '#fb923c', bg: 'rgba(251, 146, 60, 0.12)' },
   done:        { border: '#6ee7b7', bg: 'rgba(110, 231, 183, 0.08)' },
   cancelled:   { border: '#fca5a5', bg: 'rgba(252, 165, 165, 0.08)' },
   planned:     { border: '#a78bfa', bg: 'rgba(167, 139, 250, 0.08)' },

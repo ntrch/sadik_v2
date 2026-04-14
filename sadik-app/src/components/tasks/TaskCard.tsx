@@ -44,9 +44,11 @@ export default function TaskCard({ task, onClick, onStartPomodoro, onDragStart, 
       }}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      className={`bg-bg-card border border-border rounded-[14px] p-3 cursor-grab hover:border-accent-purple/40 hover:bg-bg-hover transition-all group animate-fade-in backdrop-blur-sm ${
-        isDragging ? 'opacity-40 scale-95' : ''
-      }`}
+      className={`rounded-[14px] p-3 cursor-grab transition-all group animate-fade-in backdrop-blur-sm border ${
+        task.status === 'in_progress'
+          ? 'bg-accent-orange/10 border-accent-orange/40 hover:border-accent-orange/60'
+          : 'bg-bg-card border-border hover:border-accent-purple/40 hover:bg-bg-hover'
+      } ${isDragging ? 'opacity-40 scale-95' : ''}`}
     >
       <div className="flex items-start gap-2">
         <GripVertical size={14} className="text-text-muted mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity cursor-grab" />

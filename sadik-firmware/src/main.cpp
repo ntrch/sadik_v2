@@ -376,7 +376,10 @@ void processCommand(ParsedCommand& cmd) {
             }
 
             display.showRawFrame(cmd.frameData);
-            // No response — avoids TX buffer deadlock at high frame rates
+            // ACK after the OLED has actually been refreshed. The host uses
+            // this to pace frame transmission (one frame in flight at a time)
+            // and to keep its on-screen preview in lock-step with the OLED.
+            Serial.println("OK:FRAME");
             break;
         }
 

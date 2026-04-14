@@ -1,7 +1,8 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, Notification, session, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, Notification, session, ipcMain, powerMonitor, clipboard } = require('electron');
 const path    = require('path');
+const crypto  = require('crypto');
 const { execFile } = require('child_process');
 const fs      = require('fs');
 const os      = require('os');
@@ -179,6 +180,8 @@ let flushTimer   = null;
 //            window close handler to pass through without intercepting.
 let quitting  = false;
 let forceQuit = false;
+
+let idleCheckInterval = null;
 
 // ── Active window detection ───────────────────────────────────────────────────
 
@@ -426,6 +429,8 @@ app.on('before-quit', (event) => {
   if (tray) { try { tray.destroy(); } catch { /* ignore */ } tray = null; }
 
   stopTrackerTimers();
+  if (idleCheckInterval) { clearInterval(idleCheckInterval); idleCheckInterval = null; }
+  if (clipboardPollTimer) { clearInterval(clipboardPollTimer); clipboardPollTimer = null; }
 
   if (currentApp && sessionStart) {
     tlog(`[AppTracker] before-quit: flushing final session for "${currentApp.name}"`);
@@ -618,6 +623,34 @@ function createWindow() {
 
   mainWindow = win;
 
+  // ── Clipboard write IPC ─────────────────────────────────────────────────
+  // Uses Electron's native clipboard module, which works without
+  // secure-context / permission prompts that the DOM ClipboardItem API
+  // needs in some Electron configurations.
+  ipcMain.handle('sadik:write-clipboard', async (_event, payload) => {
+    try {
+      if (!payload || typeof payload !== 'object') return { ok: false, error: 'bad payload' };
+      if (payload.type === 'text') {
+        clipboard.writeText(String(payload.content ?? ''));
+        return { ok: true };
+      }
+      if (payload.type === 'image') {
+        const content = String(payload.content ?? '');
+        // Accept data:image/*;base64,<...>
+        const m = /^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/.exec(content);
+        if (!m) return { ok: false, error: 'not a data URL' };
+        const buf = Buffer.from(m[1], 'base64');
+        const img = nativeImage.createFromBuffer(buf);
+        if (img.isEmpty()) return { ok: false, error: 'empty image' };
+        clipboard.writeImage(img);
+        return { ok: true };
+      }
+      return { ok: false, error: 'unknown type' };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   // ── Proactive notification IPC ───────────────────────────────────────────
   ipcMain.on('show-notification', (_event, { title, body }) => {
     if (!Notification.isSupported()) return;
@@ -712,6 +745,95 @@ function createWindow() {
 }
 
 // =============================================================================
+// Clipboard monitor — polls the OS clipboard while the app is running and
+// POSTs each new text/image value to /api/memory/clipboard. Fire-and-forget.
+// Only runs while the Electron process is alive; if the app is quit, logging
+// stops — this matches the user's spec ("app açıkken loglanan tüm ctrl+c'ler").
+// =============================================================================
+
+const CLIPBOARD_POLL_MS = 800;
+let clipboardPollTimer = null;
+let lastClipboardHash  = null;
+
+function sha1(buf) {
+  return crypto.createHash('sha1').update(buf).digest('hex');
+}
+
+function postClipboardItem(contentType, content, contentHash) {
+  const body = JSON.stringify({
+    content_type: contentType,
+    content,
+    content_hash: contentHash,
+  });
+  const _url = new URL(`${BACKEND_ORIGIN}/api/memory/clipboard`);
+  const options = {
+    hostname: _url.hostname,
+    port:     Number(_url.port),
+    path:     _url.pathname,
+    method:   'POST',
+    headers: {
+      'Content-Type':   'application/json',
+      'Content-Length': Buffer.byteLength(body),
+    },
+  };
+  const req = http.request(options, (res) => {
+    res.on('data', () => {});
+    res.on('end',  () => {});
+  });
+  req.on('error', (err) => {
+    twarn(`[Clipboard] POST failed: [${err.code}] ${err.message}`);
+  });
+  req.write(body);
+  req.end();
+}
+
+function pollClipboard() {
+  try {
+    // Prefer image if present (image formats usually also have a text repr)
+    const img = clipboard.readImage();
+    if (img && !img.isEmpty()) {
+      const pngBuf  = img.toPNG();
+      const hash    = sha1(pngBuf);
+      if (hash !== lastClipboardHash) {
+        lastClipboardHash = hash;
+        const dataUrl = `data:image/png;base64,${pngBuf.toString('base64')}`;
+        tlog(`[Clipboard] New image ${pngBuf.length}B hash=${hash.slice(0,8)}`);
+        postClipboardItem('image', dataUrl, hash);
+      }
+      return;
+    }
+
+    const text = clipboard.readText();
+    if (text && text.trim()) {
+      const hash = sha1(Buffer.from(text, 'utf8'));
+      if (hash !== lastClipboardHash) {
+        lastClipboardHash = hash;
+        tlog(`[Clipboard] New text ${text.length} chars hash=${hash.slice(0,8)}`);
+        postClipboardItem('text', text, hash);
+      }
+    }
+  } catch (e) {
+    twarn('[Clipboard] poll error:', e.message);
+  }
+}
+
+function startClipboardMonitor() {
+  tlog(`[Clipboard] Starting monitor — poll every ${CLIPBOARD_POLL_MS}ms`);
+  // Prime baseline so the value already on the clipboard at startup is not
+  // re-logged on first tick.
+  try {
+    const img = clipboard.readImage();
+    if (img && !img.isEmpty()) {
+      lastClipboardHash = sha1(img.toPNG());
+    } else {
+      const text = clipboard.readText();
+      if (text) lastClipboardHash = sha1(Buffer.from(text, 'utf8'));
+    }
+  } catch { /* ignore */ }
+  clipboardPollTimer = setInterval(pollClipboard, CLIPBOARD_POLL_MS);
+}
+
+// =============================================================================
 // Chromium flags — must be set BEFORE app.whenReady()
 // =============================================================================
 //
@@ -758,6 +880,17 @@ app.whenReady().then(() => {
   initTray();
   createWindow();
   startAppTracker();
+
+  // Emit raw idle seconds every 30s; renderer applies user-configured threshold
+  // (oled_sleep_timeout_minutes) and gates on device-connected state. When the
+  // device is disconnected, firmware owns sleep decisions and we stay silent.
+  startClipboardMonitor();
+
+  idleCheckInterval = setInterval(() => {
+    if (!mainWindow) return;
+    const idleSeconds = powerMonitor.getSystemIdleTime();
+    mainWindow.webContents.send('sadik:idle-tick', { idleSeconds });
+  }, 30000);
 
   tlog('[SADIK] Initialization sequence dispatched');
 });

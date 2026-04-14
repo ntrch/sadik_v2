@@ -68,7 +68,9 @@ async def update_task(task_id: int, body: TaskUpdate, session: AsyncSession = De
         task.description = body.description
     if body.notes is not None:
         task.notes = body.notes
-    if body.due_date is not None:
+    # Use model_fields_set so we can distinguish "field omitted" from
+    # "field explicitly set to null" — the latter should clear the column.
+    if "due_date" in body.model_fields_set:
         task.due_date = body.due_date
     if body.priority is not None:
         task.priority = body.priority

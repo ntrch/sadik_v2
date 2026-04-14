@@ -128,9 +128,9 @@ async def send_frame(body: FrameData):
     if len(body.data) != 2048:
         logger.warning(f"Frame #{_frame_count}: bad length {len(body.data)}")
         raise HTTPException(status_code=400, detail=f"Expected 2048 hex chars, got {len(body.data)}")
-    ok, error = await device_manager.send_command(f"FRAME:{body.data}")
+    ok, error = await device_manager.send_frame_acked(body.data)
     if _frame_count <= 5 or _frame_count % 60 == 0:
-        logger.info(f"Frame #{_frame_count}: sent={'ok' if ok else 'fail'} first8={body.data[:8]}")
+        logger.info(f"Frame #{_frame_count}: sent={'ok' if ok else 'fail'} err={error} first8={body.data[:8]}")
     if not ok:
         return {"success": False, "error": error or "Failed to send frame"}
     return {"success": True}

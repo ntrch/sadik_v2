@@ -18,6 +18,14 @@ const DIRS = {
     output: path.join(ROOT, 'public', 'animations', 'core_character'),
     category: 'core',
   },
+  mods: {
+    input: path.join(ROOT, 'assets', 'raw_cpp', 'mods'),
+    output: path.join(ROOT, 'public', 'animations', 'mods'),
+    category: 'core',
+    namePrefix: 'mod_',
+    // Intros (working, break) play once; *_text variants loop indefinitely.
+    loopPolicy: (name) => name.endsWith('_text'),
+  },
 };
 
 const MANIFEST_PATH = path.join(ROOT, 'public', 'animations', 'clips-manifest.json');
@@ -50,7 +58,8 @@ function main() {
     for (const filePath of files) {
       const baseName = path.basename(filePath, '.cpp');
       const outputPath = path.join(cfg.output, `${baseName}.json`);
-      const loop = getLoopPolicy(baseName);
+      const loop = cfg.loopPolicy ? cfg.loopPolicy(baseName) : getLoopPolicy(baseName);
+      const manifestName = (cfg.namePrefix || '') + baseName;
 
       try {
         const data = parseCppAnimation(filePath, { fps: DEFAULT_FPS, loop });
@@ -58,7 +67,7 @@ function main() {
 
         const relSource = `${groupKey}/${baseName}.json`;
         manifest.push({
-          name: baseName,
+          name: manifestName,
           category: cfg.category,
           source: relSource,
           frameCount: data.frameCount,

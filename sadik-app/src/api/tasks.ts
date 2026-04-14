@@ -25,7 +25,7 @@ export interface TaskUpdate {
   title?: string;
   description?: string;
   notes?: string;
-  due_date?: string;
+  due_date?: string | null;
   priority?: number;
   status?: string;
 }

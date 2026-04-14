@@ -18,15 +18,12 @@ export function useAnimationEngine(deviceConnected: boolean) {
   const engine = getAnimationEngine();
   const rafRef = useRef<number | null>(null);
   const bufferRef = useRef<Uint8Array>(new Uint8Array(1024));
-  const lastRenderRef = useRef<number>(0);
-  const lastStateUpdateRef = useRef<number>(0);
   const [engineState, setEngineState] = useState<EngineState>(defaultEngineState);
   // frameVersion increments to signal canvas needs a repaint
   const [frameVersion, setFrameVersion] = useState(0);
 
   // Track frame streaming state with refs to avoid stale closures
   const deviceConnectedRef = useRef(deviceConnected);
-  const lastFrameSendRef = useRef<number>(0);
   const frameSendInFlightRef = useRef(false);
 
   // Keep ref in sync
@@ -45,23 +42,51 @@ export function useAnimationEngine(deviceConnected: boolean) {
       }
     });
 
-    // Register frame-ready callback — streams frame data to device at ~12fps
+    // Single frame clock — preview AND OLED stream advance from the same
+    // callback so they stay frame-perfect in sync. The engine already paces
+    // frame production at clip.fps (~12fps) and only emits in text mode when
+    // the buffer changes, so no time-based throttle is needed here.
     let frameCount = 0;
     engine.onFrameReady((buffer: Uint8Array) => {
-      if (!deviceConnectedRef.current) return;
+      // Snapshot the buffer for the preview canvas. The actual repaint
+      // (frameVersion bump) is deferred until the OLED has received this
+      // frame, so the preview never runs ahead of the physical display.
+      bufferRef.current = buffer;
 
-      const now = performance.now();
-      // Throttle to ~12fps (83ms) and skip if a send is already in flight
-      if (now - lastFrameSendRef.current < 83 || frameSendInFlightRef.current) return;
+      // No device link → preview is the only consumer; repaint immediately.
+      if (!deviceConnectedRef.current) {
+        setFrameVersion((v) => v + 1);
+        return;
+      }
+      // Back-pressure: drop this frame if the previous send is still in
+      // flight. Dropping here also skips the preview repaint, keeping the
+      // two views frame-aligned.
+      if (frameSendInFlightRef.current) return;
 
-      lastFrameSendRef.current = now;
       frameSendInFlightRef.current = true;
       frameCount++;
       if (frameCount <= 5 || frameCount % 60 === 0) {
         console.log(`[FrameStream] sending frame #${frameCount}, buffer[0..3]=${buffer[0]},${buffer[1]},${buffer[2]},${buffer[3]}`);
       }
       deviceApi.sendFrame(buffer)
-        .catch((e: unknown) => console.warn('[FrameStream] send failed:', e))
+        .then((res: { success: boolean; error?: string }) => {
+          if (res.success) {
+            // Firmware ACK received → OLED has rendered this frame. Repaint
+            // preview in the same instant so the two views stay atomic.
+            setFrameVersion((v) => v + 1);
+          } else {
+            // ACK timeout or serial failure — OLED did NOT render this
+            // frame. Do NOT bump preview (would desync). Ask the engine to
+            // re-emit the current buffer on the next tick so transient
+            // drops eventually recover (matters most for static text).
+            console.warn('[FrameStream] drop:', res.error);
+            engine.markBufferDirty();
+          }
+        })
+        .catch((e: unknown) => {
+          console.warn('[FrameStream] send failed:', e);
+          engine.markBufferDirty();
+        })
         .finally(() => { frameSendInFlightRef.current = false; });
     });
 
@@ -73,19 +98,10 @@ export function useAnimationEngine(deviceConnected: boolean) {
     // Load clips on mount
     engine.loadClips();
 
-    // rAF loop
+    // rAF loop — drives the engine clock only. Preview repaint and OLED send
+    // both happen inside onFrameReady, so they share the same cadence.
     const loop = (timestamp: number) => {
-      const buf = engine.update(timestamp);
-
-      // Only signal repaint at ~60fps (every frame is fine for canvas)
-      bufferRef.current = buf;
-
-      // Throttle React state updates to ~15fps
-      if (timestamp - lastStateUpdateRef.current >= 66) {
-        lastStateUpdateRef.current = timestamp;
-        setFrameVersion((v) => v + 1);
-      }
-
+      engine.update(timestamp);
       rafRef.current = requestAnimationFrame(loop);
     };
 
@@ -130,6 +146,10 @@ export function useAnimationEngine(deviceConnected: boolean) {
     engine.playModClip(name);
   }, []);
 
+  const playModSequence = useCallback((intro: string, loop: string) => {
+    engine.playModSequence(intro, loop);
+  }, []);
+
   const getLoadedClipNames = useCallback(() => engine.getLoadedClipNames(), []);
 
   return {
@@ -141,6 +161,7 @@ export function useAnimationEngine(deviceConnected: boolean) {
     returnToIdle,
     playClipDirect,
     playModClip,
+    playModSequence,
     getLoadedClipNames,
   };
 }

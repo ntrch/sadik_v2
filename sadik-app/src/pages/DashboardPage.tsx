@@ -1,13 +1,15 @@
 import React, { useState, useContext, useEffect, useRef } from 'react';
-import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Lightbulb, Calendar, ArrowRight, Briefcase, Code, Coffee, Users, Check, X as XIcon } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Lightbulb, Calendar, ArrowRight, Briefcase, Code, Coffee, Users, Check, X as XIcon, Flag, CalendarClock, ListTodo, BarChart2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { modesApi } from '../api/modes';
 import { tasksApi, Task } from '../api/tasks';
 import { statsApi, ModeStat, AppUsageStat, AppInsight } from '../api/stats';
-import { settingsApi } from '../api/settings';
 import ActivityChart from '../components/stats/ActivityChart';
 import { AnimationEventType } from '../engine/types';
+import { useModeColors } from '../utils/modeColors';
+import { Palette } from 'lucide-react';
 
 const PRESET_MODES = [
   { key: 'working',  label: 'Çalışıyor',   oledText: 'ÇALIŞIYOR' },
@@ -16,10 +18,11 @@ const PRESET_MODES = [
   { key: 'meeting',  label: 'Toplantı',     oledText: 'TOPLANTI' },
 ];
 
-// Maps mode keys to animation clip names (from mods/ folder)
-const MODE_CLIP_MAP: Record<string, string> = {
-  working: 'mod_working',
-  break:   'mod_break',
+// Maps mode keys to a one-shot intro clip + a looping text clip.
+// Intro plays once on mode-enter, then the text clip loops until the user exits.
+const MODE_CLIP_MAP: Record<string, { intro: string; loop: string }> = {
+  working: { intro: 'mod_working', loop: 'mod_working_text' },
+  break:   { intro: 'mod_break',   loop: 'mod_break_text'   },
 };
 
 // ── App name beautifier ──────────────────────────────────────────────────────
@@ -79,19 +82,25 @@ const MODE_LABELS: Record<string, string> = {
   working: 'Çalışıyor', coding: 'Kod Yazıyor', break: 'Mola', meeting: 'Toplantı',
 };
 
-const MODE_ICON_MAP: Record<string, { icon: React.ComponentType<any>; color: string }> = {
-  working: { icon: Briefcase, color: 'text-accent-purple' },
-  coding:  { icon: Code,      color: 'text-accent-cyan' },
-  break:   { icon: Coffee,    color: 'text-accent-green' },
-  meeting: { icon: Users,     color: 'text-accent-yellow' },
+const MODE_ICON_MAP: Record<string, React.ComponentType<any>> = {
+  working: Briefcase,
+  coding:  Code,
+  break:   Coffee,
+  meeting: Users,
 };
 
-const MODE_ACTIVE_STYLES: Record<string, string> = {
-  working: 'bg-accent-purple/20 text-accent-purple border border-accent-purple/40',
-  coding:  'bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/40',
-  break:   'bg-accent-green/20 text-accent-green border border-accent-green/40',
-  meeting: 'bg-accent-yellow/20 text-accent-yellow border border-accent-yellow/40',
-};
+/** Appends `aa` (alpha ≈ 0.67) to a hex color for tinted fills. */
+function withAlpha(hex: string, aa: string): string {
+  return hex.length === 7 ? `${hex}${aa}` : hex;
+}
+
+/** Red (#ef4444) → Green (#22c55e) gradient by rank (0 = hottest). */
+function heatColor(rank: number, total: number): string {
+  if (total <= 1) return 'hsl(0 80% 55%)';
+  const t = rank / (total - 1);
+  const hue = Math.round(t * 120);
+  return `hsl(${hue} 78% 55%)`;
+}
 
 function formatDuration(secs: number): string {
   const h = Math.floor(secs / 3600);
@@ -106,41 +115,57 @@ function formatDuration(secs: number): string {
 export default function DashboardPage() {
   const {
     currentMode, setCurrentMode, showToast, pomodoroState,
-    triggerEvent, showText, returnToIdle, playClipDirect, playModClip, getLoadedClipNames,
+    triggerEvent, showText, returnToIdle, playClipDirect, playModClip, playModSequence, getLoadedClipNames,
     engineState, activeInsight, acceptInsight, denyInsight,
+    debugForcePoll, debugTestTTS, debugResetCounters, debugSimulateInsight,
   } = useContext(AppContext);
+  const [simAppName, setSimAppName] = useState('League of Legends');
+  const [simMinutes, setSimMinutes] = useState(125);
   const navigate = useNavigate();
 
+  const {
+    customModes, getModeColor, nextFreeColor, setPresetColor,
+    addCustomMode, setCustomModeColor, removeCustomMode,
+  } = useModeColors();
   const [customMode, setCustomMode] = useState('');
+  const [customColor, setCustomColor] = useState<string>('#fb923c');
   const [showCustomInput, setShowCustomInput] = useState(false);
-  const [savedCustomModes, setSavedCustomModes] = useState<string[]>([]);
+  const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
   const [todayTasks, setTodayTasks] = useState<Task[]>([]);
   const [modeStats, setModeStats] = useState<ModeStat[]>([]);
   const [appUsage, setAppUsage] = useState<AppUsageStat[]>([]);
   const [loading, setLoading] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
-  const [modeStatsOpen, setModeStatsOpen] = useState(false);
-  const [appUsageOpen, setAppUsageOpen] = useState(false);
+  const [modeStatsOpen, setModeStatsOpen] = useState(true);
+  const [appUsageOpen, setAppUsageOpen] = useState(true);
+  const [todayTasksOpen, setTodayTasksOpen] = useState(true);
   const modeReturnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    settingsApi.getAll().then((s) => {
-      const saved = s['custom_modes'];
-      if (saved) {
-        try { setSavedCustomModes(JSON.parse(saved)); } catch {}
-      }
-    }).catch(() => {});
+    setCustomColor(nextFreeColor());
+  }, [customModes.length, showCustomInput]);
+
+  useEffect(() => {
     // Today's tasks (todo + in_progress)
+    // Local calendar date (YYYY-MM-DD) — use the user's timezone, not UTC,
+    // so midnight behaviour matches what the user sees on the clock.
+    const _now = new Date();
+    const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
     tasksApi.list().then((all) => {
-      const today = new Date().toISOString().split('T')[0];
-      const relevant = all.filter((t) =>
-        t.status === 'todo' || t.status === 'in_progress' ||
-        (t.status === 'done' && t.updated_at?.startsWith(today))
-      );
+      const relevant = all.filter((t) => {
+        const due = t.due_date as string | null | undefined;
+        // In-progress: always show (currently being worked on — date irrelevant).
+        if (t.status === 'in_progress') return true;
+        // To-do: show if undated (all-time) or due today.
+        if (t.status === 'todo') return !due || due.startsWith(today);
+        // Done: only show when completed today.
+        if (t.status === 'done') return !!t.updated_at?.startsWith(today);
+        return false;
+      });
       setTodayTasks(relevant);
     }).catch(() => {});
-    // Mode stats
-    statsApi.daily().then(setModeStats).catch(() => {});
+    // Mode stats — pin to local today so the label matches what we show.
+    statsApi.daily(today).then(setModeStats).catch(() => {});
     // App usage
     statsApi.appUsageDaily().then(setAppUsage).catch(() => {});
     const poll = setInterval(() => {
@@ -155,16 +180,20 @@ export default function DashboardPage() {
   const initialModClipStarted = useRef(false);
   useEffect(() => {
     if (initialModClipStarted.current || !currentMode) return;
-    const clipName = MODE_CLIP_MAP[currentMode];
-    if (!clipName) return;
-    // Clips load async — check every 500ms until available (max 5s)
+    const clip = MODE_CLIP_MAP[currentMode];
+    if (!clip) return;
+    // Clips load async — wait until BOTH intro and loop are available, then
+    // play the full sequence (intro once → text loop). This keeps the flow
+    // consistent whether the mode was just activated or the app is reopening
+    // with the mode already live.
     let attempts = 0;
     const check = setInterval(() => {
       attempts++;
-      if (getLoadedClipNames().includes(clipName)) {
+      const loaded = getLoadedClipNames();
+      if (loaded.includes(clip.intro) && loaded.includes(clip.loop)) {
         clearInterval(check);
         initialModClipStarted.current = true;
-        playModClip(clipName);
+        playModSequence(clip.intro, clip.loop);
       } else if (attempts >= 10) {
         clearInterval(check);
       }
@@ -201,10 +230,13 @@ export default function DashboardPage() {
       if (modeReturnTimer.current) clearTimeout(modeReturnTimer.current);
 
       // Check if this mode has a dedicated animation clip
-      const clipName = MODE_CLIP_MAP[mode];
-      if (clipName) {
-        // Brief confirmation, then start the mod animation
-        modeReturnTimer.current = setTimeout(() => playModClip(clipName), 1200);
+      const clip = MODE_CLIP_MAP[mode];
+      if (clip) {
+        // Brief confirmation, then play intro once → chain into looping text clip
+        modeReturnTimer.current = setTimeout(
+          () => playModSequence(clip.intro, clip.loop),
+          1200,
+        );
       } else {
         // Custom/other modes: show text on OLED
         const displayText = oledText ?? mode.toUpperCase();
@@ -227,21 +259,23 @@ export default function DashboardPage() {
   const handleSaveCustom = async () => {
     const name = customMode.trim();
     if (!name) return;
-    const updated = savedCustomModes.includes(name)
-      ? savedCustomModes
-      : [...savedCustomModes, name];
-    setSavedCustomModes(updated);
-    await settingsApi.update({ custom_modes: JSON.stringify(updated) }).catch(() => {});
+    await addCustomMode(name, customColor || nextFreeColor());
     handleSetMode(name, name.toUpperCase());
     setCustomMode('');
     setShowCustomInput(false);
   };
 
   const handleDeleteCustomMode = async (name: string) => {
-    const updated = savedCustomModes.filter(m => m !== name);
-    setSavedCustomModes(updated);
-    await settingsApi.update({ custom_modes: JSON.stringify(updated) }).catch(() => {});
+    await removeCustomMode(name);
     showToast(`"${name}" modu silindi`, 'info');
+  };
+
+  const handleColorChange = async (name: string, color: string) => {
+    if (PRESET_MODES.some((p) => p.key === name)) {
+      await setPresetColor(name, color);
+    } else {
+      await setCustomModeColor(name, color);
+    }
   };
 
   const totalWorkSeconds = modeStats
@@ -259,10 +293,10 @@ export default function DashboardPage() {
     <div className="h-full overflow-y-auto p-6 page-transition">
       {/* Stat cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
-        <StatCard icon={<Clock size={18} className="text-accent-purple" />} label="Toplam Çalışma" value={formatDuration(totalWorkSeconds)} color="purple" />
+        <StatCard icon={<Clock size={18} className="text-accent-blue" />} label="Toplam Çalışma" value={formatDuration(totalWorkSeconds)} color="blue" />
         <StatCard icon={<CheckSquare size={18} className="text-accent-green" />} label="Tamamlanan" value={`${doneToday} görev`} color="green" />
         <StatCard icon={<Flame size={18} className="text-accent-orange" />} label="Pomodoro" value={`${pomodoroState.current_session} oturum`} color="orange" />
-        <StatCard icon={<Activity size={18} className="text-accent-cyan" />} label="Aktif Mod" value={currentMode ? (MODE_LABELS[currentMode] || currentMode) : '—'} color="cyan" />
+        <StatCard icon={<Activity size={18} className="text-accent-purple" />} label="Aktif Mod" value={currentMode ? (MODE_LABELS[currentMode] || currentMode) : '—'} color="purple" />
       </div>
 
       {/* Mode selector — compact inline */}
@@ -271,39 +305,39 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2 flex-wrap">
             {PRESET_MODES.map(({ key, label, oledText }) => {
               const isActive = currentMode === key;
-              const activeStyle = MODE_ACTIVE_STYLES[key] ?? MODE_ACTIVE_STYLES.working;
-              const iconInfo = MODE_ICON_MAP[key];
-              const IconComp = iconInfo?.icon;
+              const color = getModeColor(key);
+              const IconComp = MODE_ICON_MAP[key];
               return (
-                <button
+                <ModeChip
                   key={key}
-                  onClick={() => handleSetMode(key, oledText)}
+                  label={label}
+                  name={key}
+                  color={color}
+                  active={isActive}
                   disabled={loading}
-                  className={`px-4 py-2.5 rounded-[14px] text-sm font-semibold transition-all flex items-center gap-2
-                    ${isActive
-                      ? activeStyle
-                      : 'bg-bg-input text-text-secondary border border-border hover:border-accent-purple/40 hover:text-text-primary'}`}
-                >
-                  {IconComp && <IconComp size={16} />}
-                  {label}
-                </button>
+                  icon={IconComp ? <IconComp size={16} /> : null}
+                  onClick={() => handleSetMode(key, oledText)}
+                  onColorChange={(c) => handleColorChange(key, c)}
+                  pickerOpen={colorPickerFor === key}
+                  setPickerOpen={(v) => setColorPickerFor(v ? key : null)}
+                />
               );
             })}
             {/* Saved custom modes */}
-            {savedCustomModes.map((name) => (
-              <button
+            {customModes.map(({ name, color }) => (
+              <ModeChip
                 key={`custom-${name}`}
-                onClick={() => handleSetMode(name, name.toUpperCase())}
+                label={name}
+                name={name}
+                color={color}
+                active={currentMode === name}
                 disabled={loading}
-                onContextMenu={(e) => { e.preventDefault(); handleDeleteCustomMode(name); }}
-                title="Sağ tık ile sil"
-                className={`px-4 py-2.5 rounded-[14px] text-sm font-semibold transition-all
-                  ${currentMode === name
-                    ? 'bg-accent-orange/20 text-accent-orange border border-accent-orange/40'
-                    : 'bg-bg-input text-text-secondary border border-accent-orange/30 hover:border-accent-orange/60 hover:text-text-primary'}`}
-              >
-                {name}
-              </button>
+                onClick={() => handleSetMode(name, name.toUpperCase())}
+                onColorChange={(c) => handleColorChange(name, c)}
+                onDelete={() => handleDeleteCustomMode(name)}
+                pickerOpen={colorPickerFor === name}
+                setPickerOpen={(v) => setColorPickerFor(v ? name : null)}
+              />
             ))}
             <button
               onClick={() => setShowCustomInput(!showCustomInput)}
@@ -316,7 +350,19 @@ export default function DashboardPage() {
           </div>
         </div>
         {showCustomInput && (
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex gap-2 items-center">
+            <label
+              title="Renk seç"
+              className="relative w-9 h-9 rounded-btn border border-border flex-shrink-0 cursor-pointer overflow-hidden"
+              style={{ backgroundColor: customColor }}
+            >
+              <input
+                type="color"
+                value={customColor}
+                onChange={(e) => setCustomColor(e.target.value)}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+              />
+            </label>
             <input
               autoFocus
               value={customMode}
@@ -356,15 +402,19 @@ export default function DashboardPage() {
           {modeStatsOpen && (
             <div className="px-5 pb-4 border-t border-border pt-3 space-y-2">
               {[...modeStats].sort((a, b) => b.total_seconds - a.total_seconds).map((m) => {
-                const iconInfo = MODE_ICON_MAP[m.mode] ?? { icon: Edit3, color: 'text-accent-orange' };
-                const IconComp = iconInfo.icon;
+                const IconComp = MODE_ICON_MAP[m.mode] ?? Edit3;
+                const color = getModeColor(m.mode);
                 return (
-                  <div key={m.mode} className="flex items-center justify-between px-3 py-2 rounded-btn hover:bg-bg-hover transition-colors">
+                  <div
+                    key={m.mode}
+                    className="flex items-center justify-between px-3 py-2 rounded-btn transition-colors border"
+                    style={{ backgroundColor: withAlpha(color, '1a'), borderColor: withAlpha(color, '40') }}
+                  >
                     <div className="flex items-center gap-2">
-                      <IconComp size={14} className={iconInfo.color} />
-                      <span className="text-xs text-text-secondary">{MODE_LABELS[m.mode] || m.mode}</span>
+                      <IconComp size={14} style={{ color }} />
+                      <span className="text-xs font-medium" style={{ color }}>{MODE_LABELS[m.mode] || m.mode}</span>
                     </div>
-                    <span className="text-xs font-medium text-text-primary">{formatDuration(m.total_seconds)}</span>
+                    <span className="text-xs font-semibold text-text-primary">{formatDuration(m.total_seconds)}</span>
                   </div>
                 );
               })}
@@ -373,32 +423,40 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Today's tasks */}
-      <div className="bg-bg-card border border-border rounded-card p-5 mb-5 shadow-card">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-text-primary">Bugünkü Görevler</h2>
-          <button onClick={() => navigate('/tasks')}
-            className="text-[11px] text-accent-purple hover:text-accent-purple-hover transition-colors flex items-center gap-1">
-            Tümünü Gör <ArrowRight size={10} />
-          </button>
-        </div>
-        {activeTasks.length === 0 ? (
-          <p className="text-xs text-text-muted py-3 text-center">Aktif görev yok</p>
-        ) : (
-          <div className="space-y-2">
-            {activeTasks.slice(0, 5).map((task) => (
-              <div key={task.id}
-                onClick={() => navigate('/tasks')}
-                className="flex items-center gap-3 px-3 py-2 bg-bg-input rounded-btn cursor-pointer hover:bg-bg-hover transition-colors">
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  task.status === 'in_progress' ? 'bg-accent-yellow' : 'bg-text-muted'
-                }`} />
-                <span className="text-xs text-text-primary flex-1 truncate">{task.title}</span>
-                <span className="text-[10px] text-text-muted">
-                  {task.status === 'in_progress' ? 'Devam Ediyor' : 'Yapılacak'}
-                </span>
+      {/* Today's tasks — accordion */}
+      <div className="bg-bg-card border border-border rounded-card overflow-hidden mb-5 shadow-card">
+        <button
+          onClick={() => setTodayTasksOpen((o) => !o)}
+          className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <span className="w-7 h-7 rounded-lg bg-accent-cyan/20 ring-1 ring-accent-cyan/40 flex items-center justify-center">
+              <ListTodo size={15} className="text-accent-cyan" />
+            </span>
+            Yapılacaklar
+          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-text-muted">{activeTasks.length} görev</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); navigate('/tasks'); }}
+              className="text-[11px] text-accent-purple hover:text-accent-purple-hover transition-colors flex items-center gap-1"
+            >
+              Tümünü Gör <ArrowRight size={10} />
+            </button>
+            {todayTasksOpen ? <ChevronUp size={14} className="text-text-muted" /> : <ChevronDown size={14} className="text-text-muted" />}
+          </div>
+        </button>
+        {todayTasksOpen && (
+          <div className="px-5 pb-4 border-t border-border pt-3">
+            {activeTasks.length === 0 ? (
+              <p className="text-xs text-text-muted py-3 text-center">Aktif görev yok</p>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                {activeTasks.slice(0, 8).map((task) => (
+                  <TaskMiniCard key={task.id} task={task} onOpen={() => navigate('/tasks')} />
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
@@ -409,7 +467,12 @@ export default function DashboardPage() {
           onClick={() => setAppUsageOpen((o) => !o)}
           className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors"
         >
-          <span>Uygulama Kullanımı</span>
+          <span className="flex items-center gap-2">
+            <span className="w-7 h-7 rounded-lg bg-accent-green/20 ring-1 ring-accent-green/40 flex items-center justify-center">
+              <BarChart2 size={15} className="text-accent-green" />
+            </span>
+            Uygulama Kullanımı
+          </span>
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-text-muted">{appUsage.length} uygulama</span>
             {appUsageOpen ? <ChevronUp size={14} className="text-text-muted" /> : <ChevronDown size={14} className="text-text-muted" />}
@@ -419,20 +482,37 @@ export default function DashboardPage() {
           <div className="px-5 pb-4 border-t border-border pt-3">
             {appUsage.length === 0 ? (
               <p className="text-xs text-text-muted text-center py-3">Henüz veri yok</p>
-            ) : (
-              <div className="space-y-1">
-                {appUsage.map((item, i) => (
-                  <div key={item.app_name}
-                    className="flex items-center justify-between px-3 py-2 rounded-btn hover:bg-bg-hover transition-colors">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-text-muted w-4">{i + 1}.</span>
-                      <span className="text-xs text-text-primary">{beautifyAppName(item.app_name)}</span>
-                    </div>
-                    <span className="text-xs text-text-secondary font-medium">{formatDuration(item.duration_seconds)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            ) : (() => {
+              const sorted = [...appUsage].sort((a, b) => b.duration_seconds - a.duration_seconds);
+              const maxSec = sorted[0]?.duration_seconds ?? 1;
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                  {sorted.map((item, i) => {
+                    const pct = Math.max(4, Math.round((item.duration_seconds / maxSec) * 100));
+                    const color = heatColor(i, sorted.length);
+                    return (
+                      <div key={item.app_name}
+                        className="relative bg-bg-input border-2 rounded-card p-2.5 shadow-card transition-all hover:-translate-y-0.5"
+                        style={{ borderColor: color }}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[10px] font-semibold" style={{ color }}>#{i + 1}</span>
+                          <span className="text-[10px] text-text-secondary font-medium tabular-nums">{formatDuration(item.duration_seconds)}</span>
+                        </div>
+                        <p className="text-xs text-text-primary font-medium truncate mb-2" title={beautifyAppName(item.app_name)}>
+                          {beautifyAppName(item.app_name)}
+                        </p>
+                        <div className="h-1 rounded-full bg-bg-card overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${pct}%`, backgroundColor: color }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -504,6 +584,55 @@ export default function DashboardPage() {
                 </button>
               </div>
             </div>
+
+            <div className="border-t border-border pt-4 space-y-2">
+              <p className="text-xs text-text-muted">Proaktif Öneri Debug</p>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => debugTestTTS()}
+                  className="px-3 py-1.5 bg-accent-green hover:bg-accent-green/80 text-white text-xs font-medium rounded-btn transition-colors">
+                  TTS Testi
+                </button>
+                <button
+                  onClick={() => debugForcePoll()}
+                  className="px-3 py-1.5 bg-accent-blue hover:bg-accent-blue/80 text-white text-xs font-medium rounded-btn transition-colors">
+                  Poll Tetikle
+                </button>
+                <button
+                  onClick={() => debugResetCounters()}
+                  className="px-3 py-1.5 bg-accent-orange hover:bg-accent-orange/80 text-white text-xs font-medium rounded-btn transition-colors">
+                  Sayaç Sıfırla
+                </button>
+              </div>
+              <p className="text-[10px] text-text-muted leading-relaxed">
+                TTS Testi: ses hattını doğrular (kapıları atlar). Poll Tetikle: anında gerçek insight değerlendirir — console'da <code>[Proactive]</code> loglarını izle. Sayaç Sıfırla: günlük limit + cooldown + dedup'ı temizler.
+              </p>
+
+              <div className="grid grid-cols-5 gap-2 items-center pt-2">
+                <input
+                  value={simAppName}
+                  onChange={(e) => setSimAppName(e.target.value)}
+                  placeholder="App adı"
+                  className="col-span-3 bg-bg-input border border-border rounded-btn px-3 py-1.5 text-xs text-text-primary placeholder-text-muted outline-none focus:border-border-focus"
+                />
+                <input
+                  type="number"
+                  value={simMinutes}
+                  onChange={(e) => setSimMinutes(Number(e.target.value))}
+                  placeholder="dk"
+                  className="col-span-1 bg-bg-input border border-border rounded-btn px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border-focus"
+                />
+                <button
+                  onClick={() => { if (simAppName.trim() && simMinutes > 0) debugSimulateInsight(simAppName.trim(), simMinutes); }}
+                  disabled={!simAppName.trim() || simMinutes <= 0}
+                  className="col-span-1 px-2 py-1.5 bg-accent-purple hover:bg-accent-purple/80 text-white text-xs font-medium rounded-btn transition-colors disabled:opacity-40">
+                  Simüle
+                </button>
+              </div>
+              <p className="text-[10px] text-text-muted">
+                Sentetik insight üretir (≥120 dk = strong, ses tetikler). Gate zincirini tam çalıştırır.
+              </p>
+            </div>
           </div>
         )}
       </div>
@@ -537,7 +666,7 @@ function InsightCard({ insight, onAccept, onDeny }: { insight: AppInsight | null
   if (!insight?.has_insight) {
     return (
       <div className="bg-bg-card border border-border rounded-card p-4 mb-5 flex items-center gap-3 shadow-card">
-        <Lightbulb size={16} className="text-text-muted flex-shrink-0" />
+        <Lightbulb size={16} className="text-accent-yellow flex-shrink-0" />
         <p className="text-xs text-text-muted">Şu an öneri yok. SADIK kullanımını izliyor.</p>
       </div>
     );
@@ -589,6 +718,95 @@ function InsightCard({ insight, onAccept, onDeny }: { insight: AppInsight | null
   );
 }
 
+// ── Mode chip ────────────────────────────────────────────────────────────────
+
+interface ModeChipProps {
+  label: string;
+  name: string;
+  color: string;
+  active: boolean;
+  disabled?: boolean;
+  icon?: React.ReactNode;
+  onClick: () => void;
+  onColorChange: (color: string) => void;
+  onDelete?: () => void;
+  pickerOpen: boolean;
+  setPickerOpen: (open: boolean) => void;
+}
+
+function ModeChip({ label, color, active, disabled, icon, onClick, onColorChange, onDelete, pickerOpen, setPickerOpen }: ModeChipProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (pickerOpen && ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left });
+    } else {
+      setPos(null);
+    }
+  }, [pickerOpen]);
+
+  return (
+    <div ref={ref} className="relative group">
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        className="px-4 py-2.5 rounded-[14px] text-sm font-semibold transition-all flex items-center gap-2 border-2"
+        style={
+          active
+            ? { backgroundColor: withAlpha(color, '33'), borderColor: color, color }
+            : { backgroundColor: '#1f1f23', borderColor: withAlpha(color, '55'), color: withAlpha(color, 'cc') }
+        }
+      >
+        <span
+          className="w-2 h-2 rounded-full flex-shrink-0"
+          style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+        />
+        {icon}
+        {label}
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); setPickerOpen(!pickerOpen); }}
+        title="Renk değiştir"
+        className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-bg-card border border-border text-text-muted hover:text-text-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-card"
+      >
+        <Palette size={10} />
+      </button>
+      {onDelete && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          title="Modu sil"
+          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-bg-card border border-border text-text-muted hover:text-white hover:bg-accent-red hover:border-accent-red flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-card"
+        >
+          <XIcon size={12} strokeWidth={3} />
+        </button>
+      )}
+      {pickerOpen && pos && createPortal(
+        <div
+          className="fixed z-[1000] flex items-center gap-2 bg-bg-card border border-border rounded-btn p-2 shadow-card"
+          style={{ top: pos.top, left: pos.left }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => onColorChange(e.target.value)}
+            className="w-8 h-8 rounded cursor-pointer bg-transparent border-0"
+          />
+          <button
+            onClick={() => setPickerOpen(false)}
+            className="text-xs text-text-muted hover:text-text-primary px-2 py-1"
+          >
+            Kapat
+          </button>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function playbackModeLabel(mode: string): string {
@@ -609,23 +827,95 @@ function DebugRow({ label, value }: { label: string; value: string }) {
 
 function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: string; color: string }) {
   const cardBg: Record<string, string> = {
-    purple: 'bg-accent-purple/8 border-accent-purple/20',
-    green:  'bg-accent-green/8 border-accent-green/20',
-    orange: 'bg-accent-orange/8 border-accent-orange/20',
-    cyan:   'bg-accent-cyan/8 border-accent-cyan/20',
-    blue:   'bg-accent-blue/8 border-accent-blue/20',
-    yellow: 'bg-accent-yellow/8 border-accent-yellow/20',
+    purple: 'bg-gradient-to-br from-accent-purple/25 via-accent-purple/15 to-accent-purple/5 border-accent-purple/40',
+    green:  'bg-gradient-to-br from-accent-green/25  via-accent-green/15  to-accent-green/5  border-accent-green/40',
+    orange: 'bg-gradient-to-br from-accent-orange/25 via-accent-orange/15 to-accent-orange/5 border-accent-orange/40',
+    cyan:   'bg-gradient-to-br from-accent-cyan/25   via-accent-cyan/15   to-accent-cyan/5   border-accent-cyan/40',
+    blue:   'bg-gradient-to-br from-accent-blue/25   via-accent-blue/15   to-accent-blue/5   border-accent-blue/40',
+    yellow: 'bg-gradient-to-br from-accent-yellow/25 via-accent-yellow/15 to-accent-yellow/5 border-accent-yellow/40',
   };
   const iconBg: Record<string, string> = {
-    purple: 'bg-accent-purple/15', green: 'bg-accent-green/15',
-    orange: 'bg-accent-orange/15', cyan: 'bg-accent-cyan/15',
-    blue: 'bg-accent-blue/15', yellow: 'bg-accent-yellow/15',
+    purple: 'bg-accent-purple/30 ring-1 ring-accent-purple/40',
+    green:  'bg-accent-green/30  ring-1 ring-accent-green/40',
+    orange: 'bg-accent-orange/30 ring-1 ring-accent-orange/40',
+    cyan:   'bg-accent-cyan/30   ring-1 ring-accent-cyan/40',
+    blue:   'bg-accent-blue/30   ring-1 ring-accent-blue/40',
+    yellow: 'bg-accent-yellow/30 ring-1 ring-accent-yellow/40',
   };
   return (
-    <div className={`border rounded-card p-4 shadow-card backdrop-blur-sm ${cardBg[color] ?? cardBg.purple}`}>
+    <div className={`relative overflow-hidden border rounded-card p-4 shadow-card backdrop-blur-md saturate-150 ${cardBg[color] ?? cardBg.purple}`}>
+      <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full bg-white/5 blur-2xl pointer-events-none" />
       <div className={`w-9 h-9 rounded-xl ${iconBg[color] ?? iconBg.purple} flex items-center justify-center mb-3`}>{icon}</div>
       <p className="text-xl font-bold text-text-primary mb-0.5">{value}</p>
       <p className="text-xs text-text-muted">{label}</p>
+    </div>
+  );
+}
+
+// Task priority scale matches PRIORITY_OPTIONS in TaskModal (0..3).
+const PRIORITY_META: Record<number, { label: string; cls: string; hex: string }> = {
+  0: { label: 'Düşük',  cls: 'bg-bg-card         text-text-muted    border-border',                hex: '#71717a' },
+  1: { label: 'Normal', cls: 'bg-accent-blue/15   text-accent-blue   border-accent-blue/30',       hex: '#60a5fa' },
+  2: { label: 'Yüksek', cls: 'bg-accent-yellow/15 text-accent-yellow border-accent-yellow/30',     hex: '#fcd34d' },
+  3: { label: 'Acil',   cls: 'bg-accent-red/15    text-accent-red    border-accent-red/30',        hex: '#ef4444' },
+};
+
+const IN_PROGRESS_HEX = '#fb923c'; // orange — not yellow
+
+function formatDueParts(iso: string): { date: string; time: string | null } {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const hasTime = !(h === 0 && m === 0);
+  const time = hasTime
+    ? d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+    : null;
+  return { date, time };
+}
+
+function TaskMiniCard({ task, onOpen }: { task: Task; onOpen: () => void }) {
+  const inProgress = task.status === 'in_progress';
+  const prio = PRIORITY_META[task.priority];
+  const due  = task.due_date ? formatDueParts(task.due_date) : null;
+  // In-progress wins over priority for the card tint — the user is actively
+  // working this task, so it should stand out in orange.
+  const tint = inProgress ? IN_PROGRESS_HEX : prio?.hex ?? '#71717a';
+  return (
+    <div
+      onClick={onOpen}
+      className="relative border rounded-card p-2.5 cursor-pointer transition-all shadow-card hover:-translate-y-0.5"
+      style={{ backgroundColor: withAlpha(tint, '1f'), borderColor: withAlpha(tint, '66') }}
+    >
+      <div className="flex items-start gap-2 mb-2">
+        <span
+          className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${inProgress ? 'animate-pulse' : ''}`}
+          style={{ backgroundColor: tint }}
+        />
+        <span className="text-xs text-text-primary font-medium line-clamp-2 leading-snug">{task.title}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {prio && (
+          <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border ${prio.cls}`}>
+            <Flag size={10} /> {prio.label}
+          </span>
+        )}
+        {due && (
+          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border bg-bg-card border-border text-text-secondary">
+            <Calendar size={10} /> {due.date}
+          </span>
+        )}
+        {due?.time && (
+          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border bg-bg-card border-border text-text-secondary">
+            <CalendarClock size={10} /> {due.time}
+          </span>
+        )}
+        {task.pomodoro_count > 0 && (
+          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border bg-accent-orange/10 border-accent-orange/30 text-accent-orange">
+            <Flame size={10} /> {task.pomodoro_count}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

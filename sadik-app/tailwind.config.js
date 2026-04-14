@@ -32,6 +32,7 @@ module.exports = {
           red: '#fca5a5',
           orange: '#fdba74',
           cyan: '#67e8f9',
+          pink: '#f472b6',
         },
       },
       fontFamily: {

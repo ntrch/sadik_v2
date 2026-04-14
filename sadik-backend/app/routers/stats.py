@@ -58,13 +58,20 @@ async def log_app_usage(
         body.duration_seconds,
         body.started_at.isoformat(),
     )
+    # Normalize to naive LOCAL time so aggregations roll over at local midnight.
+    # Electron sends ISO strings with UTC offset (toISOString → "...Z"); Pydantic
+    # parses them as tz-aware. .astimezone() without args converts to system local.
+    def _to_local_naive(dt: datetime) -> datetime:
+        if dt.tzinfo is not None:
+            return dt.astimezone().replace(tzinfo=None)
+        return dt
     entry = AppUsageSession(
         app_name=         app_name_clean,
         window_title=     body.window_title or None,
-        started_at=       body.started_at.replace(tzinfo=None),
-        ended_at=         body.ended_at.replace(tzinfo=None),
+        started_at=       _to_local_naive(body.started_at),
+        ended_at=         _to_local_naive(body.ended_at),
         duration_seconds= body.duration_seconds,
-        created_at=       datetime.now(timezone.utc).replace(tzinfo=None),
+        created_at=       datetime.now().replace(microsecond=0),
     )
     session.add(entry)
     await session.commit()
@@ -85,7 +92,9 @@ async def get_app_usage_daily(
         except ValueError:
             raise HTTPException(status_code=422, detail="Invalid date format. Use YYYY-MM-DD")
     else:
-        target_date = datetime.now(timezone.utc).date()
+        # Use LOCAL date — sessions are stored as naive-local, so aggregations
+        # must roll over at local midnight, not UTC midnight.
+        target_date = datetime.now().date()
 
     day_start = datetime.combine(target_date, dt_time.min)
     day_end   = datetime.combine(target_date, dt_time.max)
@@ -120,7 +129,7 @@ async def get_app_usage_range(
       - daily_totals: sum of tracked seconds per calendar day, every day filled in
                       (0 for days with no recorded sessions)
     """
-    today       = datetime.now(timezone.utc).date()
+    today       = datetime.now().date()
     range_start = datetime.combine(today - timedelta(days=days - 1), dt_time.min)
     range_end   = datetime.combine(today, dt_time.max)
 
@@ -196,7 +205,7 @@ async def get_app_usage_insights(
     Each item has app_name, level, message. Returns {has_insight: false, insights: []}
     when no threshold is reached.
     """
-    today     = datetime.now(timezone.utc).date()
+    today     = datetime.now().date()
     day_start = datetime.combine(today, dt_time.min)
     day_end   = datetime.combine(today, dt_time.max)
 

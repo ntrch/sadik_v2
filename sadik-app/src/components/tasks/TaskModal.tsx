@@ -55,9 +55,13 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
     if (!title.trim()) return;
     setSaving(true);
     try {
+      // When editing, send `null` explicitly so the backend clears the field.
+      // `undefined` would be dropped from the JSON body and the old value
+      // would persist. For new tasks we can stay with undefined.
+      const clearedDue = task ? null : undefined;
       const dueDateFull = dueDate
         ? (dueTime ? `${dueDate}T${dueTime}:00` : `${dueDate}T23:59:00`)
-        : undefined;
+        : clearedDue;
       const data = {
         title: title.trim(),
         description: description || undefined,

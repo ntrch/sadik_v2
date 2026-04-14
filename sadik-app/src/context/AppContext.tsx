@@ -11,6 +11,7 @@ import { voiceApi } from '../api/voice';
 import { wakeWordService } from '../services/wakeWordService';
 import { useWebSocket, WSMessage } from '../hooks/useWebSocket';
 import { useAnimationEngine } from '../hooks/useAnimationEngine';
+import { getAnimationEngine } from '../engine/AnimationEngine';
 import { EngineState, AnimationEventType } from '../engine/types';
 
 interface AppContextType {
@@ -33,6 +34,7 @@ interface AppContextType {
   returnToIdle: () => void;
   playClipDirect: (name: string) => void;
   playModClip: (name: string) => void;
+  playModSequence: (intro: string, loop: string) => void;
   getLoadedClipNames: () => string[];
   frameBuffer: Uint8Array;
   frameVersion: number;
@@ -82,6 +84,16 @@ interface AppContextType {
   setSpokenProactiveDailyLimit: (value: number) => Promise<void>;
   /** Called by VoiceAssistant when voiceState changes — gates spoken proactive playback. */
   setVoiceAssistantActive: (active: boolean) => void;
+  /** True while VoiceAssistant is in listening/processing/speaking — surface in UI. */
+  voiceAssistantActive: boolean;
+  /** True when ChatPage's voice tab is active — drives persistent VoiceAssistant visibility. */
+  voiceUiVisible: boolean;
+  setVoiceUiVisible: (visible: boolean) => void;
+  // Debug — for manual proactive testing from Dashboard
+  debugForcePoll: () => void;
+  debugTestTTS: (text?: string) => void;
+  debugResetCounters: () => void;
+  debugSimulateInsight: (appName: string, minutes: number) => void;
 }
 
 const defaultPomodoroState: PomodoroState = {
@@ -132,6 +144,7 @@ export const AppContext = createContext<AppContextType>({
   returnToIdle: () => {},
   playClipDirect: () => {},
   playModClip: () => {},
+  playModSequence: () => {},
   getLoadedClipNames: () => [],
   frameBuffer: new Uint8Array(1024),
   frameVersion: 0,
@@ -174,6 +187,13 @@ export const AppContext = createContext<AppContextType>({
   spokenProactiveDailyLimit: 1,
   setSpokenProactiveDailyLimit: async () => {},
   setVoiceAssistantActive: () => {},
+  voiceAssistantActive: false,
+  voiceUiVisible: false,
+  setVoiceUiVisible: () => {},
+  debugForcePoll: () => {},
+  debugTestTTS: () => {},
+  debugResetCounters: () => {},
+  debugSimulateInsight: () => {},
 });
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -195,6 +215,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [wakeWordPending,     setWakeWordPending]     = useState(false);
   const [wakeWordSensitivity, setWakeWordSensitivityState] = useState('normal');
   const [continuousConversation, setContinuousConversationState] = useState(false);
+  const [voiceUiVisible, setVoiceUiVisible] = useState(false);
 
   // Audio device state
   const [audioInputDevices,  setAudioInputDevices]  = useState<MediaDeviceInfo[]>([]);
@@ -316,6 +337,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     returnToIdle,
     playClipDirect,
     playModClip,
+    playModSequence,
     getLoadedClipNames,
   } = useAnimationEngine(deviceStatus.connected);
 
@@ -521,9 +543,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try { await settingsApi.update({ spoken_proactive_daily_limit: String(value) }); } catch { /* best-effort */ }
   }, []);
 
-  /** Called by VoiceAssistant on every voiceState transition — no React state, ref-only. */
+  /** Called by VoiceAssistant on every voiceState transition. */
+  const [voiceAssistantActive, setVoiceAssistantActiveState] = useState(false);
   const setVoiceAssistantActive = useCallback((active: boolean) => {
     voiceAssistantActiveRef.current = active;
+    setVoiceAssistantActiveState(active);
+  }, []);
+
+  // ── OLED burn-in protection — idle detection ───────────────────────────────
+  //
+  // Authority model:
+  //   • App connected  → app is authority; use user's oled_sleep_timeout_minutes
+  //                       to decide when to pause frame streaming + FORCE_SLEEP.
+  //   • App disconnected → firmware is authority; it handles sleep on its own
+  //                         (via CMD_SET_SLEEP_TIMEOUT sent on reconnect). We
+  //                         take no action here.
+  // timeout = 0 means "disabled" (never auto-sleep).
+  const isIdleRef = useRef(false);
+  const connectedRef = useRef(false);
+  connectedRef.current = deviceStatus.connected;
+  useEffect(() => {
+    (window as any).sadikElectron?.onIdleTick?.(({ idleSeconds }: { idleSeconds: number }) => {
+      if (!connectedRef.current) return;
+      const timeoutMin = oledSleepTimeoutRef.current;
+      if (timeoutMin <= 0) {
+        if (isIdleRef.current) {
+          isIdleRef.current = false;
+          getAnimationEngine().setStreamingEnabled(true);
+        }
+        return;
+      }
+      const threshold = timeoutMin * 60;
+      const shouldIdle = idleSeconds >= threshold;
+      if (shouldIdle && !isIdleRef.current) {
+        isIdleRef.current = true;
+        console.log(`[BurnIn] Idle ${idleSeconds}s ≥ ${threshold}s — pausing stream + FORCE_SLEEP`);
+        getAnimationEngine().setStreamingEnabled(false);
+        deviceApi.sendCommand('FORCE_SLEEP').catch(() => {});
+      } else if (!shouldIdle && isIdleRef.current) {
+        isIdleRef.current = false;
+        console.log('[BurnIn] User returned — resuming frame stream');
+        getAnimationEngine().setStreamingEnabled(true);
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Proactive insight polling ──────────────────────────────────────────────
@@ -569,7 +632,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      _showTextRef.current('MOLA!');
+      // Show the talking animation (same one used during voice assistant TTS)
+      // while the proactive suggestion plays, instead of the static MOLA text.
+      getAnimationEngine().triggerEvent('assistant_speaking');
 
       audio.onended = () => {
         URL.revokeObjectURL(url);
@@ -579,6 +644,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       audio.onerror = () => {
         URL.revokeObjectURL(url);
         isProactiveSpeakingRef.current = false;
+        _returnToIdleRef.current();
       };
       await audio.play();
     } catch {
@@ -590,6 +656,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Stable ref so the poll interval closure can call the latest instance
   const _speakProactiveRef = useRef(speakProactive);
   _speakProactiveRef.current = speakProactive;
+
+  // Stable refs populated by the useEffect below. Debug buttons invoke these.
+  const _pollRef = useRef<() => Promise<void>>(async () => {});
+  const _processInsightRef = useRef<(insight: AppInsight) => Promise<void>>(async () => {});
+
+  const debugForcePoll = useCallback(() => {
+    console.log('[Proactive][DEBUG] Force-poll invoked');
+    _pollRef.current();
+  }, []);
+  const debugTestTTS = useCallback((text?: string) => {
+    const msg = text ?? 'Test proaktif mesaj. Ses hattı çalışıyor.';
+    console.log('[Proactive][DEBUG] Direct TTS test:', msg);
+    _speakProactiveRef.current(msg);
+  }, []);
+  const debugResetCounters = useCallback(() => {
+    console.log('[Proactive][DEBUG] Resetting daily counters + cooldown');
+    dailyCountRef.current = 0;
+    spokenDailyCountRef.current = 0;
+    lastShownTimestampRef.current = null;
+    lastShownInsightKeyRef.current = null;
+    deniedAppInsightsRef.current.clear();
+  }, []);
+  const debugSimulateInsight = useCallback((appName: string, minutes: number) => {
+    const sec = minutes * 60;
+    const level: 'strong' | 'gentle' = sec >= 7200 ? 'strong' : 'gentle';
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    const duration = h > 0 ? (m > 0 ? `${h} saat ${m} dakika` : `${h} saat`) : `${m} dakika`;
+    const message = level === 'strong'
+      ? `Yaklaşık ${duration}dır ${appName} kullanıyorsun. Uzun bir mola zamanı geldi.`
+      : `Yaklaşık ${duration}dır ${appName} kullanıyorsun. Kısa bir mola iyi gelebilir.`;
+    const synthetic: AppInsight = {
+      has_insight: true,
+      app_name: appName,
+      level,
+      message,
+      source: 'app_usage',
+    };
+    console.log('[Proactive][DEBUG] Simulating insight:', synthetic);
+    _processInsightRef.current(synthetic);
+  }, []);
 
   useEffect(() => {
     /** Returns true when the current time falls inside the quiet-hours window.
@@ -643,47 +750,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const poll = async () => {
+    /** Run an already-resolved insight through gates (shared by poll + debug). */
+    const processInsight = async (insight: AppInsight) => {
       try {
-        const [appInsight, taskInsight] = await Promise.all([
-          statsApi.appInsights(),
-          checkTaskInsight(),
-        ]);
-
-        // Pick the first non-denied app insight from the full list
-        let pickedAppInsight: AppInsight | null = null;
-        if (appInsight.has_insight && appInsight.insights && appInsight.insights.length > 0) {
-          const available = appInsight.insights.find(
-            (i) => !deniedAppInsightsRef.current.has(i.app_name)
-          );
-          if (available) {
-            pickedAppInsight = {
-              has_insight: true,
-              app_name: available.app_name,
-              level: available.level,
-              message: available.message,
-              insights: appInsight.insights,
-              source: 'app_usage',
-            };
-          }
-        } else if (appInsight.has_insight && !deniedAppInsightsRef.current.has(appInsight.app_name ?? '')) {
-          pickedAppInsight = { ...appInsight, source: 'app_usage' };
-        }
-
-        // Priority: strong task > app usage > gentle task
-        let insight: AppInsight;
-        if (taskInsight && taskInsight.level === 'strong') {
-          insight = taskInsight;
-        } else if (pickedAppInsight) {
-          insight = pickedAppInsight;
-        } else if (taskInsight) {
-          insight = taskInsight;
-        } else {
-          setActiveInsight(null);
-          lastShownInsightKeyRef.current = null;
-          return;
-        }
-
         // Always update the dashboard card — it shows regardless of suppression
         setActiveInsight(insight);
 
@@ -692,20 +761,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (key === lastShownInsightKeyRef.current) return; // identical — already notified
 
         // ── Suppression rules (gate toast + OLED only) ────────────────────────
+        console.log('[Proactive] Insight received:', { level: insight.level, source: insight.source, message: insight.message?.slice(0, 60) });
 
         // Rule A: feature disabled
-        if (!proactiveSuggestionsEnabledRef.current) return;
+        if (!proactiveSuggestionsEnabledRef.current) { console.log('[Proactive] ✗ Rule A — feature disabled'); return; }
 
         // Rule B: quiet hours (overnight-aware)
-        if (isInQuietHours(proactiveQuietHoursStartRef.current, proactiveQuietHoursEndRef.current)) return;
+        if (isInQuietHours(proactiveQuietHoursStartRef.current, proactiveQuietHoursEndRef.current)) { console.log('[Proactive] ✗ Rule B — quiet hours', proactiveQuietHoursStartRef.current, '→', proactiveQuietHoursEndRef.current); return; }
 
         // Rule C: Pomodoro / focus suppression
-        if (pomodoroStateRef.current.is_running) return;
+        if (pomodoroStateRef.current.is_running) { console.log('[Proactive] ✗ Rule C — pomodoro running'); return; }
 
         // Rule D: cooldown between suggestions
         const now = Date.now();
         const cooldownMs = proactiveCooldownMinutesRef.current * 60 * 1000;
-        if (lastShownTimestampRef.current !== null && now - lastShownTimestampRef.current < cooldownMs) return;
+        if (lastShownTimestampRef.current !== null && now - lastShownTimestampRef.current < cooldownMs) { console.log('[Proactive] ✗ Rule D — cooldown', Math.round((cooldownMs - (now - lastShownTimestampRef.current)) / 1000), 's remaining'); return; }
 
         // Rule E: daily limit — reset counter at midnight
         const today = new Date().toDateString();
@@ -736,6 +806,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Gates: spoken enabled + voice assistant idle + not already speaking +
         // spoken daily limit not reached.  speakProactive handles OLED + idle return.
         let willSpeak = false;
+        // Diagnostic: trace gate evaluation so we can see WHY voice didn't fire.
+        console.log('[Proactive] Gate check:', {
+          level: insight.level,
+          spokenEnabled: spokenProactiveEnabledRef.current,
+          voiceAssistantActive: voiceAssistantActiveRef.current,
+          isProactiveSpeaking: isProactiveSpeakingRef.current,
+          spokenDailyCount: spokenDailyCountRef.current,
+          spokenDailyLimit: spokenProactiveDailyLimitRef.current,
+        });
         if (
           insight.level === 'strong' &&
           spokenProactiveEnabledRef.current &&
@@ -750,8 +829,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (spokenDailyCountRef.current < spokenProactiveDailyLimitRef.current) {
             spokenDailyCountRef.current += 1;
             willSpeak = true;
+            console.log('[Proactive] ✓ Speaking:', insight.message);
             _speakProactiveRef.current(insight.message ?? 'Kısa bir mola zamanı!');
+          } else {
+            console.log('[Proactive] ✗ Daily spoken limit reached — skipping voice');
           }
+        } else {
+          console.log('[Proactive] ✗ Gate failed — voice skipped');
         }
 
         // Silent OLED feedback only when not speaking (speakProactive owns OLED when active)
@@ -764,10 +848,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    /** Fetch real insights from backend + tasks, then pipe through processInsight. */
+    const poll = async () => {
+      try {
+        const [appInsight, taskInsight] = await Promise.all([
+          statsApi.appInsights(),
+          checkTaskInsight(),
+        ]);
+
+        let pickedAppInsight: AppInsight | null = null;
+        if (appInsight.has_insight && appInsight.insights && appInsight.insights.length > 0) {
+          const available = appInsight.insights.find(
+            (i) => !deniedAppInsightsRef.current.has(i.app_name)
+          );
+          if (available) {
+            pickedAppInsight = {
+              has_insight: true,
+              app_name: available.app_name,
+              level: available.level,
+              message: available.message,
+              insights: appInsight.insights,
+              source: 'app_usage',
+            };
+          }
+        } else if (appInsight.has_insight && !deniedAppInsightsRef.current.has(appInsight.app_name ?? '')) {
+          pickedAppInsight = { ...appInsight, source: 'app_usage' };
+        }
+
+        let insight: AppInsight;
+        if (taskInsight && taskInsight.level === 'strong') {
+          insight = taskInsight;
+        } else if (pickedAppInsight) {
+          insight = pickedAppInsight;
+        } else if (taskInsight) {
+          insight = taskInsight;
+        } else {
+          console.log('[Proactive] Poll: no insight (no app ≥ 1h today, no pending tasks)');
+          setActiveInsight(null);
+          lastShownInsightKeyRef.current = null;
+          return;
+        }
+
+        await processInsight(insight);
+      } catch {
+        // Best-effort — backend may be starting or have no data yet
+      }
+    };
+
+    // Expose both functions so debug buttons can invoke them on demand.
+    _pollRef.current = poll;
+    _processInsightRef.current = processInsight;
+
     // First poll after 30 s (backend settles, recent sessions committed)
     const initialDelay = setTimeout(poll, 30_000);
-    // Then every 5 minutes
-    const interval = setInterval(poll, 5 * 60 * 1000);
+    // Then every 60 seconds so insight durations stay in sync with live usage
+    const interval = setInterval(poll, 60 * 1000);
 
     return () => {
       clearTimeout(initialDelay);
@@ -786,8 +921,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast('Mola moduna geçildi', 'success');
       // Start break animation after brief confirmation, or fall back to text
       setTimeout(() => {
-        if (getLoadedClipNames().includes('mod_break')) {
-          playModClip('mod_break');
+        const loaded = getLoadedClipNames();
+        if (loaded.includes('mod_break') && loaded.includes('mod_break_text')) {
+          playModSequence('mod_break', 'mod_break_text');
+        } else if (loaded.includes('mod_break_text')) {
+          playModClip('mod_break_text');
         } else {
           showText('MOLA');
         }
@@ -796,7 +934,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast('Mod değiştirilemedi', 'error');
     }
     setActiveInsight(null);
-  }, [triggerEvent, showText, showToast, playModClip, getLoadedClipNames]);
+  }, [triggerEvent, showText, showToast, playModClip, playModSequence, getLoadedClipNames]);
 
   const denyInsight = useCallback(() => {
     const current = activeInsightRef.current;
@@ -1083,6 +1221,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         returnToIdle,
         playClipDirect,
         playModClip,
+        playModSequence,
         getLoadedClipNames,
         frameBuffer,
         frameVersion,
@@ -1125,6 +1264,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         spokenProactiveDailyLimit,
         setSpokenProactiveDailyLimit,
         setVoiceAssistantActive,
+        voiceAssistantActive,
+        voiceUiVisible,
+        setVoiceUiVisible,
+        debugForcePoll,
+        debugTestTTS,
+        debugResetCounters,
+        debugSimulateInsight,
       }}
     >
       {children}

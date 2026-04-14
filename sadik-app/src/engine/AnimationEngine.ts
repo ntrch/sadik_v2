@@ -24,6 +24,7 @@ export class AnimationEngine {
   private clips: Map<string, ClipData> = new Map();
   private frameBuffer: Uint8Array = new Uint8Array(BUFFER_SIZE);
   private bufferDirty = true;
+  private lastTextEmitTime = 0;
 
   private playbackMode: PlaybackMode = 'text';
   private textContent: string = 'SADIK';
@@ -54,6 +55,8 @@ export class AnimationEngine {
   private pendingCommand: string | null = null;
   private commandTimeout: ReturnType<typeof setTimeout> | null = null;
 
+  private streamingEnabled = true;
+
   constructor() {
     this.clearBuffer();
   }
@@ -70,6 +73,10 @@ export class AnimationEngine {
 
   onFrameReady(cb: (buffer: Uint8Array) => void): void {
     this.frameReadyCallback = cb;
+  }
+
+  setStreamingEnabled(enabled: boolean): void {
+    this.streamingEnabled = enabled;
   }
 
   async loadClips(): Promise<void> {
@@ -181,10 +188,17 @@ export class AnimationEngine {
         this.clearBuffer();
         renderTextToBuffer(this.frameBuffer, this.textContent, { centered: true });
         this.bufferDirty = false;
+        // Force an immediate emit on any content change.
+        this.lastTextEmitTime = 0;
       }
-      // Always emit — the single bufferDirty callback can be dropped by
-      // throttle / in-flight guard; the receiver deduplicates via throttle.
-      this.frameReadyCallback?.(this.frameBuffer);
+      // Re-emit at 4 Hz while showing text.  Static content doesn't need
+      // animation, but periodic re-emission guarantees that a single lost
+      // frame (ACK timeout, in-flight drop) self-heals within 250 ms instead
+      // of leaving the OLED permanently behind the preview.
+      if (this.streamingEnabled && timestamp - this.lastTextEmitTime >= 250) {
+        this.lastTextEmitTime = timestamp;
+        this.frameReadyCallback?.(this.frameBuffer);
+      }
       return this.frameBuffer;
     }
 
@@ -211,7 +225,7 @@ export class AnimationEngine {
         }
 
         this.copyFrameToBuffer(this.pb.clip.frames[this.pb.frameIndex]);
-        this.frameReadyCallback?.(this.frameBuffer);
+        if (this.streamingEnabled) this.frameReadyCallback?.(this.frameBuffer);
         this.emitState();
       }
     }
@@ -221,6 +235,13 @@ export class AnimationEngine {
 
   getFrameBuffer(): Uint8Array {
     return this.frameBuffer;
+  }
+
+  /** Force a re-emit of the current frame on the next update() tick. Used by
+   *  the transport layer when a send failed (ACK timeout / back-pressure
+   *  drop) and the OLED needs to be resynchronised with the preview. */
+  markBufferDirty(): void {
+    this.bufferDirty = true;
   }
 
   getState(): EngineState {
@@ -268,6 +289,31 @@ export class AnimationEngine {
     this.cancelIdleTimers();
     this.playbackMode = 'explicit_clip';
     this.playClip(name, { loop: true });
+    this.emitState();
+  }
+
+  /** Play an intro clip once, then transition into a looping clip.
+   *  Used by modes that have a one-shot entry animation followed by a
+   *  steady-state text/idle loop (e.g. mod_working → mod_working_text). */
+  playModSequence(intro: string, loop: string): void {
+    if (!this.clips.has(intro)) {
+      console.warn(`[AnimationEngine] Intro clip not found: ${intro} — falling back to loop`);
+      this.playModClip(loop);
+      return;
+    }
+    if (!this.clips.has(loop)) {
+      console.warn(`[AnimationEngine] Loop clip not found: ${loop}`);
+      return;
+    }
+    this.cancelIdleTimers();
+    this.playbackMode = 'explicit_clip';
+    this.playClip(intro, {
+      loop: false,
+      onFinish: () => {
+        this.playClip(loop, { loop: true });
+        this.emitState();
+      },
+    });
     this.emitState();
   }
 

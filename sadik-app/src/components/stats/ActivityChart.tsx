@@ -2,17 +2,17 @@ import React, { useState, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
 } from 'recharts';
+import { BarChart3, ChevronDown, ChevronUp } from 'lucide-react';
 import { statsApi, DayStat, ModeStat } from '../../api/stats';
+import { useModeColors } from '../../utils/modeColors';
+
+/** Local calendar date as YYYY-MM-DD — avoids UTC day-off-by-one near midnight. */
+function localToday(): string {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+}
 
 type Period = '7' | '14' | '30' | 'today';
-
-const MODE_COLORS: Record<string, string> = {
-  working: '#a78bfa',
-  coding: '#67e8f9',
-  break: '#6ee7b7',
-  meeting: '#fcd34d',
-  default: '#fdba74',
-};
 
 const MODE_LABELS: Record<string, string> = {
   working: 'Çalışıyor',
@@ -21,19 +21,17 @@ const MODE_LABELS: Record<string, string> = {
   meeting: 'Toplantı',
 };
 
-function getModeColor(mode: string): string {
-  return MODE_COLORS[mode] || MODE_COLORS.default;
-}
-
 function toHours(seconds: number): number {
   return Math.round((seconds / 3600) * 10) / 10;
 }
 
 export default function ActivityChart() {
+  const { getModeColor } = useModeColors();
   const [period, setPeriod] = useState<Period>('today');
   const [data, setData] = useState<Record<string, unknown>[]>([]);
   const [allModes, setAllModes] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(true);
 
   useEffect(() => {
     loadData();
@@ -43,7 +41,7 @@ export default function ActivityChart() {
     setLoading(true);
     try {
       if (period === 'today') {
-        const daily = await statsApi.daily();
+        const daily = await statsApi.daily(localToday());
         const row: Record<string, unknown> = { date: 'Bugün' };
         daily.forEach((m) => { row[m.mode] = toHours(m.total_seconds); });
         setData([row]);
@@ -77,9 +75,27 @@ export default function ActivityChart() {
   ];
 
   return (
-    <div className="bg-bg-card border border-border rounded-card p-5 shadow-card">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-text-primary">Mod Grafiği</h3>
+    <div className="bg-bg-card border border-border rounded-card overflow-hidden shadow-card">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <span className="w-7 h-7 rounded-lg bg-accent-purple/20 ring-1 ring-accent-purple/40 flex items-center justify-center">
+            <BarChart3 size={15} className="text-accent-purple" />
+          </span>
+          Mod Grafiği
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-text-muted">
+            {period === 'today' ? 'Bugün' : `${period} Gün`}
+          </span>
+          {open ? <ChevronUp size={14} className="text-text-muted" /> : <ChevronDown size={14} className="text-text-muted" />}
+        </div>
+      </button>
+      {open && (
+      <div className="px-5 pb-4 border-t border-border pt-3">
+      <div className="flex items-center justify-end mb-3">
         <div className="flex gap-1">
           {tabs.map((t) => (
             <button key={t.key} onClick={() => setPeriod(t.key)}
@@ -118,6 +134,8 @@ export default function ActivityChart() {
             ))}
           </BarChart>
         </ResponsiveContainer>
+      )}
+      </div>
       )}
     </div>
   );
