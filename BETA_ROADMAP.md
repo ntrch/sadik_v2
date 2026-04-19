@@ -1,0 +1,395 @@
+# SADIK v2 — Beta Roadmap & Session Handoff
+
+> **Bu doküman**, iki paralel Claude Code oturumu (iki Pro hesap) arasında geçerken, sıfır context'li bir session'ın bile okuyup işe devam edebilmesi için yazılmıştır. Her session başında **önce bunu oku**, sonra aksiyona geç.
+
+---
+
+## 0. Bu doküman nasıl kullanılır
+
+**Her session başında:**
+1. `git pull origin main` — diğer hesabın merge'lediği değişiklikleri al
+2. Bu dosyayı oku (özellikle "Şu an neredeyiz" + "Aktif sprint" + "Kilitler")
+3. `memory/MEMORY.md` + `CHECKPOINT.md` — mimari bilgi
+4. Aktif sprint'in "Next actionable task"ına bak
+5. Task'ı al, Sonnet 4.6 sub-agent'a delege et (Opus planlar, Sonnet kod yazar)
+6. Task biter → bu dosyayı güncelle (bölüm: "Şu an neredeyiz" + ilgili sprint'in task listesi) → commit + push
+
+**Paralel çalışma kuralı:**
+- İki hesap aynı anda çalışıyorsa **farklı sprint'lerden task alsın** (kilit çakışması için aşağıda "Concurrency zones" bölümü var)
+- Commit mesajına her zaman `[session-A]` veya `[session-B]` prefix koy, pull öncesi kontrol et
+- Aynı dosyaya iki hesap aynı anda yazmasın — sprint bölümlerinde `concurrency_zone` etiketi var
+
+**Altın kural:**
+- Opus (bu session) = karar, plan, sprint ilerletme, dokümant güncelleme, small surgical fix
+- Sonnet sub-agent = çok-dosyalı analiz + implementation + büyük refactor + regression test
+
+---
+
+## 1. Proje özeti (sıfır context için)
+
+**SADIK**: TR kullanıcılara yönelik, yapay zekalı masaüstü companion. Electron+React (`sadik-app/`) + FastAPI async backend (`sadik-backend/`) + ESP32 OLED device (serial). Local-first mimari, voice-first etkileşim, wake-word ("Sadık"), proaktif öneri sistemi.
+
+**Temel özellikler (mevcut):** Tasks, Pomodoro, Habits, Mode switch (working/coding/meeting/break/custom), Workspace, Voice Assistant, Wake-word, Proactive insights, Google Calendar entegrasyonu, DND, OLED animasyonları + live preview.
+
+**Teknoloji kararları:**
+- Frontend state: React Context (`AppContext.tsx` — büyük, tüm cross-cutting state burada)
+- Backend: FastAPI async + SQLAlchemy async + SQLite (Base.metadata.create_all, migration yok)
+- LLM: şu an chat_service'te entegre (provider henüz kilitlenmedi)
+- Voice: Whisper STT + edge-TTS + streaming LLM per-sentence TTS
+- Wake-word: openWakeWord, custom `sadik.onnx`
+- Device: serial, dummy terminal protokol + frame streaming pipeline
+
+---
+
+## 2. Vizyon (beta için olmazsa olmaz)
+
+1. **LLM tüm izin verilen verilere erişir** (tool use) — voice veya text ile kullanıcı her şeyi yapabilir
+2. **Sadık ile sesli etkileşim** = task listele/sil, habit listele, pomodoro başlat, mode değiştir, memory ara, break başlat/iptal, agenda sorgula. **Task CREATE sesli olmayacak**, sadece silme + sorgulama + öneri dinleme.
+3. **Davranış öğrenme** (opt-in): app usage pattern'leri cluster'lanır, kullanıcı profili çıkarılır, LLM system prompt'una enjekte edilir. "Normalde pazartesi sabahları kod yazardın" diyebilsin.
+4. **Free vs Paid** — free'de de ölü değil companion. Limit voice turn, limited LLM. Pro = tool use full, proactive, learning, premium model, integrations. Subscription altyapısı **shadow ready**, hard-gate beta sonrası user data'ya göre.
+5. **Native macOS + Windows** — electron-builder signed + notarized. Auto-update.
+6. **TR-only beta** (şimdilik)
+7. **Herkese hitap** — dev-only jargon temizlensin, mode presetleri genişlesin (Yazarlık, Öğrenme, Tasarım, Okuma, Oyun), onboarding persona seçimi.
+
+---
+
+## 3. Privacy mimarisi (kilitlendi)
+
+**3 katman:**
+
+| Katman | Ne | Cloud'a gider mi | Default |
+|---|---|---|---|
+| **Always local** | Raw app usage (dakika), voice recording (STT sonrası silinir), memory content, activity timeline | **Asla** | — |
+| **Derived summary** | Task titles, habit names, mode patterns, weekly cluster summary cümlesi | Opt-in, sadece **agregat/özet**, ham değil | **Kapalı** |
+| **Anlık query** | Voice/text prompt + o an gereken context (task list gibi) | Anlık, user consent (prompt yazma eylemi zaten consent) | — |
+
+**Kurallar:**
+- LLM'e giden her request'te Settings'te canlı preview panel: "şu an şu veriler cloud'a gidiyor"
+- Redaction middleware: email/phone/IBAN/API key pattern'ı mask
+- Provider zero-retention mode (enterprise tier gerektirebilir, not al)
+- Settings → Gizlilik:
+  - [ ] Davranış öğrenme (default KAPALI)
+  - [ ] Takvim entegrasyonu (title/time)
+  - [ ] Notion entegrasyonu (page title/content)
+  - [ ] Voice conversation memory
+  - Her toggle: "ne gidiyor / neden / kapatırsan ne kaybedersin"
+- KVKK: aydınlatma metni + açık rıza + "verilerimi sil" + JSON export
+
+---
+
+## 4. Şu an neredeyiz (GÜNCEL DURUM)
+
+**Tarih:** 2026-04-20
+**Son commit:** `b16b60d` — büyük checkpoint backup
+**Branch:** main
+
+### Yakın geçmişteki kazanımlar (tamamlandı, regression için test gerekli):
+- Proaktif sistem full state machine + queue + priority + habits integration (AppContext.tsx)
+- Wake-word: custom model, tuning slider'ları, hot-reload, WS reconnect, global pipeline (sayfa bağımsız)
+- Windows native notification (setAppUserModelId)
+- Google Calendar entegrasyonu + Agenda sayfası + near-real-time sync
+- Mode system (unified popup, 130+ icon, DND per-mode)
+
+### Bilinen sorunlar / verify bekleyen:
+- Proaktif 7 senaryo gerçek kullanımda test edilmedi
+- Wake-word 48h uptime testi yapılmadı
+- Long-session memory leak bilinmiyor
+- Faz 0.5 OAuth refactor (Desktop+PKCE) ship-blocker
+
+### Aktif sprint: **Sprint 1 — Stabilizasyon + Voice Tool-Use Foundation**
+
+Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
+
+---
+
+## 5. Sprint planı (sıralı, kilit gibi)
+
+> **Not:** Süre vermiyorum. "Bir sonraki bitince diğeri başlar." Paralel çalışma için zone etiketleri var.
+
+### Sprint 1: Stabilizasyon + Voice Tool-Use Foundation
+**Amaç:** Mevcut tüm özellikler sessiz çalışsın; voice ile mevcut tüm feature'lar tetiklenebilsin.
+
+**Concurrency zone A (backend + voice pipeline):**
+- [ ] **T1.1** Voice tool-use backend altyapısı
+  - `sadik-backend/app/services/voice_tools.py` — tool schema registry
+  - Tools: `list_tasks(filter)`, `delete_task(id)`, `list_habits()`, `get_today_agenda()`, `get_app_usage_summary(range)`, `start_pomodoro(minutes)`, `switch_mode(name)`, `search_memory(q)`, `cancel_break()`, `list_workspaces()`, `start_workspace(name)`, `get_current_mode()`
+  - voice_service.py / chat_service.py LLM call'unda tool dispatcher
+  - Her tool: input validation + DB async query + natural-language friendly output
+  - Unit test: her tool manuel test edilebilsin (basit debug endpoint)
+- [ ] **T1.2** Voice pipeline'da tool-use loop (backend stream)
+  - LLM response tool_calls içerirse → tool execute → sonucu LLM'e geri besle → final response stream
+  - Mevcut sentence-level TTS streaming bozulmasın
+- [ ] **T1.3** Frontend: voice session tool-result'ları UI'da göster (hangi tool çalıştı — optional subtle indicator)
+
+**Concurrency zone B (frontend stabilizasyon):**
+- [ ] **T1.4** Proaktif 7 senaryo regression — Sonnet'e delege, kod okuyarak logical test
+  - Senaryo 7 (organik end-to-end) özellikle önemli
+- [ ] **T1.5** Wake-word 48h monitoring — sadece log analizi, ek kod yok; bulgular buraya
+- [ ] **T1.6** Long-session memory leak testi — Electron DevTools Memory snapshot, 2+ saat
+
+**Exit criteria:** Voice ile "bugün teslim edeceğim task'lar ne?" soruldu → TTS cevap verdi + listing doğru. Proaktif 7 senaryo ✅.
+
+---
+
+### Sprint 2: Privacy layer + Settings panel
+**Amaç:** LLM'e cloud push'u user control'e al, KVKK uyumlu aydınlatma+rıza akışı.
+
+**Concurrency zone A (backend):**
+- [ ] **T2.1** Settings tablosuna privacy flag'leri
+  - `privacy_behavioral_learning`, `privacy_calendar_push`, `privacy_notion_push`, `privacy_voice_memory`
+  - Hepsi default `false`
+- [ ] **T2.2** Redaction middleware (backend)
+  - Email/phone/IBAN/API key regex mask'le
+  - LLM'e giden her prompt bundan geçsin
+- [ ] **T2.3** "Veri export" + "veri sil" endpoint'leri
+  - `GET /api/privacy/export` — JSON full data
+  - `DELETE /api/privacy/purge` — confirm token ile
+
+**Concurrency zone B (frontend):**
+- [ ] **T2.4** Settings → Gizlilik sekmesi
+  - Her toggle: açıklama + canlı preview ("şu an bu kapalı, şunlar cloud'a gitmiyor")
+  - Toggle değişince backend'e push
+- [ ] **T2.5** Onboarding consent flow (yeni user)
+  - Aydınlatma metni (TR) + açık rıza
+  - Default tüm toggle'lar kapalı, opt-in
+- [ ] **T2.6** KVKK aydınlatma metni dosyası (statik)
+
+**Exit criteria:** Tüm toggle'lar çalışır, redaction middleware testte LLM prompt'undan email mask'liyor.
+
+---
+
+### Sprint 3: Behavioral learning (opt-in)
+**Amaç:** Sadık "normalde bu saatte kod yazardın" diyebilsin.
+
+**Concurrency zone A (backend):**
+- [ ] **T3.1** App usage pattern mining job
+  - Günlük scheduled job (lifespan scheduler üzerine)
+  - Input: son 14 gün app usage
+  - Output: haftanın her günü için saat dilimi bazlı baskın mode (JSON, `user_profile_patterns` setting'ine yaz)
+- [ ] **T3.2** Pattern summary generator
+  - Raw cluster'dan doğal dil cümleleri üret ("Pazartesi 09-12 coding aktif, 13-15 meeting yoğun")
+  - LLM system prompt injection noktası (sadece `privacy_behavioral_learning=true` ise)
+- [ ] **T3.3** Behavioral insight proactive category
+  - Mevcut proactive sistemin üstüne yeni kategori
+  - Logic: beklenen mode aktif değil + yetişecek task var + düşük usage → öneri
+
+**Concurrency zone B (frontend):**
+- [ ] **T3.4** Dashboard'da "Profil" kartı (opt-in toggle açıksa)
+  - Haftalık pattern özeti görsel
+- [ ] **T3.5** Proactive suggestion'da "workspace öner" aksiyonu
+  - Accept → ilgili workspace başlar
+
+**Exit criteria:** 14 gün simulated usage data ile pattern job çalışır, anlamlı summary üretir, LLM responseda yansır.
+
+---
+
+### Sprint 4: Integrations tamamlama
+**Amaç:** Notion + meeting detect.
+
+**Concurrency zone A (backend):**
+- [ ] **T4.1** Notion provider (Faz 3)
+  - Google Calendar pattern'inin birebir üstüne
+  - `providers/notion.py` — OAuth, database select, page → task sync
+  - Sync job (her 5 dk)
+- [ ] **T4.2** Zoom Presence API (Faz 2 başlangıç)
+  - `providers/zoom.py` — OAuth + `/users/me/presence` polling (60s)
+  - `In_Meeting` state → proactive meeting mode suggestion
+
+**Concurrency zone B (frontend):**
+- [ ] **T4.3** Settings → Entegrasyonlar Notion + Zoom card'ları
+- [ ] **T4.4** Meeting detect handler — Zoom `In_Meeting` → mode switch önerisi (toast)
+
+**Exit criteria:** Notion task sync çalışır, Zoom meeting başlayınca "Meeting moduna geç?" toast görünür.
+
+---
+
+### Sprint 5: Persona genişletme + onboarding + jargon
+**Amaç:** Herkese hitap.
+
+**Concurrency zone A (content):**
+- [ ] **T5.1** Mode preset kataloğu genişletme
+  - Yeni default modes: "Yazarlık" (text-heavy, sessiz), "Öğrenme" (ders alma), "Tasarım" (figma/photoshop), "Okuma", "Oyun"
+  - Her mod: icon, renk, DND default, proactive davranış
+- [ ] **T5.2** Jargon temizliği (global find+replace review)
+  - "Pomodoro" kalsın ama alt başlık "Odaklanma seansı"
+  - Developer-specific stringleri revize
+  - Sonnet'e delege: tüm user-facing TR stringleri tara, raporla
+
+**Concurrency zone B (onboarding):**
+- [ ] **T5.3** İlk açılış onboarding flow
+  - 4 adım: welcome → persona seçimi (yazar/öğrenci/tasarımcı/geliştirici/diğer) → consent → device pair
+  - Persona seçimine göre default mod presetleri yükle
+- [ ] **T5.4** Empty state'ler + ilk-gün tutorial
+
+**Exit criteria:** Fresh install → onboarding akışı tamam → kullanıcı ilk task'ını voice ile sorabiliyor.
+
+---
+
+### Sprint 6: Ship altyapısı
+**Amaç:** Imzalı, auto-updating, dağıtılabilir binary.
+
+**Concurrency zone A (OAuth refactor - ship-blocker):**
+- [ ] **T6.1** OAuth Desktop+PKCE refactor (Faz 0.5)
+  - `memory/project_oauth_ship_refactor.md` oku, uygula
+  - `providers/google_calendar.py` + Zoom + Notion PKCE'ye geçir
+  - Kullanıcı OAuth client create etmek zorunda kalmasın
+
+**Concurrency zone B (build + release):**
+- [ ] **T6.2** electron-builder config
+  - `package.json` → `build.appId: "com.sadik.app"`, macOS entitlements (mic, notifications, accessibility), Windows signing
+  - Code signing cert (macOS Developer ID, Windows EV/OV)
+  - Notarization pipeline
+- [ ] **T6.3** Auto-update (electron-updater)
+  - Publish target: GitHub Releases (private repo OK) veya S3
+  - Frontend update notification UI
+- [ ] **T6.4** Basit landing page (markdown'dan statik)
+  - Download links, changelog, support email
+- [ ] **T6.5** Backend dağıtım stratejisi
+  - Option A: Python backend embedded (PyInstaller) — kolay dağıtım, tek binary
+  - Option B: Python backend local process (user install etsin) — esnek ama setup zor
+  - **Karar gerekli** — Opus A'yı öneriyor (user friction sıfır)
+
+**Exit criteria:** Temiz Windows + macOS makinede `.exe` / `.dmg` çift tıkla → app çalışır.
+
+---
+
+### Sprint 7: Subscription shadow + telemetry
+**Amaç:** Shadow olarak Pro altyapısı hazır, hard-gate yok.
+
+**Concurrency zone A (backend):**
+- [ ] **T7.1** User tier model (Free/Pro)
+  - Settings: `user_tier` (default free), `pro_expires_at`
+  - Her AI call backend'de tier check → free limit'te throttle/mesaj, hard-block YOK (beta için)
+- [ ] **T7.2** Usage tracking (beta data collection)
+  - Voice turn count, LLM token count, tool call count
+  - `/api/usage/me` endpoint — analiz için
+- [ ] **T7.3** Paddle sandbox entegrasyonu (shadow)
+  - Checkout flow hazır ama buton gizli (feature flag)
+  - Webhook: `subscription.created` → `user_tier=pro`
+
+**Concurrency zone B (telemetry):**
+- [ ] **T7.4** Crash telemetry endpoint (self-hosted, opt-in consent)
+  - `POST /api/telemetry/crash` — stack trace + redacted context
+  - Electron uncaught handlers wire'lı
+- [ ] **T7.5** Beta feedback widget (in-app)
+  - Shift+F → feedback modal → backend'e + Discord webhook
+
+**Exit criteria:** Usage tracking çalışır, crash raporu gönderilir, feedback modal çalışır.
+
+---
+
+### Sprint 8: Closed beta launch
+**Amaç:** 3 arkadaşa + sonra 10-20 tester'a dağıt.
+
+- [ ] **T8.1** Final regression pass (tüm kritik flow'lar)
+- [ ] **T8.2** Installer test 3 temiz makinede
+- [ ] **T8.3** İlk tester grubu (3 kişi, senin arkadaşlar)
+- [ ] **T8.4** 1 hafta feedback topla
+- [ ] **T8.5** Hotfix pass
+- [ ] **T8.6** Genişletilmiş beta (10-20 tester)
+- [ ] **T8.7** Telemetry analiz → pricing kararı için data
+
+**Exit criteria:** 3 arkadaş 1 hafta kullanmış, crash report'lar analiz edilmiş, feedback listesi hotfix'e dönmüş.
+
+---
+
+## 6. Concurrency zones (iki hesap paralel çalışma)
+
+Her sprint içinde **zone A** ve **zone B** ayrıldı. Aynı anda iki hesap:
+- Hesap 1 → zone A task'ı al
+- Hesap 2 → zone B task'ı al
+
+**Dosya çakışması risk matrix:**
+
+| Sık çakışan dosya | Yalnız bir hesap aynı anda dokunsun |
+|---|---|
+| `sadik-app/src/context/AppContext.tsx` | Evet — büyük, merge conflict kolay |
+| `sadik-app/src/pages/SettingsPage.tsx` | Evet |
+| `sadik-backend/app/main.py` | Evet |
+| `sadik-backend/app/services/voice_service.py` + `chat_service.py` | Evet |
+| `CHECKPOINT.md` + `BETA_ROADMAP.md` | Evet |
+| Yeni dosyalar (provider, page, router) | Hayır — yeni file çakışmaz |
+
+**Workflow:**
+1. Session başında `git pull`
+2. Task aldığında bu dokümanda o task'ın yanına `[WIP: session-A start HH:MM]` yaz, commit+push (kısa "wip marker" commit'i)
+3. Task bitince `[DONE: session-A HH:MM]`, kodu commit+push
+4. Session değiştirirken bu doküman üzerinden kontrol et, diğer session nerede kalmış
+
+---
+
+## 7. Kritik mimari kararlar (zero-context için kilit)
+
+1. **Local-first korunur**: Ham veri asla cloud'a gitmez. Sadece opt-in summary + anlık query.
+2. **LLM provider kilitsiz**: Beta'da maliyet verisi toplanacak, sonra karar.
+3. **Voice tool-use**: Task CREATE yok (hallucination riski). Sadece read + delete + state change.
+4. **Subscription shadow mode**: Hard paywall beta'da yok. Data toplandıktan sonra.
+5. **TR-only**: İlk beta Türkçe. i18n altyapısı kurulmayacak (gereksiz iş).
+6. **Backend embedded (öneri)**: PyInstaller ile tek binary, user friction sıfır. Sonnet'e delege edildiğinde bunu net brief'le.
+7. **ESP32 WiFi şimdilik yok**: Serial yeter (bkz `memory/project_wifi_transport_deferred.md`).
+
+---
+
+## 8. Subagent prompt şablonu (copy-paste)
+
+İki hesapta da aynı kural: Opus planlar, **Sonnet 4.6 subagent** implement eder. Her delege şöyle olsun:
+
+```
+SADIK v2: C:\Users\eren_\OneDrive\Masaüstü\sadik_v2
+Electron+React frontend (sadik-app/), FastAPI async backend (sadik-backend/).
+
+TASK: [Sprint X - TX.Y] <task özeti>
+
+ÖNCE OKU:
+- BETA_ROADMAP.md (bu doküman, özellikle Sprint X bölümü)
+- memory/MEMORY.md + referans dosyalar
+- CHECKPOINT.md (varsa ilgili bölüm)
+- <ilgili source dosyaları>
+
+YAP:
+1. Discovery: mevcut durum, gap analizi (kısa)
+2. Implementation: minimum değişiklik, maximum kesinlik
+3. Logical test: kodu okuyarak doğrula
+4. Rapor (≤500 kelime): kök neden (varsa), değişiklikler file:line, test adımları
+
+YAPMA:
+- Dokümantasyon dosyası yazma (README, MD)
+- Gereksiz refactor
+- Spec dışı feature
+- Karar isteme — kararlar BETA_ROADMAP.md'de
+
+EXIT CRITERIA: <sprint exit criteria'sından ilgili kısım>
+```
+
+---
+
+## 9. Memory referansları
+
+`C:\Users\eren_\.claude\projects\C--Users-eren--OneDrive-Masa-st--sadik-v2\memory\`:
+- `MEMORY.md` — index
+- `feedback_workflow.md` — Opus karar, Sonnet aksiyon
+- `feedback_autonomy.md` — delege edince step-by-step sormadan tamamla
+- `user_role.md` — Eren profili
+- `project_oauth_ship_refactor.md` — Sprint 6 T6.1 için
+- `project_wifi_transport_deferred.md` — kararsız bir şey sorulursa
+
+---
+
+## 10. Değişiklik kuralı
+
+**Bu dokümanı güncelleme zamanı:**
+- Sprint task'ı tamamlandığında `[ ]` → `[x]` yap + `# 4. Şu an neredeyiz` bölümünü güncelle
+- Yeni kritik karar alınırsa `# 7. Kritik mimari kararlar`a ekle
+- Kilit değişirse `# 6. Concurrency zones`u güncelle
+- Vizyon veya scope değişirse `# 2. Vizyon`u güncelle
+
+**Her önemli değişiklikte commit:**
+```
+docs: BETA_ROADMAP update — <ne değişti>
+```
+
+Sonra push. Diğer session pull'da görür.
+
+---
+
+**Şu andan itibaren aktif: Sprint 1 — T1.1 ile başla.**
