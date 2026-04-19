@@ -44,11 +44,15 @@ export const voiceApi = {
    * Wire frame format (typed length-prefix):
    *   [1 byte type][4 bytes big-endian uint32 length][length bytes payload]
    *   type 0x01 = MP3 audio chunk
-   *   type 0x00 = JSON metadata {"text": "<full_reply>"} — always the last frame
+   *   type 0x00 = JSON metadata {"text": "<full_reply>", "tool_calls_used": [...]} — last frame
+   *   type 0x02 = JSON tool_status {"type":"tool_status","tool_name":str,"phase":"executing"|"completed"}
    *
    * The *onChunk* callback is invoked for each MP3 Blob as it arrives so the
    * caller can queue and play chunks sequentially without waiting for the full
    * response.
+   *
+   * The optional *onToolEvent* callback is invoked for each tool_status frame
+   * so the UI can show an indicator while a tool is executing.
    *
    * Returns the full plain-text reply from the metadata frame (for display).
    */
@@ -57,6 +61,7 @@ export const voiceApi = {
     history: Array<{ role: string; content: string }>,
     onChunk: (audioBlob: Blob, sentenceIndex: number) => void,
     signal?: AbortSignal,
+    onToolEvent?: (event: { type: 'tool_status'; tool_name: string; phase: 'executing' | 'completed' }) => void,
   ): Promise<string> => {
     const response = await fetch('http://localhost:8000/api/voice/voice-chat-stream', {
       method: 'POST',
@@ -99,12 +104,32 @@ export const voiceApi = {
           const blob = new Blob([payload], { type: 'audio/mpeg' });
           onChunk(blob, index++);
         } else if (frameType === 0x00) {
-          // Metadata frame — extract reply text
+          // Metadata frame — extract reply text and log tool_calls_used
           try {
-            const meta = JSON.parse(new TextDecoder().decode(payload)) as { text?: string };
+            const meta = JSON.parse(new TextDecoder().decode(payload)) as {
+              text?: string;
+              tool_calls_used?: Array<{ name: string; args_summary: string }>;
+            };
             replyText = meta.text ?? '';
+            if (meta.tool_calls_used && meta.tool_calls_used.length > 0) {
+              console.log('[VoiceStream] tool_calls_used:', meta.tool_calls_used);
+            }
           } catch {
             console.warn('[VoiceStream] Failed to parse metadata frame');
+          }
+        } else if (frameType === 0x02) {
+          // Tool status frame
+          if (onToolEvent) {
+            try {
+              const event = JSON.parse(new TextDecoder().decode(payload)) as {
+                type: 'tool_status';
+                tool_name: string;
+                phase: 'executing' | 'completed';
+              };
+              onToolEvent(event);
+            } catch {
+              console.warn('[VoiceStream] Failed to parse tool_status frame');
+            }
           }
         }
       }

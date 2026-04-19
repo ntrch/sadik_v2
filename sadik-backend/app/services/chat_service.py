@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Optional, Callable, Awaitable
 from datetime import datetime, timezone, timedelta, time as dt_time
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -260,6 +260,7 @@ class ChatService:
         current_mode: Optional[str] = None,
         is_pomodoro_active: bool = False,
         use_tools: bool = False,
+        on_tool_event: Optional[Callable[[dict], Awaitable[None]]] = None,
     ) -> Optional[str]:
         if not api_key:
             return "OpenAI API anahtarı ayarlanmamış. Lütfen ayarlardan API anahtarınızı girin."
@@ -284,7 +285,9 @@ class ChatService:
             if use_tools and session is not None:
                 from app.services.voice_tools import run_tool_loop
                 try:
-                    _, final_text = await run_tool_loop(messages, client, model, session)
+                    _, final_text, _ = await run_tool_loop(
+                        messages, client, model, session, on_tool_event=on_tool_event
+                    )
                     return final_text
                 except Exception as tool_err:
                     logger.warning(f"[ChatService] Tool loop failed, falling back: {tool_err}")
@@ -310,6 +313,7 @@ class ChatService:
         current_mode: Optional[str] = None,
         is_pomodoro_active: bool = False,
         use_tools: bool = False,
+        on_tool_event: Optional[Callable[[dict], Awaitable[None]]] = None,
     ):
         """Async generator that yields complete sentence strings for TTS.
 
@@ -321,7 +325,12 @@ class ChatService:
 
         Yields:
             str — a single sentence / chunk ready for TTS synthesis.
+
+        After the generator is exhausted, the caller may access
+        self._last_tool_calls_used (list[dict]) for metadata.
         """
+        self._last_tool_calls_used: list[dict] = []
+
         if not api_key:
             yield "OpenAI API anahtarı ayarlanmamış."
             return
@@ -347,7 +356,10 @@ class ChatService:
         if use_tools and session is not None:
             try:
                 from app.services.voice_tools import run_tool_loop
-                _, final_text = await run_tool_loop(messages, client, model, session)
+                _, final_text, tool_calls_used = await run_tool_loop(
+                    messages, client, model, session, on_tool_event=on_tool_event
+                )
+                self._last_tool_calls_used = tool_calls_used
             except Exception as tool_err:
                 logger.warning(f"[ChatService] Tool loop failed, falling back to plain LLM: {tool_err}")
                 final_text = None

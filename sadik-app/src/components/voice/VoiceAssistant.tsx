@@ -108,6 +108,23 @@ function isConfirmation(text: string): boolean {
   return patterns.some(p => lower.includes(p));
 }
 
+// ── Tool name → Turkish human-readable label ──────────────────────────────────
+
+const TOOL_LABELS: Record<string, string> = {
+  list_tasks:            'Görevler listeleniyor',
+  delete_task:           'Görev siliniyor',
+  list_habits:           'Alışkanlıklar kontrol ediliyor',
+  get_today_agenda:      'Bugünkü ajanda alınıyor',
+  get_app_usage_summary: 'Kullanım özeti çıkarılıyor',
+  start_pomodoro:        'Pomodoro başlatılıyor',
+  switch_mode:           'Mod değiştiriliyor',
+  search_memory:         'Hafıza aranıyor',
+  cancel_break:          'Mola iptal ediliyor',
+  list_workspaces:       'Çalışma alanları getiriliyor',
+  start_workspace:       'Çalışma alanı başlatılıyor',
+  get_current_mode:      'Aktif mod kontrol ediliyor',
+};
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<VoiceState, string> = {
@@ -143,6 +160,7 @@ export default function VoiceAssistant() {
   const [bubbles,        setBubbles]        = useState<Bubble[]>([]);
   const [error,          setError]          = useState<string | null>(null);
   const [statusOverride, setStatusOverride] = useState<string | null>(null);
+  const [activeTools,    setActiveTools]    = useState<string[]>([]);
 
   // ── Refs — recording ───────────────────────────────────────────────────────
   const mediaRecorderRef   = useRef<MediaRecorder | null>(null);
@@ -410,6 +428,7 @@ export default function VoiceAssistant() {
     if (returnTimer.current)    clearTimeout(returnTimer.current);
 
     setStatusOverride(null);
+    setActiveTools([]);
     setVoiceState('idle');
     returnToIdle();
     // Drop any persistent mic stream so the OS fully releases the input device.
@@ -782,14 +801,25 @@ export default function VoiceAssistant() {
       };
       schedulePoll();
 
+      // Tool event handler — updates activeTools state for UI indicator.
+      const handleToolEvent = (event: { type: 'tool_status'; tool_name: string; phase: 'executing' | 'completed' }) => {
+        if (event.phase === 'executing') {
+          setActiveTools((prev) => prev.includes(event.tool_name) ? prev : [...prev, event.tool_name]);
+        } else if (event.phase === 'completed') {
+          setActiveTools((prev) => prev.filter((t) => t !== event.tool_name));
+        }
+      };
+
       // Fire the stream — this resolves when all LLM+TTS is done.
       const streamedReply = await voiceApi.voiceChatStream(
         prepareTtsText(trimmed),
         [],   // history handled server-side via DB
         onChunk,
         signal,
+        handleToolEvent,
       );
       streamDone = true;
+      setActiveTools([]);  // clear any residual tool indicators after stream ends
       console.log('[Voice] voiceChatStream complete, reply:', streamedReply.slice(0, 80));
 
       // Update bubble and refs with the full reply text from the metadata frame.
@@ -1218,6 +1248,20 @@ export default function VoiceAssistant() {
           </span>
         )}
       </p>
+
+      {/* ── Tool indicator ───────────────────────────────────────────────────── */}
+      {activeTools.length > 0 && (
+        <div className="flex flex-col items-center gap-1 -mt-2">
+          {activeTools.map((toolName) => (
+            <p
+              key={toolName}
+              className="text-xs text-text-muted animate-pulse"
+            >
+              {TOOL_LABELS[toolName] ?? toolName}...
+            </p>
+          ))}
+        </div>
+      )}
 
       {/* ── Error banner ────────────────────────────────────────────────────── */}
       {error && (

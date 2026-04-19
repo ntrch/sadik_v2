@@ -249,12 +249,30 @@ async def voice_chat_stream(
             [1 byte type][4 bytes big-endian uint32 length][length bytes payload]
 
         Types:
-            0x00  JSON metadata  — {"text": "<full_reply>"}  sent as the LAST frame
+            0x00  JSON metadata  — {"text": "<full_reply>", "tool_calls_used": [...]}  last frame
             0x01  MP3 audio      — one sentence worth of audio
+            0x02  JSON tool_status — {"type":"tool_status","tool_name":str,"phase":"executing"|"completed"}
         """
         full_reply_parts: list[str] = []
 
-        async for sentence in chat_service.stream_voice_response(
+        # Async queue for tool events — allows the tool_event callback (sync context
+        # inside run_tool_loop) to push events that generate() drains before the
+        # next TTS frame.  Because generate() is a single coroutine, we use a simple
+        # list as a thread-safe queue (asyncio is single-threaded).
+        pending_tool_frames: list[bytes] = []
+
+        async def on_tool_event(event: dict) -> None:
+            """Serialize event to a 0x02 frame and enqueue it for the stream."""
+            payload = json.dumps(event, ensure_ascii=False).encode("utf-8")
+            pending_tool_frames.append(b"\x02" + len(payload).to_bytes(4, "big") + payload)
+            logger.info(f"[VoiceChatStream] tool_event queued: {event}")
+
+        async def flush_tool_frames() -> AsyncIterator[bytes]:
+            """Yield and clear any queued tool_status frames."""
+            while pending_tool_frames:
+                yield pending_tool_frames.pop(0)
+
+        response_gen = chat_service.stream_voice_response(
             user_content=body.text,
             history=db_history,
             api_key=api_key,
@@ -263,7 +281,14 @@ async def voice_chat_stream(
             greeting_style=greeting_style,
             session=session,
             use_tools=True,
-        ):
+            on_tool_event=on_tool_event,
+        )
+
+        async for sentence in response_gen:
+            # Flush any queued tool_status frames before the next audio frame.
+            async for frame in flush_tool_frames():
+                yield frame
+
             cleaned = clean_text_for_tts(sentence)
             if not cleaned:
                 continue
@@ -325,6 +350,10 @@ async def voice_chat_stream(
                 # type=0x01 (audio) + 4-byte big-endian length + payload
                 yield b"\x01" + len(audio_data).to_bytes(4, "big") + audio_data
 
+        # Drain any remaining tool_status frames (e.g. completed after last sentence).
+        async for frame in flush_tool_frames():
+            yield frame
+
         # Persist assistant message and send reply text as final metadata frame.
         full_reply = " ".join(full_reply_parts)
         if full_reply:
@@ -333,8 +362,15 @@ async def voice_chat_stream(
             session.add(assistant_msg)
             await session.commit()
 
+        # Collect tool_calls_used from the generator (set on chat_service instance).
+        tool_calls_used = getattr(chat_service, "_last_tool_calls_used", [])
+        logger.info(f"[VoiceChatStream] tool_calls_used: {tool_calls_used}")
+
         # Send text metadata frame (type=0x00) as the last frame in the stream.
-        meta = json.dumps({"text": full_reply}, ensure_ascii=False).encode("utf-8")
+        meta = json.dumps(
+            {"text": full_reply, "tool_calls_used": tool_calls_used},
+            ensure_ascii=False,
+        ).encode("utf-8")
         yield b"\x00" + len(meta).to_bytes(4, "big") + meta
 
     return StreamingResponse(

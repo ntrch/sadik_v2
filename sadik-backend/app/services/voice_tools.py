@@ -557,12 +557,17 @@ async def run_tool_loop(
     client,
     model: str,
     session: AsyncSession,
-) -> tuple[list[dict], str]:
+    on_tool_event: Callable[[dict], Awaitable[None]] | None = None,
+) -> tuple[list[dict], str, list[dict]]:
     """Execute the LLM tool-use loop (max MAX_TOOL_ROUNDS rounds).
 
-    Returns (updated_messages, final_text_response).
-    The final_text_response is ready for TTS — it is the LLM's last message
-    after all tool results have been consumed.
+    Returns (updated_messages, final_text_response, tool_calls_used).
+    - final_text_response: ready for TTS
+    - tool_calls_used: list of {name, args_summary} dicts for frontend metadata
+
+    on_tool_event: optional async callable called with
+        {"type": "tool_status", "tool_name": str, "phase": "executing"|"completed"}
+        before and after each tool execution.
 
     client: AsyncOpenAI instance
     messages: full messages list (will be extended in-place clone)
@@ -570,6 +575,14 @@ async def run_tool_loop(
     import json
     msgs = list(messages)  # shallow copy — don't mutate caller's list
     tool_schemas = get_tool_schemas("openai")
+    tool_calls_used: list[dict] = []
+
+    async def _emit(event: dict) -> None:
+        if on_tool_event is not None:
+            try:
+                await on_tool_event(event)
+            except Exception as ev_err:
+                logger.warning(f"[voice_tools] on_tool_event error: {ev_err}")
 
     for round_idx in range(MAX_TOOL_ROUNDS):
         response = await client.chat.completions.create(
@@ -608,7 +621,20 @@ async def run_tool_loop(
                     fn_args = {}
 
                 logger.info(f"[voice_tools] round={round_idx+1} tool={fn_name} args={fn_args}")
+
+                # Emit executing event before tool runs
+                await _emit({"type": "tool_status", "tool_name": fn_name, "phase": "executing"})
+
                 tool_result = await execute_tool(fn_name, fn_args, session)
+
+                # Emit completed event after tool finishes
+                await _emit({"type": "tool_status", "tool_name": fn_name, "phase": "completed"})
+
+                # Build args summary for metadata (truncated, key=value pairs)
+                args_summary = ", ".join(
+                    f"{k}={str(v)[:30]}" for k, v in fn_args.items()
+                ) if fn_args else ""
+                tool_calls_used.append({"name": fn_name, "args_summary": args_summary})
 
                 msgs.append({
                     "role": "tool",
@@ -618,7 +644,7 @@ async def run_tool_loop(
         else:
             # No more tool calls — we have the final text response
             final_text = msg.content or ""
-            return msgs, final_text
+            return msgs, final_text, tool_calls_used
 
     # Safety: if we exhausted MAX_TOOL_ROUNDS without a non-tool response,
     # do one more call without tools to force a final answer.
@@ -628,4 +654,4 @@ async def run_tool_loop(
         messages=msgs,
     )
     final_text = response.choices[0].message.content or ""
-    return msgs, final_text
+    return msgs, final_text, tool_calls_used

@@ -100,7 +100,9 @@
 
 **İlerleme:**
 - ✅ T1.1 voice tool-use backend (12 tool, registry, debug endpoint)
-- Sıradaki: T1.2 (tool loop streaming UX) + T1.3 (frontend tool indicator)
+- ✅ T1.2 backend frame protocol (tool_status frame + tool_calls_used metadata)
+- ✅ T1.3 frontend tool indicator (TR label, animate-pulse)
+- Sıradaki: T1.4 proaktif 7 senaryo regression
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
@@ -121,13 +123,17 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Provider: OpenAI function-calling format (Anthropic eklenebilir)
   - Debug endpoint ile her tool manuel test edilebilir
   - **Limit:** tool loop non-streaming (kullanıcı tool execute ederken bekler) — T1.2'de iyileştirme hedefi
-- [WIP] **T1.2** Voice pipeline tool-use UX polish
-  - Tool execute sırasında interim "düşünüyorum" ses veya gösterim (kullanıcı boşluğu hissetmesin)
-  - Tool-call metadata frame'e ekle (frontend indicator için)
-- [WIP] **T1.3** Frontend: voice session tool-result'ları UI'da göster (hangi tool çalıştı — optional subtle indicator)
+- [x] **T1.2** Voice pipeline tool-use UX polish ✅
+  - Backend frame protocol: yeni `0x02` frame type (`tool_status`), `on_tool_event` callback, `tool_calls_used` metadata
+  - `run_tool_loop` her tool için `executing`/`completed` emit ediyor
+  - Final metadata frame'de `tool_calls_used: [{name, args_summary}]`
+  - Not: tool bitmeden sentence yield edilmediği için `executing` ve `completed` frame'ler yakın geliyor — tek tur için kabul
+- [x] **T1.3** Frontend tool indicator ✅
+  - `voice.ts`: `onToolEvent` callback + `0x02` frame parse
+  - `VoiceAssistant.tsx`: `TOOL_LABELS` (12 tool TR), `activeTools` state, status label altında animate-pulse indicator
 
 **Concurrency zone B (frontend stabilizasyon):**
-- [ ] **T1.4** Proaktif 7 senaryo regression — Sonnet'e delege, kod okuyarak logical test
+- [WIP] **T1.4** Proaktif 7 senaryo regression — Sonnet'e delege, kod okuyarak logical test
   - Senaryo 7 (organik end-to-end) özellikle önemli
 - [ ] **T1.5** Wake-word 48h monitoring — sadece log analizi, ek kod yok; bulgular buraya
 - [ ] **T1.6** Long-session memory leak testi — Electron DevTools Memory snapshot, 2+ saat
