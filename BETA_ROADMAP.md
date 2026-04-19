@@ -98,6 +98,10 @@
 
 ### Aktif sprint: **Sprint 1 — Stabilizasyon + Voice Tool-Use Foundation**
 
+**İlerleme:**
+- ✅ T1.1 voice tool-use backend (12 tool, registry, debug endpoint)
+- Sıradaki: T1.2 (tool loop streaming UX) + T1.3 (frontend tool indicator)
+
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
 ---
@@ -110,16 +114,17 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 **Amaç:** Mevcut tüm özellikler sessiz çalışsın; voice ile mevcut tüm feature'lar tetiklenebilsin.
 
 **Concurrency zone A (backend + voice pipeline):**
-- [WIP: opus session, started] **T1.1** Voice tool-use backend altyapısı
-  - `sadik-backend/app/services/voice_tools.py` — tool schema registry
-  - Tools: `list_tasks(filter)`, `delete_task(id)`, `list_habits()`, `get_today_agenda()`, `get_app_usage_summary(range)`, `start_pomodoro(minutes)`, `switch_mode(name)`, `search_memory(q)`, `cancel_break()`, `list_workspaces()`, `start_workspace(name)`, `get_current_mode()`
-  - voice_service.py / chat_service.py LLM call'unda tool dispatcher
-  - Her tool: input validation + DB async query + natural-language friendly output
-  - Unit test: her tool manuel test edilebilsin (basit debug endpoint)
-- [ ] **T1.2** Voice pipeline'da tool-use loop (backend stream)
-  - LLM response tool_calls içerirse → tool execute → sonucu LLM'e geri besle → final response stream
-  - Mevcut sentence-level TTS streaming bozulmasın
-- [ ] **T1.3** Frontend: voice session tool-result'ları UI'da göster (hangi tool çalıştı — optional subtle indicator)
+- [x] **T1.1** Voice tool-use backend altyapısı ✅
+  - NEW `sadik-backend/app/services/voice_tools.py` — 12 tool registry + `run_tool_loop` (max 3 round)
+  - MOD `chat_service.py` (+87 satır) — `use_tools=True` path, sentence-split wrapper
+  - MOD `routers/voice.py` — `voice_chat_stream` tool loop entegre, `POST /api/voice/tools/debug`, `GET /api/voice/tools/list`
+  - Provider: OpenAI function-calling format (Anthropic eklenebilir)
+  - Debug endpoint ile her tool manuel test edilebilir
+  - **Limit:** tool loop non-streaming (kullanıcı tool execute ederken bekler) — T1.2'de iyileştirme hedefi
+- [WIP] **T1.2** Voice pipeline tool-use UX polish
+  - Tool execute sırasında interim "düşünüyorum" ses veya gösterim (kullanıcı boşluğu hissetmesin)
+  - Tool-call metadata frame'e ekle (frontend indicator için)
+- [WIP] **T1.3** Frontend: voice session tool-result'ları UI'da göster (hangi tool çalıştı — optional subtle indicator)
 
 **Concurrency zone B (frontend stabilizasyon):**
 - [ ] **T1.4** Proaktif 7 senaryo regression — Sonnet'e delege, kod okuyarak logical test

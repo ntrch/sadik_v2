@@ -261,7 +261,8 @@ async def voice_chat_stream(
             model=model,
             user_name=user_name,
             greeting_style=greeting_style,
-            session=None,   # context already fetched above; pass None to skip DB query
+            session=session,
+            use_tools=True,
         ):
             cleaned = clean_text_for_tts(sentence)
             if not cleaned:
@@ -359,3 +360,46 @@ async def list_audio_devices():
         ]
     except Exception:
         return []
+
+
+class ToolDebugRequest(BaseModel):
+    tool_name: str
+    args: dict = {}
+
+
+@router.post("/tools/debug")
+async def debug_tool(
+    body: ToolDebugRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Manual tool execution endpoint for testing.
+
+    POST /api/voice/tools/debug
+    {"tool_name": "list_tasks", "args": {"filter": "open"}}
+    Returns {"result": "<natural language output>", "duration_ms": 42.3}
+    """
+    import time
+    from app.services.voice_tools import execute_tool, TOOLS
+
+    if body.tool_name not in TOOLS:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown tool '{body.tool_name}'. Available: {list(TOOLS.keys())}",
+        )
+
+    t0 = time.monotonic()
+    result = await execute_tool(body.tool_name, body.args, session)
+    duration_ms = (time.monotonic() - t0) * 1000
+
+    return {"result": result, "duration_ms": round(duration_ms, 1)}
+
+
+@router.get("/tools/list")
+async def list_tools():
+    """Return all registered tool names and descriptions."""
+    from app.services.voice_tools import TOOLS
+    return [
+        {"name": t.name, "description": t.description}
+        for t in TOOLS.values()
+    ]

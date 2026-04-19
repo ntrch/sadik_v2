@@ -152,6 +152,49 @@ async def _build_local_context(
     return block
 
 
+# ── Sentence splitter (used by tool-use path) ──────────────────────────────────
+
+def _split_into_sentences(text: str) -> list[str]:
+    """Split *text* into sentence chunks using the same heuristics as the
+    streaming path, so tool-mode and stream-mode TTS output are equivalent."""
+    SENTENCE_ENDS = {".", "!", "?", "\n"}
+    SOFT_FLUSH_CHARS = 80
+    sentences: list[str] = []
+    buffer = text
+
+    while buffer:
+        # Look for sentence boundary
+        found = -1
+        for i in range(len(buffer)):
+            if buffer[i] in SENTENCE_ENDS:
+                found = i
+                break
+
+        if found >= 0:
+            chunk = buffer[: found + 1].strip()
+            if chunk:
+                sentences.append(chunk)
+            buffer = buffer[found + 1:]
+        elif len(buffer) >= SOFT_FLUSH_CHARS:
+            last_space = buffer.rfind(" ", 0, SOFT_FLUSH_CHARS)
+            if last_space > 0:
+                chunk = buffer[:last_space].strip()
+                if chunk:
+                    sentences.append(chunk)
+                buffer = buffer[last_space + 1:]
+            else:
+                # No space found — flush all remaining
+                if buffer.strip():
+                    sentences.append(buffer.strip())
+                buffer = ""
+        else:
+            if buffer.strip():
+                sentences.append(buffer.strip())
+            buffer = ""
+
+    return sentences
+
+
 # ── Chat service ───────────────────────────────────────────────────────────────
 
 class ChatService:
@@ -216,6 +259,7 @@ class ChatService:
         session: Optional[AsyncSession] = None,
         current_mode: Optional[str] = None,
         is_pomodoro_active: bool = False,
+        use_tools: bool = False,
     ) -> Optional[str]:
         if not api_key:
             return "OpenAI API anahtarı ayarlanmamış. Lütfen ayarlardan API anahtarınızı girin."
@@ -236,6 +280,15 @@ class ChatService:
             )
 
             client = AsyncOpenAI(api_key=api_key)
+
+            if use_tools and session is not None:
+                from app.services.voice_tools import run_tool_loop
+                try:
+                    _, final_text = await run_tool_loop(messages, client, model, session)
+                    return final_text
+                except Exception as tool_err:
+                    logger.warning(f"[ChatService] Tool loop failed, falling back: {tool_err}")
+
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -256,12 +309,15 @@ class ChatService:
         session: Optional[AsyncSession] = None,
         current_mode: Optional[str] = None,
         is_pomodoro_active: bool = False,
+        use_tools: bool = False,
     ):
         """Async generator that yields complete sentence strings for TTS.
 
-        Uses OpenAI streaming to receive tokens as they arrive, buffers them,
-        and flushes each sentence (ending with . ! ? or ~80 chars) as a
-        discrete string so the caller can pipe each sentence to TTS immediately.
+        When use_tools=True: tool loop runs first (blocking), then the final
+        text response is split into sentences and yielded — preserving the
+        sentence-streaming invariant so the TTS pipeline stays intact.
+
+        When use_tools=False (default): original OpenAI streaming path.
 
         Yields:
             str — a single sentence / chunk ready for TTS synthesis.
@@ -286,10 +342,27 @@ class ChatService:
         )
 
         client = AsyncOpenAI(api_key=api_key)
+
+        # ── Tool-use path ──────────────────────────────────────────────────────
+        if use_tools and session is not None:
+            try:
+                from app.services.voice_tools import run_tool_loop
+                _, final_text = await run_tool_loop(messages, client, model, session)
+            except Exception as tool_err:
+                logger.warning(f"[ChatService] Tool loop failed, falling back to plain LLM: {tool_err}")
+                final_text = None
+
+            if final_text is not None:
+                # Split final_text into sentences and yield each
+                for sentence in _split_into_sentences(final_text):
+                    yield sentence
+                return
+            # If tool loop failed, fall through to streaming path
+
+        # ── Original streaming path ────────────────────────────────────────────
         buffer = ""
-        # Sentence-boundary characters that trigger a flush.
         SENTENCE_ENDS = {".", "!", "?", "\n"}
-        SOFT_FLUSH_CHARS = 80  # flush even without punctuation if buffer grows long
+        SOFT_FLUSH_CHARS = 80
 
         try:
             async with await client.chat.completions.create(
@@ -303,7 +376,6 @@ class ChatService:
                         continue
                     buffer += delta
 
-                    # Check if we crossed a sentence boundary.
                     flushed = False
                     for i in range(len(buffer) - 1, -1, -1):
                         if buffer[i] in SENTENCE_ENDS:
@@ -314,9 +386,7 @@ class ChatService:
                             flushed = True
                             break
 
-                    # Soft flush on long buffers without sentence boundary.
                     if not flushed and len(buffer) >= SOFT_FLUSH_CHARS:
-                        # Break at the last space to avoid cutting mid-word.
                         last_space = buffer.rfind(" ")
                         if last_space > 0:
                             sentence = buffer[:last_space].strip()
@@ -329,7 +399,6 @@ class ChatService:
             yield f"Bir hata oluştu: {str(e)}"
             return
 
-        # Flush any remaining text.
         remaining = buffer.strip()
         if remaining:
             yield remaining
