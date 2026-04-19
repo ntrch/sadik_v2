@@ -110,7 +110,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 **Amaç:** Mevcut tüm özellikler sessiz çalışsın; voice ile mevcut tüm feature'lar tetiklenebilsin.
 
 **Concurrency zone A (backend + voice pipeline):**
-- [ ] **T1.1** Voice tool-use backend altyapısı
+- [WIP: opus session, started] **T1.1** Voice tool-use backend altyapısı
   - `sadik-backend/app/services/voice_tools.py` — tool schema registry
   - Tools: `list_tasks(filter)`, `delete_task(id)`, `list_habits()`, `get_today_agenda()`, `get_app_usage_summary(range)`, `start_pomodoro(minutes)`, `switch_mode(name)`, `search_memory(q)`, `cancel_break()`, `list_workspaces()`, `start_workspace(name)`, `get_current_mode()`
   - voice_service.py / chat_service.py LLM call'unda tool dispatcher
