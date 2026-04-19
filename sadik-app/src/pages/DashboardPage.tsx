@@ -1,15 +1,16 @@
 import React, { useState, useContext, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
-import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Lightbulb, Calendar, ArrowRight, Briefcase, Code, Coffee, Users, Check, X as XIcon, Flag, CalendarClock, ListTodo, BarChart2, BellOff } from 'lucide-react';
+import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Lightbulb, Calendar, ArrowRight, Briefcase, Code, Coffee, Users, Check, X as XIcon, Flag, CalendarClock, ListTodo, BarChart2, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { modesApi } from '../api/modes';
+import { pomodoroApi } from '../api/pomodoro';
 import { tasksApi, Task } from '../api/tasks';
 import { statsApi, ModeStat, AppUsageStat, AppInsight } from '../api/stats';
 import ActivityChart from '../components/stats/ActivityChart';
 import { AnimationEventType } from '../engine/types';
 import { useModeColors } from '../utils/modeColors';
-import { Palette } from 'lucide-react';
+import { getIconByKey, DEFAULT_PRESET_ICONS } from '../utils/modeIcons';
+import ModeSettingsPopup, { DraftState } from '../components/mode/ModeSettingsPopup';
 
 const PRESET_MODES = [
   { key: 'working',  label: 'Çalışıyor',   oledText: 'ÇALIŞIYOR' },
@@ -125,13 +126,13 @@ export default function DashboardPage() {
   const navigate = useNavigate();
 
   const {
-    customModes, getModeColor, getModeDnd, nextFreeColor, setPresetColor, setModeDnd,
+    customModes, getModeColor, getModeDnd, getModeIcon, nextFreeColor, setPresetColor, setModeDnd,
+    setPresetIcon, setCustomModeIcon,
     addCustomMode, setCustomModeColor, removeCustomMode,
   } = useModeColors();
-  const [customMode, setCustomMode] = useState('');
-  const [customColor, setCustomColor] = useState<string>('#fb923c');
-  const [showCustomInput, setShowCustomInput] = useState(false);
-  const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
+  // Settings popup state: which chip's gear is open (key or 'create' for +Özel)
+  const [settingsOpenFor, setSettingsOpenFor] = useState<string | null>(null);
+  const settingsBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [todayTasks, setTodayTasks] = useState<Task[]>([]);
   const [modeStats, setModeStats] = useState<ModeStat[]>([]);
   const [appUsage, setAppUsage] = useState<AppUsageStat[]>([]);
@@ -141,10 +142,6 @@ export default function DashboardPage() {
   const [appUsageOpen, setAppUsageOpen] = useState(true);
   const [todayTasksOpen, setTodayTasksOpen] = useState(true);
   const modeReturnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    setCustomColor(nextFreeColor());
-  }, [customModes.length, showCustomInput]);
 
   useEffect(() => {
     // Today's tasks (todo + in_progress)
@@ -157,8 +154,9 @@ export default function DashboardPage() {
         const due = t.due_date as string | null | undefined;
         // In-progress: always show (currently being worked on — date irrelevant).
         if (t.status === 'in_progress') return true;
-        // To-do: show if undated (all-time) or due today.
-        if (t.status === 'todo') return !due || due.startsWith(today);
+        // To-do: only show if deadline is explicitly set to today.
+        // Tasks without a deadline (undated, pending) are not surfaced here.
+        if (t.status === 'todo') return !!due && due.startsWith(today);
         // Done: only show when completed today.
         if (t.status === 'done') return !!t.updated_at?.startsWith(today);
         return false;
@@ -177,38 +175,50 @@ export default function DashboardPage() {
 
   useEffect(() => () => { if (modeReturnTimer.current) clearTimeout(modeReturnTimer.current); }, []);
 
-  // On mount: if a mode is already active and has a clip, start its animation
-  const initialModClipStarted = useRef(false);
+  // On mount only: if a mode was ALREADY active when this page mounted (app
+  // reopened into an existing mode), play its intro→loop sequence once.
+  // Mode changes that happen AFTER mount are owned by the action that caused
+  // them (handleSetMode, acceptInsight, pomodoro_completed WS handler), so
+  // this effect must not react to later `currentMode` changes — doing so
+  // would override acceptInsight's playModIntroOnce with a loop and prevent
+  // its startTimer callback from ever firing.
   useEffect(() => {
-    if (initialModClipStarted.current || !currentMode) return;
-    const clip = MODE_CLIP_MAP[currentMode];
+    const mode = currentMode;
+    if (!mode) return;
+    const clip = MODE_CLIP_MAP[mode];
     if (!clip) return;
-    // Clips load async — wait until BOTH intro and loop are available, then
-    // play the full sequence (intro once → text loop). This keeps the flow
-    // consistent whether the mode was just activated or the app is reopening
-    // with the mode already live.
     let attempts = 0;
     const check = setInterval(() => {
       attempts++;
       const loaded = getLoadedClipNames();
       if (loaded.includes(clip.intro) && loaded.includes(clip.loop)) {
         clearInterval(check);
-        initialModClipStarted.current = true;
         playModSequence(clip.intro, clip.loop);
       } else if (attempts >= 10) {
         clearInterval(check);
       }
     }, 500);
     return () => clearInterval(check);
-  }, [currentMode]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleEndMode = async () => {
     setLoading(true);
     try {
+      // Manual exit from break mode mid-timer → confirming.cpp → idle.
+      const exitingActiveBreak =
+        currentMode === 'break' && pomodoroState.is_running && pomodoroState.phase === 'break';
+      if (exitingActiveBreak) {
+        try { await pomodoroApi.stop(); } catch { /* best-effort */ }
+      }
       await modesApi.endCurrent();
       setCurrentMode(null);
       setDndActive(false); // no active mode → clear DND
-      returnToIdle();
+      if (exitingActiveBreak) {
+        triggerEvent('confirmation_success');
+      } else {
+        returnToIdle();
+      }
       showToast('Mod sonlandırıldı', 'info');
     } catch {
       showToast('Mod sonlandırılamadı', 'error');
@@ -225,6 +235,11 @@ export default function DashboardPage() {
     }
     setLoading(true);
     try {
+      // Fix 3 bidirectional: if user manually switches away from break mode while
+      // pomodoro is running a break phase, stop the timer to avoid ghost ticks.
+      if (currentMode === 'break' && pomodoroState.is_running && pomodoroState.phase === 'break') {
+        try { await pomodoroApi.stop(); } catch { /* best-effort */ }
+      }
       await modesApi.setMode(mode);
       setCurrentMode(mode);
       // Auto-apply mode's DND setting
@@ -252,34 +267,23 @@ export default function DashboardPage() {
     setLoading(false);
   };
 
-  const handleApplyCustom = () => {
-    if (customMode.trim()) {
-      handleSetMode(customMode.trim(), customMode.trim().toUpperCase());
-      setCustomMode('');
-      setShowCustomInput(false);
-    }
+  const handleApplyDraft = (draft: DraftState) => {
+    if (!draft.name.trim()) return;
+    handleSetMode(draft.name.trim(), draft.name.trim().toUpperCase());
   };
 
-  const handleSaveCustom = async () => {
-    const name = customMode.trim();
+  const handleSaveDraft = async (draft: DraftState) => {
+    const name = draft.name.trim();
     if (!name) return;
-    await addCustomMode(name, customColor || nextFreeColor());
+    await addCustomMode(name, draft.color || nextFreeColor());
+    await setCustomModeIcon(name, draft.iconKey);
+    await setModeDnd(name, draft.dnd);
     handleSetMode(name, name.toUpperCase());
-    setCustomMode('');
-    setShowCustomInput(false);
   };
 
   const handleDeleteCustomMode = async (name: string) => {
     await removeCustomMode(name);
     showToast(`"${name}" modu silindi`, 'info');
-  };
-
-  const handleColorChange = async (name: string, color: string) => {
-    if (PRESET_MODES.some((p) => p.key === name)) {
-      await setPresetColor(name, color);
-    } else {
-      await setCustomModeColor(name, color);
-    }
   };
 
   const totalWorkSeconds = modeStats
@@ -308,90 +312,112 @@ export default function DashboardPage() {
 
       {/* Mode selector — compact inline */}
       <div className="bg-bg-card border border-border rounded-card p-4 mb-5 shadow-card">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            {PRESET_MODES.map(({ key, label, oledText }) => {
-              const isActive = currentMode === key;
-              const color = getModeColor(key);
-              const IconComp = MODE_ICON_MAP[key];
-              return (
+        <div className="flex items-center gap-2 flex-wrap">
+          {PRESET_MODES.map(({ key, label, oledText }) => {
+            const isActive = currentMode === key;
+            const color = getModeColor(key);
+            const iconKey = getModeIcon(key) ?? DEFAULT_PRESET_ICONS[key];
+            const IconComp = getIconByKey(iconKey) ?? MODE_ICON_MAP[key];
+            return (
+              <React.Fragment key={key}>
                 <ModeChip
-                  key={key}
                   label={label}
-                  name={key}
                   color={color}
-                  dnd={getModeDnd(key)}
                   active={isActive}
                   disabled={loading}
                   icon={IconComp ? <IconComp size={16} /> : null}
                   onClick={() => handleSetMode(key, oledText)}
-                  onColorChange={(c) => handleColorChange(key, c)}
-                  onDndChange={(d) => setModeDnd(key, d)}
-                  pickerOpen={colorPickerFor === key}
-                  setPickerOpen={(v) => setColorPickerFor(v ? key : null)}
+                  settingsBtnRef={(el) => { settingsBtnRefs.current[key] = el; }}
+                  onOpenSettings={() => setSettingsOpenFor(settingsOpenFor === key ? null : key)}
+                  settingsOpen={settingsOpenFor === key}
                 />
-              );
-            })}
-            {/* Saved custom modes */}
-            {customModes.map(({ name, color, dnd }) => (
-              <ModeChip
-                key={`custom-${name}`}
-                label={name}
-                name={name}
-                color={color}
-                dnd={dnd}
-                active={currentMode === name}
-                disabled={loading}
-                onClick={() => handleSetMode(name, name.toUpperCase())}
-                onColorChange={(c) => handleColorChange(name, c)}
-                onDndChange={(d) => setModeDnd(name, d)}
-                onDelete={() => handleDeleteCustomMode(name)}
-                pickerOpen={colorPickerFor === name}
-                setPickerOpen={(v) => setColorPickerFor(v ? name : null)}
-              />
-            ))}
+                {settingsOpenFor === key && (
+                  <ModeSettingsPopup
+                    anchorRef={{ current: settingsBtnRefs.current[key] } as React.RefObject<HTMLElement>}
+                    open={true}
+                    onClose={() => setSettingsOpenFor(null)}
+                    mode={{
+                      kind: 'preset',
+                      key,
+                      label,
+                      color,
+                      iconKey: iconKey ?? 'briefcase',
+                      dnd: getModeDnd(key),
+                      onApply: () => handleSetMode(key, oledText),
+                      onColorChange: (c) => setPresetColor(key, c),
+                      onIconChange: (ic) => setPresetIcon(key, ic),
+                      onDndChange: (d) => setModeDnd(key, d),
+                    }}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
+          {/* Saved custom modes */}
+          {customModes.map(({ name, color, icon }) => {
+            const IconComp = getIconByKey(icon);
+            const chipKey = `custom-${name}`;
+            return (
+              <React.Fragment key={chipKey}>
+                <ModeChip
+                  label={name}
+                  color={color}
+                  active={currentMode === name}
+                  disabled={loading}
+                  icon={IconComp ? <IconComp size={16} /> : null}
+                  onClick={() => handleSetMode(name, name.toUpperCase())}
+                  settingsBtnRef={(el) => { settingsBtnRefs.current[chipKey] = el; }}
+                  onOpenSettings={() => setSettingsOpenFor(settingsOpenFor === chipKey ? null : chipKey)}
+                  settingsOpen={settingsOpenFor === chipKey}
+                />
+                {settingsOpenFor === chipKey && (
+                  <ModeSettingsPopup
+                    anchorRef={{ current: settingsBtnRefs.current[chipKey] } as React.RefObject<HTMLElement>}
+                    open={true}
+                    onClose={() => setSettingsOpenFor(null)}
+                    mode={{
+                      kind: 'custom',
+                      name,
+                      color,
+                      iconKey: icon ?? 'briefcase',
+                      dnd: getModeDnd(name),
+                      onApply: () => handleSetMode(name, name.toUpperCase()),
+                      onDelete: () => { handleDeleteCustomMode(name); setSettingsOpenFor(null); },
+                      onColorChange: (c) => setCustomModeColor(name, c),
+                      onIconChange: (ic) => setCustomModeIcon(name, ic),
+                      onDndChange: (d) => setModeDnd(name, d),
+                    }}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
+          {/* +Özel button */}
+          <div className="relative">
             <button
-              onClick={() => setShowCustomInput(!showCustomInput)}
+              ref={(el) => { settingsBtnRefs.current['create'] = el; }}
+              onClick={() => setSettingsOpenFor(settingsOpenFor === 'create' ? null : 'create')}
               className={`px-4 py-2.5 rounded-[14px] text-sm font-semibold transition-all flex items-center gap-2
-                ${showCustomInput ? 'bg-accent-purple/20 text-accent-purple border border-accent-purple/40' : 'bg-bg-input text-text-secondary border border-border hover:border-accent-purple/40 hover:text-text-primary'}`}
+                ${settingsOpenFor === 'create' ? 'bg-accent-purple/20 text-accent-purple border border-accent-purple/40' : 'bg-bg-input text-text-secondary border border-border hover:border-accent-purple/40 hover:text-text-primary'}`}
             >
               <Edit3 size={14} />
               Özel
             </button>
+            {settingsOpenFor === 'create' && (
+              <ModeSettingsPopup
+                anchorRef={{ current: settingsBtnRefs.current['create'] } as React.RefObject<HTMLElement>}
+                open={true}
+                onClose={() => setSettingsOpenFor(null)}
+                mode={{
+                  kind: 'create',
+                  initialColor: nextFreeColor(),
+                  onApplyDraft: (d) => { handleApplyDraft(d); setSettingsOpenFor(null); },
+                  onSaveDraft: (d) => { handleSaveDraft(d); setSettingsOpenFor(null); },
+                }}
+              />
+            )}
           </div>
         </div>
-        {showCustomInput && (
-          <div className="mt-3 flex gap-2 items-center">
-            <label
-              title="Renk seç"
-              className="relative w-9 h-9 rounded-btn border border-border flex-shrink-0 cursor-pointer overflow-hidden"
-              style={{ backgroundColor: customColor }}
-            >
-              <input
-                type="color"
-                value={customColor}
-                onChange={(e) => setCustomColor(e.target.value)}
-                className="absolute inset-0 opacity-0 cursor-pointer"
-              />
-            </label>
-            <input
-              autoFocus
-              value={customMode}
-              onChange={(e) => setCustomMode(e.target.value)}
-              placeholder="Özel mod adı..."
-              className="input-field text-xs flex-1"
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleApplyCustom(); } }}
-            />
-            <button onClick={handleApplyCustom} disabled={!customMode.trim()}
-              className="px-3 py-1.5 bg-bg-input border border-border text-text-secondary text-xs font-medium rounded-full transition-colors hover:text-text-primary hover:bg-bg-hover disabled:opacity-50">
-              Uygula
-            </button>
-            <button onClick={handleSaveCustom} disabled={!customMode.trim()}
-              className="px-3 py-1.5 bg-accent-purple hover:bg-accent-purple-hover text-white text-xs font-medium rounded-full transition-colors disabled:opacity-50">
-              Kaydet
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Mode duration summary — accordion */}
@@ -410,7 +436,8 @@ export default function DashboardPage() {
           {modeStatsOpen && (
             <div className="px-5 pb-4 border-t border-border pt-3 space-y-2">
               {[...modeStats].sort((a, b) => b.total_seconds - a.total_seconds).map((m) => {
-                const IconComp = MODE_ICON_MAP[m.mode] ?? Edit3;
+                const iconKey = getModeIcon(m.mode) ?? DEFAULT_PRESET_ICONS[m.mode];
+                const IconComp = getIconByKey(iconKey) ?? MODE_ICON_MAP[m.mode] ?? Edit3;
                 const color = getModeColor(m.mode);
                 return (
                   <div
@@ -461,7 +488,7 @@ export default function DashboardPage() {
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
                 {activeTasks.slice(0, 8).map((task) => (
-                  <TaskMiniCard key={task.id} task={task} onOpen={() => navigate('/tasks')} />
+                  <TaskMiniCard key={task.id} task={task} onOpen={() => navigate('/tasks', { state: { taskId: task.id } })} />
                 ))}
               </div>
             )}
@@ -655,6 +682,11 @@ const LEVEL_LABEL: Record<string, string> = {
   strong: 'Güçlü öneri',
 };
 
+const SOURCE_LABEL: Record<string, string> = {
+  habit: 'Alışkanlık',
+  task:  'Görev',
+};
+
 const LEVEL_COLORS: Record<string, { card: string; badge: string; icon: string; text: string }> = {
   gentle: {
     card:  'border-accent-yellow/30 bg-accent-yellow/5',
@@ -682,7 +714,7 @@ function InsightCard({ insight, onAccept, onDeny }: { insight: AppInsight | null
 
   const level   = insight.level ?? 'gentle';
   const colors  = LEVEL_COLORS[level] ?? LEVEL_COLORS.gentle;
-  const label   = LEVEL_LABEL[level] ?? 'Öneri';
+  const label   = (insight.source && SOURCE_LABEL[insight.source]) ?? LEVEL_LABEL[level] ?? 'Öneri';
 
   return (
     <div className={`border rounded-card p-4 mb-5 shadow-card ${colors.card}`}>
@@ -696,7 +728,7 @@ function InsightCard({ insight, onAccept, onDeny }: { insight: AppInsight | null
           </div>
           <p className={`text-sm leading-relaxed font-medium ${colors.text}`}>{insight.message}</p>
           <div className="flex items-center gap-2 mt-3">
-            {insight.source === 'task' ? (
+            {insight.source === 'task' || insight.source === 'habit' ? (
               <button
                 onClick={onDeny}
                 className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-btn bg-bg-input text-text-muted border border-border hover:text-text-primary hover:bg-bg-hover transition-colors"
@@ -730,35 +762,19 @@ function InsightCard({ insight, onAccept, onDeny }: { insight: AppInsight | null
 
 interface ModeChipProps {
   label: string;
-  name: string;
   color: string;
-  dnd: boolean;
   active: boolean;
   disabled?: boolean;
   icon?: React.ReactNode;
   onClick: () => void;
-  onColorChange: (color: string) => void;
-  onDndChange: (dnd: boolean) => void;
-  onDelete?: () => void;
-  pickerOpen: boolean;
-  setPickerOpen: (open: boolean) => void;
+  settingsBtnRef: (el: HTMLButtonElement | null) => void;
+  onOpenSettings: () => void;
+  settingsOpen: boolean;
 }
 
-function ModeChip({ label, color, dnd, active, disabled, icon, onClick, onColorChange, onDndChange, onDelete, pickerOpen, setPickerOpen }: ModeChipProps) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-
-  useEffect(() => {
-    if (pickerOpen && ref.current) {
-      const rect = ref.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left });
-    } else {
-      setPos(null);
-    }
-  }, [pickerOpen]);
-
+function ModeChip({ label, color, active, disabled, icon, onClick, settingsBtnRef, onOpenSettings, settingsOpen }: ModeChipProps) {
   return (
-    <div ref={ref} className="relative group">
+    <div className="relative group">
       <button
         onClick={onClick}
         disabled={disabled}
@@ -776,56 +792,19 @@ function ModeChip({ label, color, dnd, active, disabled, icon, onClick, onColorC
         {icon}
         {label}
       </button>
+      {/* Single gear settings button */}
       <button
-        onClick={(e) => { e.stopPropagation(); setPickerOpen(!pickerOpen); }}
-        title="Renk değiştir"
-        className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-bg-card border border-border text-text-muted hover:text-text-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-card"
+        ref={settingsBtnRef}
+        onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
+        title="Mod ayarları"
+        className={`absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-bg-card border flex items-center justify-center transition-all shadow-card ${
+          settingsOpen
+            ? 'opacity-100 border-accent-purple/60 text-accent-purple'
+            : 'opacity-0 group-hover:opacity-100 border-border text-text-muted hover:text-text-primary'
+        }`}
       >
-        <Palette size={10} />
+        <Settings size={10} />
       </button>
-      {onDelete && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          title="Modu sil"
-          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-bg-card border border-border text-text-muted hover:text-white hover:bg-accent-red hover:border-accent-red flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-card"
-        >
-          <XIcon size={12} strokeWidth={3} />
-        </button>
-      )}
-      {pickerOpen && pos && createPortal(
-        <div
-          className="fixed z-[1000] flex items-center gap-2 bg-bg-card border border-border rounded-btn p-2 shadow-card"
-          style={{ top: pos.top, left: pos.left }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            type="color"
-            value={color}
-            onChange={(e) => onColorChange(e.target.value)}
-            className="w-8 h-8 rounded cursor-pointer bg-transparent border-0"
-          />
-          {/* DND per-mode toggle */}
-          <button
-            onClick={() => onDndChange(!dnd)}
-            title="Rahatsız Etmeyin"
-            className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${
-              dnd
-                ? 'bg-accent-red/20 border-accent-red/50 text-accent-red'
-                : 'bg-bg-input border-border text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            <BellOff size={10} />
-            {dnd ? 'RET' : 'RET?'}
-          </button>
-          <button
-            onClick={() => setPickerOpen(false)}
-            className="text-xs text-text-muted hover:text-text-primary px-2 py-1"
-          >
-            Kapat
-          </button>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

@@ -2,15 +2,31 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import select, text
 import logging
 
 from app.database import engine, Base, AsyncSessionLocal
-from app.models import Task, ModeLog, ChatMessage, Setting, AppUsageSession
-from app.routers import tasks, modes, stats, pomodoro, device, chat, voice, settings, ws, memory
+from app.models import Task, ModeLog, ChatMessage, Setting, AppUsageSession, Workspace, WorkspaceAction, Habit, Event, Integration, ExternalEvent
+from app.routers import tasks, modes, stats, pomodoro, device, chat, voice, settings, ws, memory, workspace as workspace_router_mod
+from app.routers import habits as habits_router_mod
+from app.routers import weather as weather_router_mod
+from app.routers import events as events_router_mod
+from app.routers import wake as wake_router_mod
+from app.routers import integrations as integrations_router_mod
+from app.routers import external_events as external_events_router_mod
+from app.services.providers import google_calendar  # noqa: F401 — self-registers PROVIDERS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class _FrameFilter(logging.Filter):
+    """Suppress uvicorn access-log lines for high-frequency frame POSTs."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "/api/device/frame" not in record.getMessage()
+
+
+logging.getLogger("uvicorn.access").addFilter(_FrameFilter())
 
 DEFAULT_SETTINGS = {
     "openai_api_key": "",
@@ -33,7 +49,7 @@ DEFAULT_SETTINGS = {
     "elevenlabs_api_key": "",
     "elevenlabs_voice_id": "",
     "elevenlabs_model_id": "eleven_v3",
-    "llm_model": "gpt-4o",
+    "llm_model": "gpt-4o-mini",
     "continuous_conversation": "false",
     "user_name": "",
     "greeting_style": "dostum",
@@ -46,7 +62,21 @@ DEFAULT_SETTINGS = {
     "proactive_daily_limit": "3",
     "proactive_cooldown_minutes": "60",
     "spoken_proactive_enabled": "true",
-    "spoken_proactive_daily_limit": "1",
+    "spoken_proactive_daily_limit": "3",
+    "weather_enabled": "false",
+    "weather_api_key": "",
+    "weather_city": "",
+    "weather_location_label": "",
+    "weather_lat": "",
+    "weather_lon": "",
+    # Device profile — chosen at order time. Swap model/assets by changing these
+    # two keys; the code paths never hard-code a persona.
+    "persona_slug": "sadik",
+    "wake_model_path": "",  # empty → fallback to built-in "hey_jarvis"
+    # Google Calendar OAuth credentials (user-supplied)
+    "google_client_id": "",
+    "google_client_secret": "",
+    "google_oauth_state": "",  # short-lived, cleared after callback
 }
 
 @asynccontextmanager
@@ -56,6 +86,10 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created")
 
+    async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM workspace_actions WHERE workspace_id NOT IN (SELECT id FROM workspaces)"))
+    print("[startup] orphan action cleanup done")
+
     async with AsyncSessionLocal() as session:
         for key, value in DEFAULT_SETTINGS.items():
             result = await session.execute(select(Setting).where(Setting.key == key))
@@ -63,6 +97,31 @@ async def lifespan(app: FastAPI):
                 session.add(Setting(key=key, value=value))
         await session.commit()
     logger.info("Default settings seeded")
+
+    # Preload openWakeWord model — uses persona-specific model if settings
+    # provide a valid path, otherwise falls back to pretrained hey_jarvis.
+    try:
+        from app.services.wake_word_service import detector as _ww_detector
+        import asyncio as _asyncio
+        import os as _os
+        async with AsyncSessionLocal() as session:
+            _wp = await session.execute(select(Setting).where(Setting.key == "wake_model_path"))
+            _wp_row = _wp.scalar_one_or_none()
+            _wake_path = _wp_row.value if _wp_row else ""
+        # Resolve relative paths against the backend package root
+        if _wake_path and not _os.path.isabs(_wake_path):
+            _wake_path = _os.path.join(_os.path.dirname(__file__), _wake_path)
+        await _asyncio.get_event_loop().run_in_executor(None, _ww_detector.load, _wake_path)
+    except Exception as _ww_err:
+        logger.warning("openWakeWord model yüklenemedi: %s", _ww_err)
+
+    # Start habit reminder scheduler
+    from app.services import habits_service
+    _habits_task = habits_service.create_scheduler_task()
+
+    # Start integration sync scheduler (no-op until providers are registered)
+    from app.services import integration_service
+    _integrations_task = integration_service.create_scheduler_task()
 
     # Best-effort auto-connect on startup — must never block indefinitely.
     # Each port gets a 2 s internal timeout; the whole scan gets a 10 s outer
@@ -92,10 +151,14 @@ async def lifespan(app: FastAPI):
     from app.services.pomodoro_service import pomodoro_service
     from app.services.device_manager import device_manager
     from app.services.mode_tracker import mode_tracker
+    from app.services import habits_service as _hs
 
+    from app.services import integration_service as _is
     await pomodoro_service.stop()
     await device_manager.disconnect()
     await mode_tracker.end_current()
+    await _hs.stop_scheduler()
+    await _is.stop_scheduler()
     logger.info("SADIK backend shutdown complete")
 
 app = FastAPI(title="SADIK Backend", version="1.0.0", lifespan=lifespan)
@@ -118,6 +181,13 @@ app.include_router(voice.router)
 app.include_router(settings.router)
 app.include_router(ws.router)
 app.include_router(memory.router)
+app.include_router(workspace_router_mod.router)
+app.include_router(habits_router_mod.router)
+app.include_router(weather_router_mod.router)
+app.include_router(events_router_mod.router)
+app.include_router(wake_router_mod.router)
+app.include_router(integrations_router_mod.router)
+app.include_router(external_events_router_mod.router)
 
 @app.get("/")
 async def root():

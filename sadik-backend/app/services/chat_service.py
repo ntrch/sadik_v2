@@ -155,6 +155,55 @@ async def _build_local_context(
 # ── Chat service ───────────────────────────────────────────────────────────────
 
 class ChatService:
+
+    def _build_messages(
+        self,
+        user_content: str,
+        history: list[dict],
+        voice_mode: bool,
+        user_name: str,
+        greeting_style: str,
+        local_ctx: str = "",
+    ) -> list[dict]:
+        """Construct the messages array for a chat completion request."""
+        recent = history[-20:] if len(history) > 20 else history
+        system = VOICE_SYSTEM_PROMPT if voice_mode else SYSTEM_PROMPT
+        system = system + "\n\n" + _get_turkey_datetime_str()
+
+        if user_name and greeting_style:
+            combined_greeting = f"{user_name} {greeting_style}"
+        elif user_name:
+            combined_greeting = user_name
+        elif greeting_style:
+            combined_greeting = greeting_style
+        else:
+            combined_greeting = ""
+
+        if user_name or greeting_style:
+            profile_lines = ["--- GÜNCEL KULLANICI PROFİLİ ---"]
+            if user_name:
+                profile_lines.append(f"Kullanıcının adı kesin olarak: {user_name}")
+            if combined_greeting:
+                profile_lines.append(
+                    f"Kullanıcıya hitap ederken kullanman gereken ifade: {combined_greeting}"
+                )
+            profile_lines += [
+                "Önceki konuşmalarda geçen farklı isimler veya hitaplar geçersizdir.",
+                f"Kullanıcı 'Ben kimim?' diye sorarsa doğru adı söyle: {user_name if user_name else combined_greeting}",
+                "Bu profil bilgisi önceki konuşma bağlamına göre daima önceliklidir.",
+                "Eğer önceki mesajlarda farklı bir isim veya hitap geçtiyse, bunları yok say ve yalnızca güncel profili kullan.",
+                "--- GÜNCEL KULLANICI PROFİLİ SONU ---",
+            ]
+            system = system + "\n\n" + "\n".join(profile_lines)
+
+        if local_ctx:
+            system = system + "\n\n" + local_ctx
+
+        messages: list[dict] = [{"role": "system", "content": system}]
+        messages.extend(recent)
+        messages.append({"role": "user", "content": user_content})
+        return messages
+
     async def send_message(
         self,
         user_content: str,
@@ -171,45 +220,7 @@ class ChatService:
         if not api_key:
             return "OpenAI API anahtarı ayarlanmamış. Lütfen ayarlardan API anahtarınızı girin."
         try:
-            client = AsyncOpenAI(api_key=api_key)
-            recent = history[-20:] if len(history) > 20 else history
-            system = VOICE_SYSTEM_PROMPT if voice_mode else SYSTEM_PROMPT
-
-            # Inject current Turkey date/time so the model can give time-aware answers.
-            system = system + "\n\n" + _get_turkey_datetime_str()
-
-            # Compute combined greeting explicitly — never rely on the model to combine parts.
-            if user_name and greeting_style:
-                combined_greeting = f"{user_name} {greeting_style}"
-            elif user_name:
-                combined_greeting = user_name
-            elif greeting_style:
-                combined_greeting = greeting_style
-            else:
-                combined_greeting = ""
-
-            # Inject a strong, authoritative profile block that overrides any stale history.
-            if user_name or greeting_style:
-                profile_lines = [
-                    "--- GÜNCEL KULLANICI PROFİLİ ---",
-                ]
-                if user_name:
-                    profile_lines.append(f"Kullanıcının adı kesin olarak: {user_name}")
-                if combined_greeting:
-                    profile_lines.append(
-                        f"Kullanıcıya hitap ederken kullanman gereken ifade: {combined_greeting}"
-                    )
-                profile_lines += [
-                    "Önceki konuşmalarda geçen farklı isimler veya hitaplar geçersizdir.",
-                    f"Kullanıcı 'Ben kimim?' diye sorarsa doğru adı söyle: {user_name if user_name else combined_greeting}",
-                    "Bu profil bilgisi önceki konuşma bağlamına göre daima önceliklidir.",
-                    "Eğer önceki mesajlarda farklı bir isim veya hitap geçtiyse, bunları yok say ve yalnızca güncel profili kullan.",
-                    "--- GÜNCEL KULLANICI PROFİLİ SONU ---",
-                ]
-                system = system + "\n\n" + "\n".join(profile_lines)
-
-            # Append local context block when a DB session is available.
-            # The block is empty-string if there is no data worth including.
+            local_ctx = ""
             if session is not None:
                 try:
                     local_ctx = await _build_local_context(
@@ -217,16 +228,14 @@ class ChatService:
                         current_mode=current_mode,
                         is_pomodoro_active=is_pomodoro_active,
                     )
-                    if local_ctx:
-                        system = system + "\n\n" + local_ctx
                 except Exception as ctx_err:
-                    # Context enrichment is best-effort — never block the reply.
                     logger.warning(f"[ChatService] Local context build failed: {ctx_err}")
 
-            messages = [{"role": "system", "content": system}]
-            messages.extend(recent)
-            messages.append({"role": "user", "content": user_content})
+            messages = self._build_messages(
+                user_content, history, voice_mode, user_name, greeting_style, local_ctx
+            )
 
+            client = AsyncOpenAI(api_key=api_key)
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -235,6 +244,95 @@ class ChatService:
         except Exception as e:
             logger.error(f"OpenAI chat error: {e}")
             return f"Bir hata oluştu: {str(e)}"
+
+    async def stream_voice_response(
+        self,
+        user_content: str,
+        history: list[dict],
+        api_key: str,
+        model: str = "gpt-4o-mini",
+        user_name: str = "",
+        greeting_style: str = "",
+        session: Optional[AsyncSession] = None,
+        current_mode: Optional[str] = None,
+        is_pomodoro_active: bool = False,
+    ):
+        """Async generator that yields complete sentence strings for TTS.
+
+        Uses OpenAI streaming to receive tokens as they arrive, buffers them,
+        and flushes each sentence (ending with . ! ? or ~80 chars) as a
+        discrete string so the caller can pipe each sentence to TTS immediately.
+
+        Yields:
+            str — a single sentence / chunk ready for TTS synthesis.
+        """
+        if not api_key:
+            yield "OpenAI API anahtarı ayarlanmamış."
+            return
+
+        local_ctx = ""
+        if session is not None:
+            try:
+                local_ctx = await _build_local_context(
+                    session,
+                    current_mode=current_mode,
+                    is_pomodoro_active=is_pomodoro_active,
+                )
+            except Exception as ctx_err:
+                logger.warning(f"[ChatService] Local context build failed: {ctx_err}")
+
+        messages = self._build_messages(
+            user_content, history, True, user_name, greeting_style, local_ctx
+        )
+
+        client = AsyncOpenAI(api_key=api_key)
+        buffer = ""
+        # Sentence-boundary characters that trigger a flush.
+        SENTENCE_ENDS = {".", "!", "?", "\n"}
+        SOFT_FLUSH_CHARS = 80  # flush even without punctuation if buffer grows long
+
+        try:
+            async with await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                stream=True,
+            ) as stream:
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta.content if chunk.choices else None
+                    if delta is None:
+                        continue
+                    buffer += delta
+
+                    # Check if we crossed a sentence boundary.
+                    flushed = False
+                    for i in range(len(buffer) - 1, -1, -1):
+                        if buffer[i] in SENTENCE_ENDS:
+                            sentence = buffer[: i + 1].strip()
+                            if sentence:
+                                yield sentence
+                            buffer = buffer[i + 1 :]
+                            flushed = True
+                            break
+
+                    # Soft flush on long buffers without sentence boundary.
+                    if not flushed and len(buffer) >= SOFT_FLUSH_CHARS:
+                        # Break at the last space to avoid cutting mid-word.
+                        last_space = buffer.rfind(" ")
+                        if last_space > 0:
+                            sentence = buffer[:last_space].strip()
+                            if sentence:
+                                yield sentence
+                            buffer = buffer[last_space + 1 :]
+
+        except Exception as e:
+            logger.error(f"[ChatService] Streaming error: {e}")
+            yield f"Bir hata oluştu: {str(e)}"
+            return
+
+        # Flush any remaining text.
+        remaining = buffer.strip()
+        if remaining:
+            yield remaining
 
 
 chat_service = ChatService()

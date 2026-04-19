@@ -17,4 +17,8 @@ export const pomodoroApi = {
   pause: () => http.post<PomodoroState>('/api/pomodoro/pause').then((r) => r.data),
   resume: () => http.post<PomodoroState>('/api/pomodoro/resume').then((r) => r.data),
   stop: () => http.post('/api/pomodoro/stop').then((r) => r.data),
+  /** Transition a running work cycle to break, or start a standalone break if idle.
+   *  Pass `minutes` to override the configured break duration (e.g. 5 for gentle, 15 for strong). */
+  startBreak: (minutes?: number) =>
+    http.post<PomodoroState>('/api/pomodoro/start-break', minutes != null ? { minutes } : {}).then((r) => r.data),
 };

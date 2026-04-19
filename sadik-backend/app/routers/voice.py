@@ -1,17 +1,22 @@
 import logging
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
-from typing import Optional
+import asyncio
+import json
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
+from typing import Optional, AsyncIterator
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
 from app.database import get_session
 from app.models.setting import Setting
+from app.models.chat_message import ChatMessage
 from app.services.voice_service import (
     voice_service,
+    clean_text_for_tts,
     DEFAULT_EDGE_VOICE,
     DEFAULT_OPENAI_VOICE,
 )
+from app.services.chat_service import chat_service
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +103,7 @@ async def get_settings_map(session: AsyncSession) -> dict:
 async def speech_to_text(
     audio: UploadFile = File(...),
     prompt: Optional[str] = Form(None),
+    fast: int = Query(0, description="Set to 1 for wake-word path: disables OpenAI retries"),
     session: AsyncSession = Depends(get_session),
 ):
     """Transcribe uploaded audio with Whisper.
@@ -130,7 +136,7 @@ async def speech_to_text(
         return {"text": ""}
 
     try:
-        text = await voice_service.stt(audio_bytes, api_key, prompt=prompt)
+        text = await voice_service.stt(audio_bytes, api_key, prompt=prompt, fast=bool(fast))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -177,6 +183,163 @@ async def text_to_speech(
         ),
         media_type="audio/mpeg",
         headers={"Content-Disposition": "inline"},
+    )
+
+
+class VoiceChatRequest(BaseModel):
+    text: str
+    history: list[dict] = []
+
+
+@router.post("/voice-chat-stream")
+async def voice_chat_stream(
+    body: VoiceChatRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Streaming voice-chat endpoint: LLM tokens → TTS per sentence → audio chunks.
+
+    Returns a `multipart/mixed` stream where each part is an audio/mpeg chunk
+    for one sentence.  The frontend plays each chunk as it arrives so the user
+    hears the first sentence while the LLM is still generating the rest.
+
+    Wire format: each audio chunk is preceded by a 4-byte big-endian length
+    header so the client can frame chunks without a multipart parser.
+
+    Frame layout:
+        [4 bytes big-endian uint32: chunk_length][chunk_length bytes: MP3 data]
+
+    Repeated until the stream ends.
+    """
+    settings            = await get_settings_map(session)
+    api_key             = settings.get("openai_api_key", "")
+    model               = settings.get("llm_model", "gpt-4o-mini")
+    user_name           = settings.get("user_name", "")
+    greeting_style      = settings.get("greeting_style", "")
+    # Use the user's configured TTS provider — same as the /tts endpoint.
+    provider            = settings.get("tts_provider", "elevenlabs")
+    openai_voice        = settings.get("tts_openai_voice", DEFAULT_OPENAI_VOICE)
+    edge_voice          = settings.get("tts_voice", DEFAULT_EDGE_VOICE)
+    elevenlabs_api_key  = settings.get("elevenlabs_api_key", "")
+    elevenlabs_voice_id = settings.get("elevenlabs_voice_id", "")
+    elevenlabs_model_id = settings.get("elevenlabs_model_id", "eleven_multilingual_v2")
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="OpenAI API key not configured")
+
+    # Fetch conversation history for context (last 20 messages).
+    result = await session.execute(
+        select(ChatMessage).order_by(ChatMessage.created_at.asc()).limit(40)
+    )
+    db_history = [
+        {"role": m.role, "content": m.content}
+        for m in result.scalars().all()
+    ]
+
+    # Persist user message before streaming so history is consistent.
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    user_msg = ChatMessage(role="user", content=body.text, created_at=now)
+    session.add(user_msg)
+    await session.commit()
+
+    async def generate() -> AsyncIterator[bytes]:
+        """Yield typed length-prefixed frames.
+
+        Frame format:
+            [1 byte type][4 bytes big-endian uint32 length][length bytes payload]
+
+        Types:
+            0x00  JSON metadata  — {"text": "<full_reply>"}  sent as the LAST frame
+            0x01  MP3 audio      — one sentence worth of audio
+        """
+        full_reply_parts: list[str] = []
+
+        async for sentence in chat_service.stream_voice_response(
+            user_content=body.text,
+            history=db_history,
+            api_key=api_key,
+            model=model,
+            user_name=user_name,
+            greeting_style=greeting_style,
+            session=None,   # context already fetched above; pass None to skip DB query
+        ):
+            cleaned = clean_text_for_tts(sentence)
+            if not cleaned:
+                continue
+            full_reply_parts.append(sentence)
+
+            # Synthesise this sentence using the user-configured TTS provider.
+            # Fallback chain mirrors the /tts endpoint: configured provider first,
+            # then OpenAI, then edge-tts as last resort.
+            audio_chunks: list[bytes] = []
+
+            async def _try_elevenlabs() -> bool:
+                nonlocal audio_chunks
+                if not (elevenlabs_api_key and elevenlabs_voice_id):
+                    return False
+                try:
+                    async for chunk in voice_service._elevenlabs_tts(
+                        cleaned, elevenlabs_api_key, elevenlabs_voice_id, elevenlabs_model_id
+                    ):
+                        audio_chunks.append(chunk)
+                    return True
+                except Exception as e:
+                    logger.warning(f"[VoiceChatStream] ElevenLabs failed: {e}")
+                    audio_chunks = []
+                    return False
+
+            async def _try_openai() -> bool:
+                nonlocal audio_chunks
+                if not api_key:
+                    return False
+                try:
+                    async for chunk in voice_service._openai_tts(cleaned, api_key, openai_voice):
+                        audio_chunks.append(chunk)
+                    return True
+                except Exception as e:
+                    logger.warning(f"[VoiceChatStream] OpenAI TTS failed: {e}")
+                    audio_chunks = []
+                    return False
+
+            async def _try_edge() -> bool:
+                nonlocal audio_chunks
+                try:
+                    async for chunk in voice_service._edge_tts(cleaned, edge_voice):
+                        audio_chunks.append(chunk)
+                    return True
+                except Exception as e:
+                    logger.error(f"[VoiceChatStream] edge-tts failed: {e}")
+                    audio_chunks = []
+                    return False
+
+            if provider == "elevenlabs":
+                await _try_elevenlabs() or await _try_openai() or await _try_edge()
+            elif provider == "openai":
+                await _try_openai() or await _try_elevenlabs() or await _try_edge()
+            else:  # edge or unknown
+                await _try_edge() or await _try_openai() or await _try_elevenlabs()
+
+            if audio_chunks:
+                audio_data = b"".join(audio_chunks)
+                # type=0x01 (audio) + 4-byte big-endian length + payload
+                yield b"\x01" + len(audio_data).to_bytes(4, "big") + audio_data
+
+        # Persist assistant message and send reply text as final metadata frame.
+        full_reply = " ".join(full_reply_parts)
+        if full_reply:
+            now2 = datetime.now(timezone.utc).replace(tzinfo=None)
+            assistant_msg = ChatMessage(role="assistant", content=full_reply, created_at=now2)
+            session.add(assistant_msg)
+            await session.commit()
+
+        # Send text metadata frame (type=0x00) as the last frame in the stream.
+        meta = json.dumps({"text": full_reply}, ensure_ascii=False).encode("utf-8")
+        yield b"\x00" + len(meta).to_bytes(4, "big") + meta
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/octet-stream",
+        headers={"X-Content-Type-Options": "nosniff"},
     )
 
 

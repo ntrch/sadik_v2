@@ -1,15 +1,18 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, ListTodo, MessageSquare, BarChart2, Lightbulb,
+  LayoutDashboard, ListTodo, MessageSquare, BarChart2, Lightbulb, Rocket, Repeat, CalendarDays,
 } from 'lucide-react';
 
 const navItems = [
-  { to: '/',         icon: LayoutDashboard, label: 'Ana Sayfa',  activeClass: 'bg-accent-purple/15 text-accent-purple' },
-  { to: '/tasks',    icon: ListTodo,        label: 'Görevler',   activeClass: 'bg-accent-cyan/15 text-accent-cyan' },
-  { to: '/memory',   icon: Lightbulb,       label: 'Düşünceler', activeClass: 'bg-accent-yellow/15 text-accent-yellow' },
-  { to: '/chat',     icon: MessageSquare,   label: 'Sohbet',     activeClass: 'bg-accent-red/15 text-accent-red' },
-  { to: '/insights', icon: BarChart2,       label: 'Kullanım',   activeClass: 'bg-accent-green/15 text-accent-green' },
+  { to: '/',         icon: LayoutDashboard, label: 'Ana Sayfa',    activeClass: 'bg-accent-purple/15 text-accent-purple' },
+  { to: '/tasks',    icon: ListTodo,        label: 'Görevler',     activeClass: 'bg-accent-cyan/15 text-accent-cyan' },
+  { to: '/agenda',   icon: CalendarDays,    label: 'Ajanda',       activeClass: 'bg-accent-purple/15 text-accent-purple' },
+  { to: '/habits',   icon: Repeat,          label: 'Alışkanlıklar', activeClass: 'bg-accent-orange/15 text-accent-orange' },
+  { to: '/memory',   icon: Lightbulb,       label: 'Düşünceler',   activeClass: 'bg-accent-yellow/15 text-accent-yellow' },
+  { to: '/workspace', icon: Rocket,         label: 'Alan',         activeClass: 'bg-accent-pink/15 text-accent-pink' },
+  { to: '/chat',     icon: MessageSquare,   label: 'Sohbet',       activeClass: 'bg-accent-red/15 text-accent-red' },
+  { to: '/insights', icon: BarChart2,       label: 'Kullanım',     activeClass: 'bg-accent-green/15 text-accent-green' },
 ];
 
 export default function BottomNav() {

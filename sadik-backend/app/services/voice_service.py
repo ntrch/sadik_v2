@@ -59,11 +59,21 @@ def clean_text_for_tts(text: str) -> str:
 class VoiceService:
     # ── STT ───────────────────────────────────────────────────────────────────
 
-    async def stt(self, audio_bytes: bytes, api_key: str, prompt: Optional[str] = None) -> str:
+    async def stt(
+        self,
+        audio_bytes: bytes,
+        api_key: str,
+        prompt: Optional[str] = None,
+        fast: bool = False,
+    ) -> str:
         """Transcribe *audio_bytes* via Whisper (Turkish).
 
         Pass *prompt* to bias Whisper toward expected vocabulary (e.g. the
         wake word name).  When None the call behaves exactly as before.
+
+        Pass *fast=True* for wake-word chunks: disables OpenAI SDK retries
+        (max_retries=0) to avoid the 2-3× latency overhead seen in production
+        logs.  Normal conversation transcription keeps full retry resilience.
         """
         if not api_key:
             return ""
@@ -73,7 +83,7 @@ class VoiceService:
             return ""
 
         try:
-            client = AsyncOpenAI(api_key=api_key)
+            client = AsyncOpenAI(api_key=api_key, max_retries=0 if fast else 2)
             audio_file = io.BytesIO(audio_bytes)
             audio_file.name = "audio.webm"
             kwargs: dict = dict(model="whisper-1", file=audio_file, language="tr")

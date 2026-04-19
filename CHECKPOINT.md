@@ -1,7 +1,7 @@
 # SADIK v2 — Project Checkpoint
 
-> **Son guncelleme:** 2026-04-14
-> **Checkpoint versiyonu:** v13.0
+> **Son guncelleme:** 2026-04-15
+> **Checkpoint versiyonu:** v14.0
 > **Proje sahibi:** Eren (ntrch)
 
 ---
@@ -89,6 +89,10 @@ sadik-firmware/  ESP32 + PlatformIO (SH1106 128x64 OLED fiziksel cihaz)
 | `src/components/tasks/TaskColumn.tsx` | `in_progress` kolon: turuncu border/bg (#fb923c) |
 | `src/components/tasks/TaskModal.tsx` | Task olusturma/duzenleme modal'i |
 | `src/components/chat/ChatWindow.tsx` | Metin sohbet penceresi (chat sayfasi & voice overlay) |
+| `src/pages/WorkspacePage.tsx` | Calisma Alani: custom icon/color workspace'ler, launch_app+window_snap birlestirilmis aksiyonlar, Start Menu .lnk app listesi, 24 Lucide ikon + custom upload, SADIK ayarlari system_setting toggle'lari, responsive grid, trash ust sagda |
+| `src/api/workspaces.ts` | Workspace API client |
+| `src/api/pomodoro.ts` | `startBreak(minutes?)` body ile override destekli |
+| `electron/main.js` | IPC: `set-dnd`, `app-focus-changed`, `workspace:execute`, `workspace:list-apps`, `workspace:pick-exe`. Windows DND in-app only; macOS `shortcuts run`. `backgroundThrottling:true` default (disabled on hide). Clipboard poll 800ms → 3000ms. Frame logs downgraded to DEBUG. |
 
 **Tech stack:** React 18, TypeScript, Tailwind CSS, Webpack, Electron 28, axios, recharts, @ricky0123/vad-web
 
@@ -116,6 +120,9 @@ sadik-firmware/  ESP32 + PlatformIO (SH1106 128x64 OLED fiziksel cihaz)
 | `app/services/ws_manager.py` | WebSocket connection manager |
 | `app/models/memory.py` | Memory SQLAlchemy model |
 | `app/schemas/memory.py` | Memory Pydantic schema |
+| `app/routers/workspace.py` | Workspace CRUD + execute |
+| `app/models/workspace.py` | Workspace SQLAlchemy model |
+| `app/schemas/workspace.py` | Workspace Pydantic schema (Optional created_at/updated_at) |
 
 **Tech stack:** Python, FastAPI, SQLAlchemy (async, SQLite), OpenAI API, ElevenLabs API, edge-tts, pyserial
 
@@ -341,11 +348,123 @@ APP DISCONNECTED (firmware authority):
 - [x] `tailwind.config.js`: `accent.pink = '#f472b6'` eklendi
 - [x] Yeni animasyon clip'leri: `idle_alt_look_down`, `break_text`, `working_text` (raw CPP + JSON)
 
+### Phase 6 — Workspace, DND, Focus-look, Voice Streaming, Break Flow (v14.0)
+
+#### Rahatsiz Etmeyin (DND)
+- [x] HeaderBar'da brightness yanina DND toggle butonu (tam isim "Rahatsiz Etmeyin", kisaltma degil)
+- [x] Mod bazinda DND ayari: her preset/custom mod kendi DND tercihini tutar (`preset_mode_settings` JSON)
+- [x] Electron IPC `set-dnd`: Windows in-app only (Focus Assist WNF state trust-gated), macOS `shortcuts run "Turn On/Off Do Not Disturb"`
+- [x] Aktif DND durumunda TTS, toast ve OLED proaktif bildirimler suppresslenir
+- [x] Popup'larda click-outside-to-close davranisi
+
+#### Focus-look (Sadik'in Konumu)
+- [x] Settings: "Sadik'in Konumu" ayari (Sol/Sag/Ust, default Sol)
+- [x] Uygulama focus oldugunda `idle_alt_look_right/left/down` clip'i oynatilir, son frame'de donar
+- [x] Window blur'unda focus-look disengage, idle orchestration devam eder
+- [x] `idle_alt_look_down.json` clip eklendi
+- [x] Electron IPC: `app-focus-changed`, `getFocusState` fallback (web'de `focus`/`blur`/`visibilitychange`)
+
+#### Calisma Alani (Workspace)
+- [x] Full-stack CRUD: backend router/model/schema + frontend sayfa + API client
+- [x] Aksiyonlar: `launch_app` (Start Menu .lnk scan + custom exe), `open_url`, `system_setting`, `window_snap` — hepsi tek "Run" butonu ile sirali execute
+- [x] `launch_app` ve `window_snap` birlestirildi: uygulamayi ac + pencere snap'i (sol/sag/full) tek aksiyon
+- [x] 24 Lucide ikon kutuphanesi + custom upload (base64 embed)
+- [x] Her workspace icin renk atama
+- [x] SADIK app settings `system_setting` toggle'i olarak erisilebilir (wake word, DND, vb.)
+- [x] Mod sync: workspace run edilince secilen preset/custom moda otomatik gecis
+- [x] UI: responsive grid, trash butonu ust sagda
+- [x] Electron IPC: `workspace:execute` (sequential actions), `workspace:list-apps` (Start Menu .lnk scan), `workspace:pick-exe`
+- [x] `launch_app` path bosluklari: `shell:true` kaldirildi, `.lnk` icin `shell.openPath`, aksi halde `spawn(path, args, {detached:true, stdio:'ignore'})`
+- [x] BottomNav: LayoutGrid ikonu + pembe renk, 6. item
+
+#### Proaktif Oneri Sesli Accept/Deny
+- [x] Oneri verildiginde tona gore TTS: nazik → "Kucuk bir oneri: ...", guclu → "Dikkat! ..."
+- [x] TTS bittikten sonra 8 saniyelik STT penceresi acilir, ACCEPT/REJECT keywordleri dinlenir
+- [x] Accept keywords: evet, tamam, olur, kabul, mola ver, baslat
+- [x] Reject keywords: hayir, yok, reddet, istemiyorum, sonra, gec
+- [x] Wake word mic contention fix: STT window acilmadan once wakeWordService.stop() + 200ms OS release delay
+- [x] Dedup: `_sttArmedForKeyRef` — ayni insight icin ikinci kez STT armalamaz
+- [x] Reject cooldown: `rejectedCooldownMapRef` — key bazli `proactiveCooldownMinutes` suresi skip (Rule G processInsight)
+- [x] `voiceAssistantActiveRef` aktif iken STT window skip edilir, sadece buton ile accept/deny
+
+#### Voice Pipeline Optimizasyonu
+- [x] LLM response streaming → per-sentence TTS (`stream_voice_response` in chat_service.py)
+- [x] Sentence boundary: `.`, `!`, `?`, `\n` veya 80 char
+- [x] `/api/voice/voice-chat-stream` endpoint: length-prefixed binary frame format (0x01 MP3, 0x00 meta)
+- [x] Wake word: `_requestInFlight` guard, `STT_TIMEOUT_MS=20000`, `?fast=1` query parameter (max_retries=0)
+- [x] `VoiceAssistant.startListening` re-entrancy guard (`_listeningInProgress`) — iki MediaRecorder spawn'ini engeller
+- [x] `gpt-4o` → `gpt-4o-mini` voice flow icin
+- [x] `_FrameFilter` logging: `/api/device/frame` access loglari suppress edilir
+
+#### Mola Akisi (Break Flow) — Tamamlanmis Nihai Hali
+- [x] Voice accept VE buton accept tek path: `acceptInsight` → `setMode('break')` → `playModIntroOnce('mod_break', startTimer)` → intro biter → `pomodoroApi.startBreak(breakMinutes)` → timer_tick MM:SS OLED'de
+- [x] Sure: guclu oneri = 15 dakika, nazik oneri = 5 dakika (`insight.level === 'strong' ? 15 : 5`)
+- [x] `playModIntroOnce(intro, onFinish)` engine metodu: intro tamamini oynat, son frame'i tut, callback'i fire et
+- [x] `mod_break_text` loop'u ARTIK SADECE manuel mola modu secimi icin (Dashboard mod button) — insight-accept flow'da kullanilmaz
+- [x] `pomodoro_completed` WS handler: work bitince otomatik `setMode('break')`, `playModIntroOnce('mod_break', clearSuppress)`, `suppressBreakTimerDisplayRef` ile intro sirasinda timer_tick showText bastirilir
+- [x] `suppressBreakTimerDisplayRef` — intro oynarken MM:SS OLED'e basilmaz, intro bitince acilir
+- [x] Work phase'de (pomodoro start) timer_tick showText SUPPRESSLENIR — sadece break/long_break phase'de MM:SS gosterilir
+- [x] Backend `_on_phase_complete` break branch: her zaman idle'a doner, yeni work phase ZINCIRLENMEZ (eski `_start_work_phase` cagrisi kaldirildi)
+- [x] `standalone_break` flag: insight-accept ile baslatilan break'ler icin (geriye uyumluluk, artik tum break'ler terminal)
+- [x] `pomodoro_service.stop()` artik final `timer_tick` broadcast ediyor (`remaining=0, phase=idle`) — manuel durdurmada Focus panel Pomodoro karti donmaz, sifirlanir
+- [x] `break_completed` WS: TTS "Mola bitti. Hazirsan devam edelim.", toast, `return_to_idle`, `modesApi.endCurrent()`
+- [x] Manuel break mode cikis (Dashboard): `handleEndMode`/`handleSetMode` break phase'de iken `pomodoroApi.stop()` cagrilir, `triggerEvent('confirmation_success')` → confirming clip → idle
+- [x] Manuel pomodoro Bitir buton watcher: `prevBreakRunningRef` ile is_running false transition yakalanir, `currentMode==='break'` ise endCurrent + confirming
+- [x] Natural completion skip flag: `skipNextBreakStopWatcherRef` ile break_completed handler, watcher'i bir kez skip eder (double-fire engellenir)
+- [x] `DashboardPage` `initialModClipStarted` effect: artik MOUNT-ONLY calisir (deps `[]`), currentMode degisimlerine reaktif degil — acceptInsight'in playModIntroOnce cagrisini override etmemesi icin
+- [x] `stopProactiveSpeech()` helper: TTS calarken butondan accept/deny basilirsa audio pause + URL revoke + ref clear + `onended`/`onerror` null; akis TTS susup devam eder
+- [x] `currentProactiveAudioRef` — aktif audio element + URL tutulur, stopProactiveSpeech tarafindan kullanilir
+- [x] Pomodoro start (Tasks/Focus Play): `triggerEvent('confirmation_success')` eklendi — confirming clip oynatilir, work phase'de OLED timer gosterilmez
+
+#### Cesitli Polish
+- [x] Dashboard: "Toplam Calisma" → "Toplam Aktiflik", "Proaktif Oneriler" kart en ustte, app usage border neutral
+- [x] Task `created_at` timezone fix (Turkiye saati)
+- [x] Task description textarea auto-resize
+- [x] Navbar chat icon kirmizi (accent-red)
+- [x] Tray animation donma fix
+- [x] Workspace save 404 fix: Pydantic schema `Optional[str] = None` + `model_config = ConfigDict(from_attributes=True)`
+- [x] http.ts default timeout 10s → 30s
+- [x] Proactive poll 60s → 5dk, clipboard poll 800ms → 3000ms (voice latency dusuruldu)
+- [x] `backgroundThrottling:true` default (sadece tray'e hide edildiginde disable)
+
 ---
 
 ## Mevcut Uncommitted Degisiklikler
 
-> v13.0 checkpoint'i ile tum degisiklikler commit edilmistir.
+### Uygulama (sadik-app/)
+- M `electron/main.js` — DND IPC, workspace IPC, backgroundThrottling, clipboard poll
+- M `electron/preload.js` — IPC expose: set-dnd, app-focus-changed, workspace handlers
+- M `public/animations/clips-manifest.json` — idle_alt_look_down eklendi
+- M `src/App.tsx` — WorkspacePage route, kalici VoiceAssistant mount guncellemeleri
+- M `src/api/http.ts` — default timeout 10s → 30s
+- M `src/api/pomodoro.ts` — startBreak(minutes?) override destegi
+- M `src/api/voice.ts` — voice-chat-stream endpoint
+- M `src/components/layout/BottomNav.tsx` — LayoutGrid (Workspace) 6. item, pembe renk
+- M `src/components/layout/HeaderBar.tsx` — DND toggle butonu, focus-look entegrasyonu
+- M `src/components/voice/VoiceAssistant.tsx` — streaming pipeline, re-entrancy guard, proaktif STT accept/deny
+- M `src/context/AppContext.tsx` — break flow, suppressBreakTimerDisplayRef, stopProactiveSpeech, proactive STT accept/deny, focus-look
+- M `src/engine/AnimationEngine.ts` — playModIntroOnce, focus-look clip support
+- M `src/engine/types.ts` — yeni event/type tanimlari
+- M `src/hooks/useAnimationEngine.ts` — playModIntroOnce hook entegrasyonu
+- M `src/pages/DashboardPage.tsx` — "Toplam Aktiflik", Proaktif Oneriler ustte, mount-only effect
+- M `src/pages/SettingsPage.tsx` — "Sadik'in Konumu" ayari, DND mod entegrasyonu
+- M `src/services/wakeWordService.ts` — _requestInFlight guard, STT_TIMEOUT_MS, fast param
+- ?? `public/animations/idle_variations/idle_alt_look_down.json` — yeni animasyon clip'i
+- ?? `src/api/workspaces.ts` — Workspace API client
+- ?? `src/pages/WorkspacePage.tsx` — Calisma Alani sayfasi
+
+### Backend (sadik-backend/)
+- M `app/main.py` — workspace router kaydi, lifespan guncellemeleri
+- M `app/models/__init__.py` — workspace model import
+- M `app/routers/device.py` — frame log suppress (_FrameFilter)
+- M `app/routers/pomodoro.py` — startBreak body override
+- M `app/routers/voice.py` — /api/voice/voice-chat-stream endpoint
+- M `app/services/chat_service.py` — stream_voice_response, per-sentence TTS, gpt-4o-mini
+- M `app/services/pomodoro_service.py` — standalone_break, break always terminal, stop() final broadcast
+- M `app/services/voice_service.py` — streaming TTS entegrasyonu
+- ?? `app/models/workspace.py` — Workspace SQLAlchemy model
+- ?? `app/routers/workspace.py` — Workspace CRUD + execute
+- ?? `app/schemas/workspace.py` — Workspace Pydantic schema
 
 ---
 

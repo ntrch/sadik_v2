@@ -21,7 +21,7 @@ export interface ClipData {
 
 export type PlaybackMode = 'idle' | 'explicit_clip' | 'text';
 
-export type IdleSubState = 'idle_loop' | 'blink' | 'variation';
+export type IdleSubState = 'idle_loop' | 'blink' | 'variation' | 'focus_look';
 
 export interface EngineState {
   playbackMode: PlaybackMode;

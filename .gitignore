@@ -24,3 +24,13 @@ Thumbs.db
 .vscode/
 .idea/
 *.code-workspace
+
+# Logs
+sadik-logs/
+*.log
+
+# Local claude settings
+.claude/settings.local.json
+
+# Personal notes
+feedbacks.txt

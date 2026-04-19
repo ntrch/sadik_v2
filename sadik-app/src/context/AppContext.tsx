@@ -5,9 +5,12 @@ import { modesApi } from '../api/modes';
 import { deviceApi } from '../api/device';
 import { pomodoroApi } from '../api/pomodoro';
 import { settingsApi } from '../api/settings';
+import http from '../api/http';
 import { statsApi, AppInsight } from '../api/stats';
 import { tasksApi } from '../api/tasks';
 import { voiceApi } from '../api/voice';
+import { weatherApi, CurrentWeather } from '../api/weather';
+import { integrationsApi, IntegrationStatus } from '../api/integrations';
 import { wakeWordService } from '../services/wakeWordService';
 import { useWebSocket, WSMessage } from '../hooks/useWebSocket';
 import { useAnimationEngine } from '../hooks/useAnimationEngine';
@@ -35,6 +38,8 @@ interface AppContextType {
   playClipDirect: (name: string) => void;
   playModClip: (name: string) => void;
   playModSequence: (intro: string, loop: string) => void;
+  playModSequenceWithCallback: (intro: string, loop: string, onIntroFinish?: () => void) => void;
+  playModIntroOnce: (intro: string, onFinish?: () => void) => void;
   getLoadedClipNames: () => string[];
   frameBuffer: Uint8Array;
   frameVersion: number;
@@ -92,6 +97,22 @@ interface AppContextType {
   // DND
   dndActive: boolean;
   setDndActive: (v: boolean) => void;
+  // Sadık's position (affects focus-look direction)
+  sadikPosition: 'left' | 'right' | 'top';
+  setSadikPosition: (pos: 'left' | 'right' | 'top') => Promise<void>;
+  // Weather
+  weatherEnabled: boolean;
+  setWeatherEnabled: (v: boolean) => Promise<void>;
+  weatherApiKey: string;
+  setWeatherApiKey: (v: string) => Promise<void>;
+  weatherLocationLabel: string;
+  weatherLat: string;
+  weatherLon: string;
+  setWeatherLocation: (loc: { label: string; lat: number; lon: number }) => Promise<void>;
+  clearWeatherLocation: () => Promise<void>;
+  weatherData: CurrentWeather | null;
+  weatherError: string | null;
+  refreshWeather: () => Promise<void>;
   // Debug — for manual proactive testing from Dashboard
   debugForcePoll: () => void;
   debugTestTTS: (text?: string) => void;
@@ -148,6 +169,8 @@ export const AppContext = createContext<AppContextType>({
   playClipDirect: () => {},
   playModClip: () => {},
   playModSequence: () => {},
+  playModSequenceWithCallback: () => {},
+  playModIntroOnce: () => {},
   getLoadedClipNames: () => [],
   frameBuffer: new Uint8Array(1024),
   frameVersion: 0,
@@ -187,7 +210,7 @@ export const AppContext = createContext<AppContextType>({
   setProactiveCooldownMinutes: async () => {},
   spokenProactiveEnabled: true,
   setSpokenProactiveEnabled: async () => {},
-  spokenProactiveDailyLimit: 1,
+  spokenProactiveDailyLimit: 3,
   setSpokenProactiveDailyLimit: async () => {},
   setVoiceAssistantActive: () => {},
   voiceAssistantActive: false,
@@ -195,6 +218,20 @@ export const AppContext = createContext<AppContextType>({
   setVoiceUiVisible: () => {},
   dndActive: false,
   setDndActive: () => {},
+  sadikPosition: 'left',
+  setSadikPosition: async () => {},
+  weatherEnabled: false,
+  setWeatherEnabled: async () => {},
+  weatherApiKey: '',
+  setWeatherApiKey: async () => {},
+  weatherLocationLabel: '',
+  weatherLat: '',
+  weatherLon: '',
+  setWeatherLocation: async () => {},
+  clearWeatherLocation: async () => {},
+  weatherData: null,
+  weatherError: null,
+  refreshWeather: async () => {},
   debugForcePoll: () => {},
   debugTestTTS: () => {},
   debugResetCounters: () => {},
@@ -242,7 +279,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Spoken proactive state
   const [spokenProactiveEnabled, setSpokenProactiveEnabledState]       = useState(true);
-  const [spokenProactiveDailyLimit, setSpokenProactiveDailyLimitState] = useState(1);
+  const [spokenProactiveDailyLimit, setSpokenProactiveDailyLimitState] = useState(3);
 
   // Refs mirror state — avoids stale closures in callbacks.
   // All are updated on every render so they are always current.
@@ -267,11 +304,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const pomodoroStateRef               = useRef(pomodoroState);
   // Spoken proactive refs — always current, safe for setInterval closures
   const spokenProactiveEnabledRef    = useRef(true);
-  const spokenProactiveDailyLimitRef = useRef(1);
+  const spokenProactiveDailyLimitRef = useRef(3);
   /** Set to true by VoiceAssistant when voiceState !== 'idle'; gates spoken proactive. */
   const voiceAssistantActiveRef      = useRef(false);
   /** Set to true while proactive TTS audio is playing; prevents stacking. */
   const isProactiveSpeakingRef       = useRef(false);
+  // Holds the currently playing proactive-TTS <audio> element (+ its object
+  // URL) so a manual accept/deny can interrupt it cleanly without waiting
+  // for the sentence to finish.
+  const currentProactiveAudioRef     = useRef<{ audio: HTMLAudioElement; url: string } | null>(null);
   // Separate daily counter for spoken proactive (independent of visual daily limit)
   const spokenDailyCountRef     = useRef(0);
   const spokenDailyCountDateRef = useRef('');
@@ -333,6 +374,97 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [deviceStatus.connected]);
 
+  // ── Sadık position (must be declared before useAnimationEngine) ──────────────
+  const [sadikPosition, setSadikPositionState] = useState<'left' | 'right' | 'top'>('left');
+
+  const setSadikPosition = useCallback(async (pos: 'left' | 'right' | 'top') => {
+    setSadikPositionState(pos);
+    try { await settingsApi.update({ sadik_position: pos }); } catch { /* best-effort */ }
+  }, []);
+
+  // ── Persona slug — selects animation pack under /animations/personas/<slug>/ ──
+  const [personaSlug] = useState<string>('sadik');
+
+  // ── Weather state ────────────────────────────────────────────────────────────
+  const [weatherEnabled, setWeatherEnabledState] = useState(false);
+  const [weatherApiKey, setWeatherApiKeyState]   = useState('');
+  const [weatherLocationLabel, setWeatherLocationLabelState] = useState('');
+  const [weatherLat, setWeatherLatState]         = useState('');
+  const [weatherLon, setWeatherLonState]         = useState('');
+  const [weatherData, setWeatherData]            = useState<CurrentWeather | null>(null);
+  const [weatherError, setWeatherError]          = useState<string | null>(null);
+  const weatherEnabledRef = useRef(false);
+  weatherEnabledRef.current = weatherEnabled;
+
+  const refreshWeather = useCallback(async () => {
+    if (!weatherEnabledRef.current) return;
+    try {
+      const data = await weatherApi.getCurrent();
+      setWeatherData(data);
+      setWeatherError(null);
+    } catch (e: any) {
+      setWeatherData(null);
+      setWeatherError(e?.response?.data?.detail ?? 'weather_fetch_failed');
+    }
+  }, []);
+
+  const setWeatherEnabled = useCallback(async (v: boolean) => {
+    setWeatherEnabledState(v);
+    try { await settingsApi.update({ weather_enabled: String(v) }); } catch { /* best-effort */ }
+    if (v) {
+      refreshWeather();
+    } else {
+      setWeatherData(null);
+      setWeatherError(null);
+    }
+  }, [refreshWeather]);
+
+  const setWeatherApiKey = useCallback(async (v: string) => {
+    setWeatherApiKeyState(v);
+    try { await settingsApi.update({ weather_api_key: v }); } catch { /* best-effort */ }
+    if (weatherEnabledRef.current) refreshWeather();
+  }, [refreshWeather]);
+
+  const setWeatherLocation = useCallback(async (loc: { label: string; lat: number; lon: number }) => {
+    setWeatherLocationLabelState(loc.label);
+    setWeatherLatState(String(loc.lat));
+    setWeatherLonState(String(loc.lon));
+    try {
+      await settingsApi.update({
+        weather_location_label: loc.label,
+        weather_lat: String(loc.lat),
+        weather_lon: String(loc.lon),
+        // clear legacy city field so backend uses coords
+        weather_city: '',
+      });
+    } catch { /* best-effort */ }
+    if (weatherEnabledRef.current) refreshWeather();
+  }, [refreshWeather]);
+
+  const clearWeatherLocation = useCallback(async () => {
+    setWeatherLocationLabelState('');
+    setWeatherLatState('');
+    setWeatherLonState('');
+    try {
+      await settingsApi.update({
+        weather_location_label: '',
+        weather_lat: '',
+        weather_lon: '',
+        weather_city: '',
+      });
+    } catch { /* best-effort */ }
+    setWeatherData(null);
+    setWeatherError(null);
+  }, []);
+
+  // Poll weather every 10 min while enabled
+  useEffect(() => {
+    if (!weatherEnabled) return;
+    refreshWeather();
+    const id = setInterval(refreshWeather, 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [weatherEnabled, refreshWeather]);
+
   const {
     engineState,
     frameBuffer,
@@ -343,8 +475,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     playClipDirect,
     playModClip,
     playModSequence,
+    playModSequenceWithCallback,
+    playModIntroOnce,
     getLoadedClipNames,
-  } = useAnimationEngine(deviceStatus.connected);
+  } = useAnimationEngine(deviceStatus.connected, sadikPosition, personaSlug);
 
   // ── Wake word functions ────────────────────────────────────────────────────
 
@@ -372,30 +506,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const pauseWakeWord = useCallback(() => {
-    // Cancel any pending resume timer to prevent the wake word service from
-    // restarting during an active voice session.  On Windows WASAPI, a competing
-    // getUserMedia call from the wake word service kills the persistent voice
-    // stream's tracks.
+    // Keep the WS + backend mic open; just suppress detections. Tearing down
+    // and rebuilding across turns proved unreliable on Windows (second detection
+    // frequently missed).  Backend mic and frontend voice mic are separate
+    // streams, so they can coexist without a teardown dance.
     if (wakeWordResumeTimerRef.current !== null) {
       clearTimeout(wakeWordResumeTimerRef.current);
       wakeWordResumeTimerRef.current = null;
     }
-    wakeWordService.stop();
+    wakeWordService.pause();
     setWakeWordActive(false);
   }, []);
 
   /** Re-arm detection 400 ms after a voice turn ends. Uses refs — never stale. */
   const resumeWakeWord = useCallback(() => {
     if (!wakeWordEnabledRef.current) return;
-    // Cancel any previous pending resume.
     if (wakeWordResumeTimerRef.current !== null) {
       clearTimeout(wakeWordResumeTimerRef.current);
     }
-    console.log('[WakeWord] Resuming in 400 ms...');
     wakeWordResumeTimerRef.current = setTimeout(() => {
       wakeWordResumeTimerRef.current = null;
       if (!wakeWordEnabledRef.current) return;
-      startWakeWordRef.current();
+      // If the service was stopped (e.g. explicit cancel), start it fresh.
+      // Otherwise just unpause — WS and backend mic are already running.
+      if (wakeWordService.isActive()) {
+        wakeWordService.resume();
+        setWakeWordActive(true);
+      } else {
+        startWakeWordRef.current();
+      }
     }, 400);
   }, []);
 
@@ -617,8 +756,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   /** Key of the last insight that triggered a toast/OLED notification. */
   const lastShownInsightKeyRef = useRef<string | null>(null);
-  /** Apps denied by the user in this session — skip them in rotation. */
-  const deniedAppInsightsRef = useRef<Set<string>>(new Set());
+  /** Key of the last insight for which TTS was successfully started. Separate from
+   *  visual dedup so that a failed/blocked TTS attempt can be retried on the next poll. */
+  const lastSpokenInsightKeyRef = useRef<string | null>(null);
+  /**
+   * Level-aware rejection map. Key = source:identifier (no level).
+   * - On gentle reject  → block until the same key escalates to 'strong'.
+   * - On strong reject  → block for 2 hours from rejection timestamp.
+   * Memory-only, resets on app restart or on debugResetCounters.
+   * Cleared for the key when the user accepts (so future suggestions resume).
+   */
+  const REJECTION_STORAGE_KEY = 'sadik.proactive.rejections.v1';
+  const loadRejectionMap = (): Map<string, { level: 'gentle' | 'strong'; at: number }> => {
+    try {
+      const raw = localStorage.getItem(REJECTION_STORAGE_KEY);
+      if (!raw) return new Map();
+      const obj = JSON.parse(raw) as Record<string, { level: 'gentle' | 'strong'; at: number }>;
+      return new Map(Object.entries(obj));
+    } catch { return new Map(); }
+  };
+  const persistRejectionMap = (m: Map<string, { level: 'gentle' | 'strong'; at: number }>) => {
+    try {
+      const obj: Record<string, { level: 'gentle' | 'strong'; at: number }> = {};
+      m.forEach((v, k) => { obj[k] = v; });
+      localStorage.setItem(REJECTION_STORAGE_KEY, JSON.stringify(obj));
+    } catch { /* quota/private mode — ignore */ }
+  };
+  const rejectionMapRef = useRef<Map<string, { level: 'gentle' | 'strong'; at: number }>>(loadRejectionMap());
+  const STRONG_REJECT_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+  const rejectionBaseKey = (ins: { source?: string; app_name?: string | null; message?: string | null }) =>
+    `${ins.source ?? ''}:${ins.app_name ?? (ins.message ?? '').slice(0, 30)}`;
+  const shouldSuppressByRejection = (ins: { source?: string; app_name?: string | null; message?: string | null; level?: string }) => {
+    const rej = rejectionMapRef.current.get(rejectionBaseKey(ins));
+    if (!rej) return false;
+    if (rej.level === 'gentle') return ins.level !== 'strong';
+    return (Date.now() - rej.at) < STRONG_REJECT_COOLDOWN_MS;
+  };
 
   // These refs always point to the latest function instances so the
   // setInterval callback never captures a stale closure.
@@ -626,6 +799,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const _showTextRef     = useRef(showText);
   const _returnToIdleRef = useRef(returnToIdle);
   const acceptInsightRef = useRef<() => Promise<void>>(async () => {});
+  const denyInsightRef   = useRef<() => void>(() => {});
   _showToastRef.current    = showToast;
   _showTextRef.current     = showText;
   _returnToIdleRef.current = returnToIdle;
@@ -635,13 +809,76 @@ export function AppProvider({ children }: { children: ReactNode }) {
    * Manages its own OLED feedback and returns to idle when audio ends.
    * Never opens the mic or enters voice conversation flow.
    */
-  const speakProactive = useCallback(async (text: string) => {
+  // Ref storing the current active insight so the STT accept/reject window can
+  // trigger the correct handlers without a closure over changing state.
+  const _acceptInsightForSttRef = useRef<() => Promise<void>>(async () => {});
+  const _denyInsightForSttRef   = useRef<() => void>(() => {});
+  // Dedup guard: stores the insight key for which the STT window was already
+  // armed.  Prevents double-arming when speakProactive is somehow called twice
+  // for the same suggestion (e.g. a stale TTS retry).
+  const _sttArmedForKeyRef = useRef<string | null>(null);
+
+  // Stores the app-usage insight that was accepted (break started).
+  // When the break completes (naturally or via early cancel) we clear the
+  // rejection map for that app so future suggestions resume normally.
+  const breakAcceptedInsightRef = useRef<AppInsight | null>(null);
+  // Clears rejection for the accepted insight + resets dedup keys so the next
+  // organic poll can surface a fresh suggestion for the same app.
+  const clearBreakAcceptedInsight = useCallback(() => {
+    const ins = breakAcceptedInsightRef.current;
+    if (!ins) return;
+    breakAcceptedInsightRef.current = null;
+    // Clear rejection map so the app can be suggested again in the future
+    rejectionMapRef.current.delete(rejectionBaseKey(ins));
+    persistRejectionMap(rejectionMapRef.current);
+    // Clear dedup keys so the app insight can surface on the next poll
+    lastShownInsightKeyRef.current  = null;
+    lastSpokenInsightKeyRef.current = null;
+    console.log('[Proactive] Break completion/cancel — counter reset for', rejectionBaseKey(ins));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const clearBreakAcceptedInsightRef = useRef(clearBreakAcceptedInsight);
+  clearBreakAcceptedInsightRef.current = clearBreakAcceptedInsight;
+
+  // Timestamp of the last habit TTS fire — used to defer app-usage TTS by 60s
+  // when a habit and an app-usage suggestion coincide (spec: habits fire
+  // immediately, app-usage waits +1 min).
+  const lastHabitFiredAtRef = useRef<number>(0);
+  // Queue of pending app-usage insights waiting for the 1-min post-habit gap.
+  // Stored as [insight, scheduledAt] pairs; processed by a 30s sweep timer.
+  const pendingInsightQueueRef = useRef<Array<{ insight: AppInsight; notBefore: number }>>([]);
+  const queueSweepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /**
+   * Change 1: intensity-aware spoken proactive suggestion.
+   * - "strong" level → prepend "Dikkat! …" (assertive framing).
+   * - "gentle" level → prepend "Küçük bir öneri: …" (soft framing).
+   * NOTE: The TTS backend (ElevenLabs/OpenAI/edge-tts) does not expose a
+   * style/speed/voice variant through the /api/voice/tts endpoint — it accepts
+   * only { text }.  Intensity distinction is therefore wording-only (no style param).
+   *
+   * Change 2: after TTS finishes, arm an 8-second one-shot STT window IF the
+   * voice assistant is idle.  Recognised words resolve to accept/reject/timeout.
+   * Accept and reject trigger the same handlers as the UI buttons.  If the voice
+   * assistant is busy (voiceAssistantActiveRef = true) the STT window is skipped —
+   * buttons remain the only path.
+   */
+  const speakProactive = useCallback(async (text: string, intensity?: 'gentle' | 'strong', insightKey?: string) => {
     if (isProactiveSpeakingRef.current) return;
     isProactiveSpeakingRef.current = true;
     try {
-      const audioBlob = await voiceApi.tts(text);
+      // Change 1: prepend intensity-based prefix to the spoken text
+      let spokenText = text;
+      if (intensity === 'strong') {
+        spokenText = `Dikkat! ${text}`;
+      } else if (intensity === 'gentle') {
+        spokenText = `Küçük bir öneri: ${text}`;
+      }
+
+      const audioBlob = await voiceApi.tts(spokenText);
       const url   = URL.createObjectURL(audioBlob);
       const audio = new Audio(url);
+      currentProactiveAudioRef.current = { audio, url };
 
       // Route to the user's selected speaker if the browser supports setSinkId
       if (audioOutputDeviceIdRef.current !== 'default') {
@@ -658,11 +895,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
       audio.onended = () => {
         URL.revokeObjectURL(url);
         isProactiveSpeakingRef.current = false;
-        _returnToIdleRef.current();
+        if (currentProactiveAudioRef.current?.audio === audio) {
+          currentProactiveAudioRef.current = null;
+        }
+
+        // Change 2: arm STT window only when:
+        //   - voice assistant is not active
+        //   - intensity is set (only break/task insights, not break-end announcements)
+        //   - not already armed for this exact suggestion (dedup guard)
+        const sttKey = insightKey ?? text;
+        const alreadyArmed = _sttArmedForKeyRef.current === sttKey;
+        if (!voiceAssistantActiveRef.current && intensity !== undefined && !alreadyArmed) {
+          _sttArmedForKeyRef.current = sttKey;
+          armProactiveSttWindowRef.current();
+        } else {
+          if (alreadyArmed) console.log('[Proactive][STT] skipped — already armed for this key');
+          _returnToIdleRef.current();
+        }
       };
       audio.onerror = () => {
         URL.revokeObjectURL(url);
         isProactiveSpeakingRef.current = false;
+        if (currentProactiveAudioRef.current?.audio === audio) {
+          currentProactiveAudioRef.current = null;
+        }
         _returnToIdleRef.current();
       };
       await audio.play();
@@ -671,6 +927,100 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentional: reads all state through refs — no deps needed
+
+  /**
+   * Change 2: one-shot 8-second STT window for proactive accept/reject.
+   * Records from the selected input device, sends to Whisper, resolves to
+   * 'accept' | 'reject' | 'timeout', then triggers the appropriate handler.
+   * Called via stable ref from speakProactive's onended — never leaks into VAD.
+   */
+  const armProactiveSttWindow = useCallback(async () => {
+    // Skip entirely if voice assistant is busy — buttons remain the only path.
+    if (voiceAssistantActiveRef.current) return;
+
+    const ACCEPT_WORDS = ['evet', 'tamam', 'olur', 'kabul', 'mola ver', 'başlat'];
+    const REJECT_WORDS = ['hayır', 'yok', 'reddet', 'istemiyorum', 'sonra', 'geç'];
+    const WINDOW_MS    = 8000;
+
+    // ── Mic contention fix: pause wake word before grabbing the device ──────
+    // Windows WASAPI does not allow two concurrent capture sessions on the same
+    // physical device.  If wakeWordService is recording, calling getUserMedia
+    // here produces silent/invalid audio and stacks up backend Whisper requests.
+    const wakeWordWasActive = wakeWordService.isActive();
+    if (wakeWordWasActive) {
+      wakeWordService.stop();
+      // Give the OS ~200 ms to fully release the WASAPI capture session.
+      await new Promise<void>((r) => setTimeout(r, 200));
+    }
+
+    let stream: MediaStream | null = null;
+    let recorder: MediaRecorder | null = null;
+    const chunks: Blob[] = [];
+
+    try {
+      const constraints: MediaStreamConstraints = {
+        audio: audioInputDeviceIdRef.current !== 'default'
+          ? { deviceId: { exact: audioInputDeviceIdRef.current } }
+          : true,
+      };
+      stream   = await navigator.mediaDevices.getUserMedia(constraints);
+      recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.start();
+
+      // Animate listening state on OLED (user_speaking is the closest available event)
+      getAnimationEngine().triggerEvent('user_speaking');
+
+      await new Promise<void>((resolve) => setTimeout(resolve, WINDOW_MS));
+
+      recorder.stop();
+      // Wait for final chunk
+      await new Promise<void>((resolve) => { recorder!.onstop = () => resolve(); });
+
+    } catch {
+      // getUserMedia failed (e.g. device busy) — fall through to timeout
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+      // ── Resume wake word if it was active before we borrowed the mic ────────
+      if (wakeWordWasActive && wakeWordEnabledRef.current) {
+        startWakeWordRef.current();
+      }
+    }
+
+    _returnToIdleRef.current();
+
+    if (chunks.length === 0) return; // timeout path — card stays visible
+
+    try {
+      const blob  = new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' });
+      const transcript = await voiceApi.stt(blob);
+      const lower = transcript.toLowerCase().trim();
+      console.log('[Proactive][STT] transcript:', transcript);
+
+      const isAccept = ACCEPT_WORDS.some((w) => lower.includes(w));
+      const isReject = REJECT_WORDS.some((w) => lower.includes(w));
+
+      if (isAccept) {
+        console.log('[Proactive][STT] → accept');
+        await _acceptInsightForSttRef.current();
+      } else if (isReject) {
+        console.log('[Proactive][STT] → reject');
+        _denyInsightForSttRef.current();
+      } else {
+        console.log('[Proactive][STT] → timeout (no keyword matched)');
+        // Card stays visible — buttons remain the only path
+      }
+    } catch {
+      // STT failed — card stays visible
+    } finally {
+      // Clear the dedup key so the next suggestion (different key) can arm STT again.
+      _sttArmedForKeyRef.current = null;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // reads all state via refs
+
+  const armProactiveSttWindowRef = useRef(armProactiveSttWindow);
+  armProactiveSttWindowRef.current = armProactiveSttWindow;
 
   // Stable ref so the poll interval closure can call the latest instance
   const _speakProactiveRef = useRef(speakProactive);
@@ -694,8 +1044,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dailyCountRef.current = 0;
     spokenDailyCountRef.current = 0;
     lastShownTimestampRef.current = null;
-    lastShownInsightKeyRef.current = null;
-    deniedAppInsightsRef.current.clear();
+    lastShownInsightKeyRef.current  = null;
+    lastSpokenInsightKeyRef.current = null;
+    rejectionMapRef.current.clear();
+    persistRejectionMap(rejectionMapRef.current);
+    pendingInsightQueueRef.current = [];
+    breakAcceptedInsightRef.current = null;
+    lastHabitFiredAtRef.current = 0;
   }, []);
   const debugSimulateInsight = useCallback((appName: string, minutes: number) => {
     const sec = minutes * 60;
@@ -713,8 +1068,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       message,
       source: 'app_usage',
     };
-    console.log('[Proactive][DEBUG] Simulating insight:', synthetic);
-    _processInsightRef.current(synthetic);
+    console.log('[Proactive][DEBUG] Simulating insight (gates bypassed):', synthetic);
+    // Always surface the card regardless of gates
+    setActiveInsight(synthetic);
+    // Wire accept/deny refs so STT window can trigger the same handlers as UI buttons
+    _acceptInsightForSttRef.current = acceptInsightRef.current;
+    _denyInsightForSttRef.current   = () => denyInsightRef.current();
+    // Reset dedup guard so STT arm is not skipped
+    const key = `${synthetic.source}:${synthetic.app_name ?? ''}:${synthetic.level}`;
+    _sttArmedForKeyRef.current = null;
+    // Fire native OS notification (bypasses all gates, same as real delivery path)
+    const electronBridge = (window as any).sadikElectron;
+    if (electronBridge?.showNotification) {
+      electronBridge.showNotification('SADIK — Debug Bildirim', message);
+    }
+    // Bypass all suppression gates (DND, quiet hours, cooldown, daily limit, etc.)
+    // and speak directly — same as debugTestTTS but with intensity + STT arm.
+    _speakProactiveRef.current(message, level, key);
   }, []);
 
   useEffect(() => {
@@ -772,61 +1142,84 @@ export function AppProvider({ children }: { children: ReactNode }) {
     /** Run an already-resolved insight through gates (shared by poll + debug). */
     const processInsight = async (insight: AppInsight) => {
       try {
-        // Always update the dashboard card — it shows regardless of suppression
+        // Rule G (level-aware rejection): gentle-rejected → wait for escalation;
+        // strong-rejected → 2h cooldown. Gate even the dashboard card so denied
+        // suggestions disappear completely until eligible again.
+        if (shouldSuppressByRejection(insight)) {
+          console.log('[Proactive] ✗ Rule G — rejection suppression', rejectionMapRef.current.get(rejectionBaseKey(insight)), 'current level=', insight.level);
+          return;
+        }
+
+        // Dashboard card: reflect the newly eligible insight
         setActiveInsight(insight);
 
-        // Deduplication — only notify when the insight is new or escalated
+        // Deduplication — only notify (toast + native notification) when the insight is new or escalated
         const key = `${insight.source}:${insight.app_name ?? insight.message?.slice(0, 30)}:${insight.level}`;
-        if (key === lastShownInsightKeyRef.current) return; // identical — already notified
+        const alreadyNotified = key === lastShownInsightKeyRef.current;
+        // TTS dedup is tracked separately: if same insight was already spoken, skip TTS too.
+        const alreadySpoken   = key === lastSpokenInsightKeyRef.current;
 
-        // ── Suppression rules (gate toast + OLED only) ────────────────────────
-        console.log('[Proactive] Insight received:', { level: insight.level, source: insight.source, message: insight.message?.slice(0, 60) });
+        // ── Suppression rules ─────────────────────────────────────────────────
+        console.log('[Proactive] Insight received:', { key, alreadyNotified, alreadySpoken, level: insight.level, source: insight.source, message: insight.message?.slice(0, 60) });
 
-        // Rule A: feature disabled
+        // Rule A: feature disabled — blocks both notification and TTS
         if (!proactiveSuggestionsEnabledRef.current) { console.log('[Proactive] ✗ Rule A — feature disabled'); return; }
 
         // Rule F: DND active — suppress all proactive toast/voice/OLED
         if (dndActiveRef.current) { console.log('[Proactive] ✗ Rule F — DND aktif'); return; }
 
-        // Rule B: quiet hours (overnight-aware)
+        // Rule B: quiet hours (overnight-aware) — blocks both notification and TTS
         if (isInQuietHours(proactiveQuietHoursStartRef.current, proactiveQuietHoursEndRef.current)) { console.log('[Proactive] ✗ Rule B — quiet hours', proactiveQuietHoursStartRef.current, '→', proactiveQuietHoursEndRef.current); return; }
 
-        // Rule C: Pomodoro / focus suppression
+        // Rule C: Pomodoro / focus suppression — blocks both notification and TTS
         if (pomodoroStateRef.current.is_running) { console.log('[Proactive] ✗ Rule C — pomodoro running'); return; }
 
-        // Rule D: cooldown between suggestions
         const now = Date.now();
-        const cooldownMs = proactiveCooldownMinutesRef.current * 60 * 1000;
-        if (lastShownTimestampRef.current !== null && now - lastShownTimestampRef.current < cooldownMs) { console.log('[Proactive] ✗ Rule D — cooldown', Math.round((cooldownMs - (now - lastShownTimestampRef.current)) / 1000), 's remaining'); return; }
 
-        // Rule E: daily limit — reset counter at midnight
-        const today = new Date().toDateString();
-        if (dailyCountDateRef.current !== today) {
-          dailyCountDateRef.current = today;
-          dailyCountRef.current = 0;
+        if (!alreadyNotified) {
+          // Rules D and E only gate the first notification — once notification fired,
+          // TTS retries on subsequent polls are not subject to cooldown / daily limit.
+
+          // Rule D: cooldown between suggestions
+          const cooldownMs = proactiveCooldownMinutesRef.current * 60 * 1000;
+          if (lastShownTimestampRef.current !== null && now - lastShownTimestampRef.current < cooldownMs) { console.log('[Proactive] ✗ Rule D — cooldown', Math.round((cooldownMs - (now - lastShownTimestampRef.current)) / 1000), 's remaining'); return; }
+
+          // Rule E: daily limit — reset counter at midnight
+          const today = new Date().toDateString();
+          if (dailyCountDateRef.current !== today) {
+            dailyCountDateRef.current = today;
+            dailyCountRef.current = 0;
+          }
+          if (dailyCountRef.current >= proactiveDailyLimitRef.current) return;
+
+          // ── All rules passed — deliver notification ───────────────────────────
+          lastShownInsightKeyRef.current = key;
+          lastShownTimestampRef.current  = now;
+          dailyCountRef.current         += 1;
+
+          _showToastRef.current(insight.message ?? '💡 Mola önerisi var', 'info');
+
+          // ── Windows native notification (Electron IPC) ─────────────────────────
+          const electron = (window as any).sadikElectron;
+          if (electron?.showNotification) {
+            const isTask = insight.source === 'task';
+            electron.showNotification(
+              isTask ? 'SADIK — Görev Hatırlatma' : 'SADIK — Mola Önerisi',
+              insight.message ?? 'Kısa bir mola zamanı!',
+            );
+          }
         }
-        if (dailyCountRef.current >= proactiveDailyLimitRef.current) return;
 
-        // ── All rules passed — deliver notification ───────────────────────────
-        lastShownInsightKeyRef.current = key;
-        lastShownTimestampRef.current  = now;
-        dailyCountRef.current         += 1;
-
-        _showToastRef.current(insight.message ?? '💡 Mola önerisi var', 'info');
-
-        // ── Windows native notification (Electron IPC) ─────────────────────────
-        const electron = (window as any).sadikElectron;
-        if (electron?.showNotification) {
-          const isTask = insight.source === 'task';
-          electron.showNotification(
-            isTask ? 'SADIK — Görev Hatırlatma' : 'SADIK — Mola Önerisi',
-            insight.message ?? 'Kısa bir mola zamanı!',
-          );
-        }
-
-        // ── Spoken proactive (strong insights only) ───────────────────────────
+        // ── Spoken proactive ──────────────────────────────────────────────────
+        // Retry TTS on each poll until it actually plays (voice may have been busy
+        // on a previous poll).  Stop retrying once TTS was started (alreadySpoken).
         // Gates: spoken enabled + voice assistant idle + not already speaking +
         // spoken daily limit not reached.  speakProactive handles OLED + idle return.
+        if (alreadySpoken) {
+          console.log('[Proactive] TTS already spoken for this key — skipping voice');
+          return;
+        }
+
         let willSpeak = false;
         // Diagnostic: trace gate evaluation so we can see WHY voice didn't fire.
         console.log('[Proactive] Gate check:', {
@@ -838,7 +1231,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           spokenDailyLimit: spokenProactiveDailyLimitRef.current,
         });
         if (
-          insight.level === 'strong' &&
+          (insight.level === 'strong' || insight.level === 'gentle') &&
           spokenProactiveEnabledRef.current &&
           !voiceAssistantActiveRef.current &&
           !isProactiveSpeakingRef.current
@@ -850,24 +1243,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           if (spokenDailyCountRef.current < spokenProactiveDailyLimitRef.current) {
             spokenDailyCountRef.current += 1;
+            // Mark TTS as spoken so subsequent polls don't re-fire it.
+            lastSpokenInsightKeyRef.current = key;
             willSpeak = true;
-            console.log('[Proactive] ✓ Speaking:', insight.message);
-            _speakProactiveRef.current(insight.message ?? 'Kısa bir mola zamanı!');
+            // Wire accept/reject refs so the STT window (armed after TTS)
+            // can trigger the same handlers as the UI buttons.
+            _acceptInsightForSttRef.current = acceptInsightRef.current;
+            _denyInsightForSttRef.current   = () => denyInsightRef.current();
+            console.log('[Proactive] ✓ Speaking (intensity=%s):', insight.level, insight.message);
+            // Reset the dedup key so the new suggestion can arm STT
+            _sttArmedForKeyRef.current = null;
+            // Pass intensity + dedup key so speakProactive can prefix the text
+            // and armProactiveSttWindow is only armed once per suggestion.
+            _speakProactiveRef.current(insight.message ?? 'Kısa bir mola zamanı!', insight.level, key);
           } else {
             console.log('[Proactive] ✗ Daily spoken limit reached — skipping voice');
           }
         } else {
-          console.log('[Proactive] ✗ Gate failed — voice skipped');
+          const failed: string[] = [];
+          if (!(insight.level === 'strong' || insight.level === 'gentle')) failed.push(`level=${insight.level}`);
+          if (!spokenProactiveEnabledRef.current)       failed.push('spoken disabled');
+          if (voiceAssistantActiveRef.current)          failed.push('voice assistant active (will retry next poll)');
+          if (isProactiveSpeakingRef.current)           failed.push('already speaking (will retry next poll)');
+          console.log('[Proactive] ✗ Gate failed — voice skipped (%s)', failed.join(', '));
         }
 
         // Silent OLED feedback only when not speaking (speakProactive owns OLED when active)
-        if (!willSpeak) {
+        if (!willSpeak && !alreadyNotified) {
           _showTextRef.current(insight.level === 'strong' ? 'MOLA!' : 'MOLA?');
           setTimeout(() => _returnToIdleRef.current(), 4000);
         }
       } catch {
         // Best-effort — backend may be starting or have no data yet
       }
+    };
+
+    /**
+     * Queue sweep: fires pending insights that have passed their notBefore time.
+     * One insight per sweep tick — successive insights get natural spacing because
+     * the sweep itself runs every 30 s and isProactiveSpeakingRef gates TTS.
+     * Habit-deferred app-usage insights land here after the 60 s gap.
+     */
+    const sweepQueue = async () => {
+      const now = Date.now();
+      const queue = pendingInsightQueueRef.current;
+      // Find first entry whose notBefore has elapsed
+      const idx = queue.findIndex((e) => now >= e.notBefore);
+      if (idx === -1) return;
+      const [entry] = queue.splice(idx, 1);
+      console.log('[Proactive][Queue] Firing deferred insight:', entry.insight.app_name, entry.insight.level);
+      await processInsight(entry.insight);
     };
 
     /** Fetch real insights from backend + tasks, then pipe through processInsight. */
@@ -878,40 +1303,90 @@ export function AppProvider({ children }: { children: ReactNode }) {
           checkTaskInsight(),
         ]);
 
-        let pickedAppInsight: AppInsight | null = null;
+        // ── Collect ALL eligible app-usage insights (sorted by duration desc,
+        //    i.e. strongest first — backend already returns them that way).
+        const eligibleAppInsights: AppInsight[] = [];
         if (appInsight.has_insight && appInsight.insights && appInsight.insights.length > 0) {
-          const available = appInsight.insights.find(
-            (i) => !deniedAppInsightsRef.current.has(i.app_name)
-          );
-          if (available) {
-            pickedAppInsight = {
-              has_insight: true,
-              app_name: available.app_name,
-              level: available.level,
-              message: available.message,
-              insights: appInsight.insights,
-              source: 'app_usage',
-            };
+          // Sort by duration descending (strong before gentle, longest first)
+          const sorted = [...appInsight.insights].sort((a, b) => {
+            const lvlScore = (l: string) => (l === 'strong' ? 1 : 0);
+            return lvlScore(b.level) - lvlScore(a.level);
+          });
+          for (const i of sorted) {
+            if (!shouldSuppressByRejection({ source: 'app_usage', app_name: i.app_name, level: i.level, message: i.message })) {
+              eligibleAppInsights.push({
+                has_insight: true,
+                app_name: i.app_name,
+                level: i.level,
+                message: i.message,
+                insights: appInsight.insights,
+                source: 'app_usage',
+              });
+            }
           }
-        } else if (appInsight.has_insight && !deniedAppInsightsRef.current.has(appInsight.app_name ?? '')) {
-          pickedAppInsight = { ...appInsight, source: 'app_usage' };
+        } else if (appInsight.has_insight && !shouldSuppressByRejection({ ...appInsight, source: 'app_usage' })) {
+          eligibleAppInsights.push({ ...appInsight, source: 'app_usage' });
         }
 
-        let insight: AppInsight;
+        // ── Priority: strong task > app usage (longest first) > gentle task ──
+        // Task insight fires immediately, not via queue.
+        let primaryInsight: AppInsight | null = null;
         if (taskInsight && taskInsight.level === 'strong') {
-          insight = taskInsight;
-        } else if (pickedAppInsight) {
-          insight = pickedAppInsight;
+          primaryInsight = taskInsight;
+        } else if (eligibleAppInsights.length > 0) {
+          // Check habit-collision: if a habit fired within the last 60 s,
+          // defer ALL app-usage insights by the remaining gap (spec: habits
+          // fire immediately, app-usage waits +1 min).
+          const habitGapMs = 60_000;
+          const timeSinceHabit = Date.now() - lastHabitFiredAtRef.current;
+          if (lastHabitFiredAtRef.current > 0 && timeSinceHabit < habitGapMs) {
+            const deferMs = habitGapMs - timeSinceHabit;
+            console.log(`[Proactive][Queue] Habit fired ${Math.round(timeSinceHabit / 1000)}s ago — deferring app-usage insights by ${Math.round(deferMs / 1000)}s`);
+            const now = Date.now();
+            // Add with 60s stagger between each
+            eligibleAppInsights.forEach((ins, idx) => {
+              const notBefore = now + deferMs + idx * 60_000;
+              // Don't double-queue (check if same key already pending)
+              const key = `${ins.source}:${ins.app_name ?? ''}:${ins.level}`;
+              const alreadyQueued = pendingInsightQueueRef.current.some(
+                (e) => `${e.insight.source}:${e.insight.app_name ?? ''}:${e.insight.level}` === key
+              );
+              if (!alreadyQueued) {
+                pendingInsightQueueRef.current.push({ insight: ins, notBefore });
+              }
+            });
+          } else {
+            // No habit collision — fire first immediately, queue rest with 60s stagger
+            primaryInsight = eligibleAppInsights[0];
+            if (eligibleAppInsights.length > 1) {
+              const now = Date.now();
+              eligibleAppInsights.slice(1).forEach((ins, idx) => {
+                const key = `${ins.source}:${ins.app_name ?? ''}:${ins.level}`;
+                const alreadyQueued = pendingInsightQueueRef.current.some(
+                  (e) => `${e.insight.source}:${e.insight.app_name ?? ''}:${e.insight.level}` === key
+                );
+                if (!alreadyQueued) {
+                  pendingInsightQueueRef.current.push({ insight: ins, notBefore: now + (idx + 1) * 60_000 });
+                  console.log('[Proactive][Queue] Enqueued secondary insight:', ins.app_name, ins.level, 'in', (idx + 1) * 60, 's');
+                }
+              });
+            }
+          }
         } else if (taskInsight) {
-          insight = taskInsight;
-        } else {
+          primaryInsight = taskInsight;
+        }
+
+        if (!primaryInsight) {
           console.log('[Proactive] Poll: no insight (no app ≥ 1h today, no pending tasks)');
-          setActiveInsight(null);
-          lastShownInsightKeyRef.current = null;
+          if (eligibleAppInsights.length === 0) {
+            setActiveInsight(null);
+            lastShownInsightKeyRef.current  = null;
+            lastSpokenInsightKeyRef.current = null;
+          }
           return;
         }
 
-        await processInsight(insight);
+        await processInsight(primaryInsight);
       } catch {
         // Best-effort — backend may be starting or have no data yet
       }
@@ -921,53 +1396,118 @@ export function AppProvider({ children }: { children: ReactNode }) {
     _pollRef.current = poll;
     _processInsightRef.current = processInsight;
 
-    // First poll after 30 s (backend settles, recent sessions committed)
-    const initialDelay = setTimeout(poll, 30_000);
-    // Then every 60 seconds so insight durations stay in sync with live usage
-    const interval = setInterval(poll, 60 * 1000);
+    // First poll after 60 s (backend settles, recent sessions committed)
+    const initialDelay = setTimeout(poll, 60_000);
+    // Every 5 minutes — app-usage data only changes meaningfully on that cadence,
+    // and polling every 60 s was firing tasksApi.list() + statsApi.appInsights()
+    // 60× per hour, adding visible backend load and slowing LLM / TTS responses.
+    const interval = setInterval(poll, 5 * 60 * 1000);
+    // Queue sweep every 30 s — fires habit-deferred / multi-app queued insights
+    queueSweepTimerRef.current = setInterval(sweepQueue, 30_000);
 
     return () => {
       clearTimeout(initialDelay);
       clearInterval(interval);
+      if (queueSweepTimerRef.current) {
+        clearInterval(queueSweepTimerRef.current);
+        queueSweepTimerRef.current = null;
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentional: uses latest-ref pattern — no deps needed
 
   // ── Proactive accept / deny ────────────────────────────────────────────────
 
+  /** Stop any proactive TTS currently playing. Used when the user presses the
+   *  accept/deny button (or voice-accept triggers) before the sentence ends —
+   *  continuing to speak over the animation transition is jarring. */
+  const stopProactiveSpeech = () => {
+    const entry = currentProactiveAudioRef.current;
+    if (!entry) return;
+    const { audio, url } = entry;
+    try {
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      audio.src = '';
+    } catch { /* best-effort */ }
+    URL.revokeObjectURL(url);
+    currentProactiveAudioRef.current = null;
+    isProactiveSpeakingRef.current = false;
+  };
+
   const acceptInsight = useCallback(async () => {
+    stopProactiveSpeech();
+    const insight = activeInsightRef.current;
+    // Clear any stored rejection for this key — user accepted, so resume normal cadence.
+    if (insight) {
+      rejectionMapRef.current.delete(rejectionBaseKey(insight));
+      persistRejectionMap(rejectionMapRef.current);
+      // Store for post-break counter reset (natural or early cancel)
+      if (insight.source === 'app_usage') {
+        breakAcceptedInsightRef.current = insight;
+      }
+    }
+    // Map intensity to break minutes: gentle → 5 min, strong → 15 min
+    const breakMinutes = insight?.level === 'strong' ? 15 : 5;
+
     try {
       await modesApi.setMode('break');
       setCurrentMode('break');
-      triggerEvent('confirmation_success');
       showToast('Mola moduna geçildi', 'success');
-      // Start break animation after brief confirmation, or fall back to text
-      setTimeout(() => {
-        const loaded = getLoadedClipNames();
-        if (loaded.includes('mod_break') && loaded.includes('mod_break_text')) {
-          playModSequence('mod_break', 'mod_break_text');
-        } else if (loaded.includes('mod_break_text')) {
-          playModClip('mod_break_text');
-        } else {
-          showText('MOLA');
-        }
-      }, 1200);
+
+      // mod_break intro plays fully, then startTimer kicks off the pomodoro
+      // break. The countdown (MM:SS) from timer_tick replaces the held frame.
+      const engine = getAnimationEngine();
+      const loaded = getLoadedClipNames();
+      const startTimer = async () => {
+        try {
+          const newState = await pomodoroApi.startBreak(breakMinutes);
+          setPomodoroState(newState);
+        } catch { /* best-effort */ }
+      };
+      if (loaded.includes('mod_break')) {
+        engine.playModIntroOnce('mod_break', startTimer);
+      } else {
+        showText('MOLA');
+        await startTimer();
+      }
     } catch {
       showToast('Mod değiştirilemedi', 'error');
     }
     setActiveInsight(null);
-  }, [triggerEvent, showText, showToast, playModClip, playModSequence, getLoadedClipNames]);
+  }, [showText, showToast, getLoadedClipNames]);
 
   const denyInsight = useCallback(() => {
+    // Capture whether proactive TTS was active BEFORE stopping it.
+    // speakProactive triggers 'assistant_speaking' — if interrupted mid-play
+    // we must return the engine to idle explicitly.
+    const wasProactiveSpeaking = isProactiveSpeakingRef.current;
+    stopProactiveSpeech();
     const current = activeInsightRef.current;
-    if (current?.app_name && current.source === 'app_usage') {
-      deniedAppInsightsRef.current.add(current.app_name);
+    if (current) {
+      // Level-aware rejection:
+      //   gentle reject → block until escalation to 'strong'
+      //   strong reject → block for 2 hours
+      const lvl = (current.level === 'strong' ? 'strong' : 'gentle') as 'gentle' | 'strong';
+      rejectionMapRef.current.set(rejectionBaseKey(current), { level: lvl, at: Date.now() });
+      persistRejectionMap(rejectionMapRef.current);
+      console.log('[Proactive] Rejection recorded (persisted)', { key: rejectionBaseKey(current), level: lvl });
+      // Reset the dedup key so a different insight can surface immediately
+      lastShownInsightKeyRef.current = null;
     }
     setActiveInsight(null);
-    returnToIdle();
-  }, [returnToIdle]);
+    // If proactive TTS was playing, it triggered 'assistant_speaking' on the
+    // animation engine — return to idle so the OLED doesn't stay in talking state.
+    // resumeWakeWord is idempotent: no-op if wake word was never paused.
+    if (wasProactiveSpeaking) {
+      resumeWakeWord();
+      _returnToIdleRef.current();
+    }
+  }, [resumeWakeWord]);
 
   acceptInsightRef.current = acceptInsight;
+  denyInsightRef.current   = denyInsight;
 
   // ── Safe startup policy ────────────────────────────────────────────────────
   //
@@ -1023,6 +1563,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       });
     }
+
+    // Send local timezone to backend so habit scheduler fires at the right local time
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      http.post('/api/settings/timezone', { timezone: tz }).catch(() => {});
+    } catch { /* best-effort */ }
 
     modesApi.getCurrent().then((m) => setCurrentMode(m.mode)).catch(() => {});
     deviceApi.getStatus().then((status) => {
@@ -1116,7 +1662,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setProactiveCooldownMinutesState(isNaN(cooldownMins) ? 60 : cooldownMins);
         // Load spoken proactive settings
         const spokenEnabled = s['spoken_proactive_enabled'] !== 'false';
-        const spokenLimit   = parseInt(s['spoken_proactive_daily_limit'] ?? '1', 10);
+        const spokenLimit   = parseInt(s['spoken_proactive_daily_limit'] ?? '3', 10);
         spokenProactiveEnabledRef.current    = spokenEnabled;
         spokenProactiveDailyLimitRef.current = isNaN(spokenLimit) ? 1 : spokenLimit;
         setSpokenProactiveEnabledState(spokenEnabled);
@@ -1125,6 +1671,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const savedDnd = s['dnd_active'] === 'true';
         setDndActiveState(savedDnd);
         dndActiveRef.current = savedDnd;
+        // Load Sadık position
+        const savedPos = s['sadik_position'];
+        if (savedPos === 'left' || savedPos === 'right' || savedPos === 'top') {
+          setSadikPositionState(savedPos);
+        }
+        // Load weather
+        const wEnabled = s['weather_enabled'] === 'true';
+        setWeatherEnabledState(wEnabled);
+        weatherEnabledRef.current = wEnabled;
+        setWeatherApiKeyState(s['weather_api_key'] ?? '');
+        setWeatherLocationLabelState(s['weather_location_label'] ?? s['weather_city'] ?? '');
+        setWeatherLatState(s['weather_lat'] ?? '');
+        setWeatherLonState(s['weather_lon'] ?? '');
       })
       .catch(() => {});
 
@@ -1186,20 +1745,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const skipNextBreakStopWatcherRef = useRef(false);
+  // Suppresses MM:SS showText in timer_tick — true while the mod_break intro
+  // is still playing so the countdown doesn't overwrite the intro clip frames.
+  const suppressBreakTimerDisplayRef = useRef(false);
+
   const handleWSMessage = useCallback(
     (msg: WSMessage) => {
       switch (msg.type) {
         case 'timer_tick': {
           const remaining = msg.data.remaining_seconds as number;
           const isRunning = msg.data.is_running as boolean;
+          const phase     = msg.data.phase as PomodoroState['phase'];
           setPomodoroState((prev) => ({
             ...prev,
             remaining_seconds: remaining,
             total_seconds: msg.data.total_seconds as number,
             is_running: isRunning,
-            phase: msg.data.phase as PomodoroState['phase'],
+            phase,
           }));
-          if (isRunning) {
+          // OLED countdown is only shown during the break phase, and only
+          // after the mod_break intro clip has finished rendering.
+          const isBreakPhase = phase === 'break' || phase === 'long_break';
+          if (isRunning && isBreakPhase && !suppressBreakTimerDisplayRef.current) {
             const mins = Math.floor(remaining / 60).toString().padStart(2, '0');
             const secs = (remaining % 60).toString().padStart(2, '0');
             showText(`${mins}:${secs}`);
@@ -1213,17 +1781,169 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setDeviceStatus(msg.data as unknown as DeviceStatus);
           break;
         case 'pomodoro_completed':
-          triggerEvent('confirmation_success');
+          // Work phase finished — backend immediately starts the break phase.
+          // Transition to break mode, play the mod_break intro fully, then let
+          // upcoming timer_tick ticks render the MM:SS countdown.
           showToast('Pomodoro oturumu tamamlandı!', 'success');
-          showText('TAMAMLANDI!');
-          setTimeout(() => returnToIdle(), 3000);
+          suppressBreakTimerDisplayRef.current = true;
+          modesApi.setMode('break').then(() => setCurrentMode('break')).catch(() => {});
+          {
+            const engine = getAnimationEngine();
+            const loaded = getLoadedClipNames();
+            const clearSuppress = () => { suppressBreakTimerDisplayRef.current = false; };
+            if (loaded.includes('mod_break')) {
+              engine.playModIntroOnce('mod_break', clearSuppress);
+            } else {
+              clearSuppress();
+            }
+          }
           break;
+        case 'break_completed':
+          // Natural break completion — suppress the manual-stop watcher that
+          // would otherwise fire on the subsequent is_running→false transition.
+          skipNextBreakStopWatcherRef.current = true;
+          // Spec: natural break end → counter reset (suggestion "completed")
+          clearBreakAcceptedInsightRef.current();
+          _speakProactiveRef.current('Mola bitti. Hazırsan devam edelim.');
+          showToast('Mola sona erdi!', 'info');
+          getAnimationEngine().triggerEvent('return_to_idle');
+          modesApi.endCurrent().then(() => setCurrentMode(null)).catch(() => {});
+          break;
+        case 'habit_reminder': {
+          console.log('[habits] WS event received', msg.data);
+          const habitName        = msg.data.name as string;
+          const habitDesc        = msg.data.description as string | null | undefined;
+          const minutesBefore    = msg.data.minutes_before as number;
+          const spokenName       = (habitDesc ? `${habitName}. ${habitDesc}` : habitName);
+          const whenPhrase       = minutesBefore > 0 ? `${minutesBefore} dakika sonra başlayacak` : 'şimdi başlıyor';
+          const ttsText          = `Alışkanlık hatırlatması: ${spokenName}. ${whenPhrase}.`;
+          const panelMessage     = habitDesc
+            ? `${habitName} — ${habitDesc} (${minutesBefore > 0 ? `${minutesBefore} dk sonra` : 'şimdi'})`
+            : `${habitName} (${minutesBefore > 0 ? `${minutesBefore} dk sonra` : 'şimdi'})`;
+
+          // Dashboard suggestion panel
+          setActiveInsight({
+            has_insight: true,
+            level: 'strong',
+            message: panelMessage,
+            source: 'habit',
+          });
+
+          // Toast
+          showToast(`Alışkanlık: ${habitName}`, 'info');
+
+          // OLED
+          getAnimationEngine().triggerEvent('confirmation_success');
+
+          // Electron native notification
+          try {
+            const electron = (window as any).sadikElectron;
+            if (electron?.showNotification) {
+              electron.showNotification('Alışkanlık', habitName);
+            } else {
+              new Notification('Alışkanlık', { body: habitName });
+            }
+          } catch { /* best-effort */ }
+
+          // TTS — pause/resume wake word around playback.
+          // Mark isProactiveSpeaking so app-usage poll gates TTS during habit playback.
+          // Record lastHabitFiredAt so app-usage insights are deferred 1 min (spec).
+          lastHabitFiredAtRef.current = Date.now();
+          (async () => {
+            try {
+              isProactiveSpeakingRef.current = true;
+              pauseWakeWord();
+              const blob  = await voiceApi.tts(ttsText);
+              const url   = URL.createObjectURL(blob);
+              const audio = new Audio(url);
+              audio.onended = () => {
+                URL.revokeObjectURL(url);
+                isProactiveSpeakingRef.current = false;
+                resumeWakeWord();
+                returnToIdle();
+              };
+              audio.onerror = () => {
+                URL.revokeObjectURL(url);
+                isProactiveSpeakingRef.current = false;
+                resumeWakeWord();
+                returnToIdle();
+              };
+              // Show speaking animation while habit reminder TTS plays
+              getAnimationEngine().triggerEvent('assistant_speaking');
+              await audio.play();
+            } catch {
+              // TTS failed — wake word was paused; resume it
+              isProactiveSpeakingRef.current = false;
+              resumeWakeWord();
+              returnToIdle();
+            }
+          })();
+          break;
+        }
       }
     },
-    [showToast, showText, returnToIdle, triggerEvent]
+    [showToast, showText, returnToIdle, triggerEvent, getLoadedClipNames, pauseWakeWord, resumeWakeWord]
   );
 
   useWebSocket(handleWSMessage);
+
+  // Manual pomodoro-stop mid-break: if the user hit "Bitir" on the Pomodoro
+  // timer during a break phase while break mode is active, exit break mode
+  // and play the confirming clip. Natural completion is handled separately
+  // by the `break_completed` WS handler above.
+  const prevBreakRunningRef = useRef(false);
+  useEffect(() => {
+    const wasRunning = prevBreakRunningRef.current;
+    const isRunning  = pomodoroState.is_running && pomodoroState.phase === 'break';
+    prevBreakRunningRef.current = isRunning;
+    if (wasRunning && !pomodoroState.is_running && currentMode === 'break') {
+      if (skipNextBreakStopWatcherRef.current) {
+        skipNextBreakStopWatcherRef.current = false;
+        return;
+      }
+      // Spec: early break cancel → counter reset, suggestion "completed+accepted"
+      clearBreakAcceptedInsightRef.current();
+      modesApi.endCurrent().then(() => setCurrentMode(null)).catch(() => {});
+      getAnimationEngine().triggerEvent('confirmation_success');
+    }
+  }, [pomodoroState.is_running, pomodoroState.phase, currentMode]);
+
+  // ── Focus-triggered calendar sync ──────────────────────────────────────────
+  // When the app window regains focus, opportunistically sync google_calendar
+  // if it's connected. Throttled to at most once per 30 s to avoid hammering
+  // on rapid Alt+Tab. Failures are silently swallowed — this is best-effort.
+  const focusSyncLastRef = useRef<number>(0);
+  const connectedIntegrationsRef = useRef<IntegrationStatus[]>([]);
+
+  // Keep a fresh list of connected integrations on mount (lightweight, ~1 request).
+  useEffect(() => {
+    integrationsApi.list()
+      .then((list) => { connectedIntegrationsRef.current = list.filter((i) => i.status === 'connected'); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const electronAPI = (window as any).electronAPI;
+    if (!electronAPI?.onAppFocusChanged) return;
+
+    electronAPI.onAppFocusChanged((focused: boolean) => {
+      if (!focused) return;
+      const now = Date.now();
+      if (now - focusSyncLastRef.current < 30_000) return;
+      focusSyncLastRef.current = now;
+
+      // Refresh connected list then sync any google_calendar entry.
+      integrationsApi.list()
+        .then((list) => {
+          connectedIntegrationsRef.current = list.filter((i) => i.status === 'connected');
+          const gcConnected = list.find((i) => i.provider === 'google_calendar' && i.status === 'connected');
+          if (gcConnected) {
+            integrationsApi.syncNow('google_calendar').catch(() => {});
+          }
+        })
+        .catch(() => {});
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <AppContext.Provider
@@ -1248,6 +1968,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         playClipDirect,
         playModClip,
         playModSequence,
+        playModSequenceWithCallback,
+        playModIntroOnce,
         getLoadedClipNames,
         frameBuffer,
         frameVersion,
@@ -1295,6 +2017,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setVoiceUiVisible,
         dndActive,
         setDndActive,
+        sadikPosition,
+        setSadikPosition,
+        weatherEnabled,
+        setWeatherEnabled,
+        weatherApiKey,
+        setWeatherApiKey,
+        weatherLocationLabel,
+        weatherLat,
+        weatherLon,
+        setWeatherLocation,
+        clearWeatherLocation,
+        weatherData,
+        weatherError,
+        refreshWeather,
         debugForcePoll,
         debugTestTTS,
         debugResetCounters,

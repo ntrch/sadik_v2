@@ -29,8 +29,8 @@ export interface AppInsight {
   message?: string;
   /** All apps exceeding thresholds */
   insights?: AppInsightItem[];
-  /** Source of the insight: app usage or task deadline */
-  source?: 'app_usage' | 'task';
+  /** Source of the insight: app usage, task deadline, or habit reminder */
+  source?: 'app_usage' | 'task' | 'habit';
 }
 
 export interface AppUsageDailyTotal {

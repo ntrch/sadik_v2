@@ -29,6 +29,7 @@ export default function TasksPage() {
   const handleStart = async () => {
     try {
       await start(selectedTask ?? undefined);
+      triggerEvent('confirmation_success');
     } catch {
       showToast('Timer başlatılamadı', 'error');
     }
@@ -81,7 +82,7 @@ export default function TasksPage() {
       {/* Tab content */}
       {activeTab === 'tasks' ? (
         <div className="flex-1 overflow-hidden">
-          <TaskBoard key={refreshKey} />
+          <TaskBoard key={refreshKey} highlightTaskId={state?.taskId ?? null} />
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center gap-8">

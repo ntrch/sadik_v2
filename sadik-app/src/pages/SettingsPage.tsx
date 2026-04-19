@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
-import { Eye, EyeOff, RefreshCw, AlertTriangle } from 'lucide-react';
+import {
+  Eye, EyeOff, RefreshCw, AlertTriangle, ChevronDown,
+  Bot, Sun, Radio, Timer, Sparkles, Mic, Headphones, Monitor, Bell,
+  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, Settings2, X,
+} from 'lucide-react';
 import { settingsApi, Settings } from '../api/settings';
+import { integrationsApi, IntegrationStatus, ProviderConfig } from '../api/integrations';
 import { deviceApi, SerialPort } from '../api/device';
 import { chatApi } from '../api/chat';
+import { wakeApi, WakeModel } from '../api/wake';
 import { AppContext } from '../context/AppContext';
 
 const DEFAULT_SETTINGS: Settings = {
@@ -25,7 +31,7 @@ const DEFAULT_SETTINGS: Settings = {
   elevenlabs_voice_id: '',
   elevenlabs_model_id: 'eleven_v3',
   wake_word_enabled: 'true',
-  user_name: '',
+user_name: '',
   greeting_style: 'dostum',
   close_to_tray: 'true',
 };
@@ -51,8 +57,15 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
-  const [saving, setSaving] = useState(false);
+const [saving, setSaving] = useState(false);
   const [ports, setPorts] = useState<SerialPort[]>([]);
+  const [wakeModels, setWakeModels] = useState<WakeModel[]>([]);
+  const [wakeModelPath, setWakeModelPath] = useState<string>('');
+  const [applyingWake, setApplyingWake] = useState(false);
+  const [wakeThreshold, setWakeThreshold] = useState(0.35);
+  const [wakeInputGain, setWakeInputGain] = useState(1.5);
+  const wakeThresholdRef = useRef(0.35);
+  const wakeInputGainRef = useRef(1.5);
   // Tracks the last-persisted personalization values so we can detect changes on save.
   const savedPersonalizationRef = useRef({ user_name: '', greeting_style: '' });
   const {
@@ -75,7 +88,45 @@ export default function SettingsPage() {
     proactiveCooldownMinutes,    setProactiveCooldownMinutes,
     spokenProactiveEnabled,      setSpokenProactiveEnabled,
     spokenProactiveDailyLimit,   setSpokenProactiveDailyLimit,
+    sadikPosition,               setSadikPosition,
+    weatherEnabled,              setWeatherEnabled,
+    weatherApiKey,               setWeatherApiKey,
+    weatherLocationLabel,        setWeatherLocation,       clearWeatherLocation,
+    weatherData,                 weatherError,
+    refreshWeather,
   } = useContext(AppContext);
+  const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
+  const [showWeatherKey, setShowWeatherKey] = useState(false);
+  const [weatherKeyDraft, setWeatherKeyDraft] = useState('');
+  const [locQuery, setLocQuery] = useState('');
+  const [locResults, setLocResults] = useState<import('../api/weather').GeocodeResult[]>([]);
+  const [locLoading, setLocLoading] = useState(false);
+  const [locError, setLocError]     = useState<string | null>(null);
+  const locTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { setWeatherKeyDraft(weatherApiKey); }, [weatherApiKey]);
+
+  // Debounced geocode search
+  useEffect(() => {
+    if (locTimerRef.current) clearTimeout(locTimerRef.current);
+    if (!weatherEnabled) { setLocResults([]); return; }
+    const q = locQuery.trim();
+    if (q.length < 2) { setLocResults([]); setLocError(null); return; }
+    locTimerRef.current = setTimeout(async () => {
+      setLocLoading(true);
+      setLocError(null);
+      try {
+        const { weatherApi } = await import('../api/weather');
+        const res = await weatherApi.geocode(q);
+        setLocResults(res);
+      } catch (e: any) {
+        setLocError(e?.response?.data?.detail ?? 'geocode_failed');
+        setLocResults([]);
+      } finally {
+        setLocLoading(false);
+      }
+    }, 350);
+    return () => { if (locTimerRef.current) clearTimeout(locTimerRef.current); };
+  }, [locQuery, weatherEnabled]);
 
   useEffect(() => {
     settingsApi.getAll().then((s) => {
@@ -84,9 +135,39 @@ export default function SettingsPage() {
         user_name:      s['user_name']      ?? '',
         greeting_style: s['greeting_style'] ?? '',
       };
+      if (s['wake_threshold'])  { const v = parseFloat(s['wake_threshold']);  wakeThresholdRef.current = v; setWakeThreshold(v); }
+      if (s['wake_input_gain']) { const v = parseFloat(s['wake_input_gain']); wakeInputGainRef.current = v; setWakeInputGain(v); }
     }).catch(() => {});
     deviceApi.listPorts().then(setPorts).catch(() => {});
+    wakeApi.listModels().then((r) => {
+      setWakeModels(r.models);
+      setWakeModelPath(r.current);
+    }).catch(() => {});
+    integrationsApi.list().then(setIntegrations).catch(() => {});
   }, []);
+
+  const applyWakeModel = async (path: string) => {
+    setApplyingWake(true);
+    try {
+      await wakeApi.selectModel(path);
+      setWakeModelPath(path);
+      setSettings((prev) => ({ ...prev, wake_model_path: path }));
+      showToast('Wake modeli güncellendi', 'success');
+    } catch (e: any) {
+      showToast(e?.response?.data?.detail ?? 'Model yüklenemedi', 'error');
+    } finally {
+      setApplyingWake(false);
+    }
+  };
+
+  const applyWakeDetectionSettings = async (threshold: number, gain: number) => {
+    try {
+      await wakeApi.updateSettings({ wake_threshold: threshold, wake_input_gain: gain });
+      showToast('Algılama ayarları güncellendi', 'success');
+    } catch {
+      showToast('Ayarlar güncellenemedi', 'error');
+    }
+  };
 
   const set = (key: string, value: string) =>
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -141,7 +222,7 @@ export default function SettingsPage() {
         )}
 
         {/* API Settings */}
-        <Section title="API Ayarları">
+        <Section title="API Ayarları" icon={Bot} color="purple" defaultOpen>
           <Field label="OpenAI API Anahtarı">
             <div className="relative">
               <input
@@ -172,8 +253,135 @@ export default function SettingsPage() {
           </Field>
         </Section>
 
+        {/* Integrations */}
+        <Section title="Entegrasyonlar" icon={Link2} color="cyan">
+          <IntegrationsPanel
+            integrations={integrations}
+            showToast={showToast}
+            onDisconnect={async (provider) => {
+              await integrationsApi.disconnect(provider);
+              const updated = await integrationsApi.list();
+              setIntegrations(updated);
+            }}
+            onRefresh={async () => {
+              const updated = await integrationsApi.list();
+              setIntegrations(updated);
+            }}
+          />
+        </Section>
+
+        {/* Weather */}
+        <Section title="Hava Durumu" icon={Sun} color="yellow">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-text-primary">Hava durumunu header'da göster</p>
+              <p className="text-xs text-text-muted leading-relaxed">
+                Açıldığında saat yanındaki ikona küçük bir hava durumu rozeti eklenir; solda derece (°C) yazar.
+              </p>
+            </div>
+            <button
+              onClick={() => setWeatherEnabled(!weatherEnabled)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
+                ${weatherEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                ${weatherEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
+          {weatherEnabled && (
+            <>
+              <Field label="OpenWeatherMap API anahtarı">
+                <div className="relative">
+                  <input
+                    type={showWeatherKey ? 'text' : 'password'}
+                    value={weatherKeyDraft}
+                    onChange={(e) => setWeatherKeyDraft(e.target.value)}
+                    onBlur={() => { if (weatherKeyDraft !== weatherApiKey) setWeatherApiKey(weatherKeyDraft); }}
+                    placeholder="openweathermap.org üzerinden ücretsiz alınabilir"
+                    className="input-field pr-10"
+                  />
+                  <button
+                    onClick={() => setShowWeatherKey(!showWeatherKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
+                  >
+                    {showWeatherKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </Field>
+              <Field label="Konum">
+                {weatherLocationLabel ? (
+                  <div className="flex items-center justify-between gap-3 bg-bg-input border border-border rounded-btn px-3 py-2">
+                    <span className="text-sm text-text-primary truncate">{weatherLocationLabel}</span>
+                    <button
+                      onClick={() => { clearWeatherLocation(); setLocQuery(''); }}
+                      className="text-xs text-text-muted hover:text-accent-red transition-colors flex-shrink-0"
+                    >
+                      Değiştir
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={locQuery}
+                      onChange={(e) => setLocQuery(e.target.value)}
+                      placeholder="Mahalle, semt, şehir veya cadde ara…"
+                      className="input-field"
+                    />
+                    {(locLoading || locResults.length > 0 || locError) && (
+                      <div className="absolute z-10 left-0 right-0 mt-1 bg-bg-card border border-border rounded-btn shadow-lg max-h-60 overflow-auto">
+                        {locLoading && (
+                          <div className="px-3 py-2 text-xs text-text-muted">Aranıyor…</div>
+                        )}
+                        {locError && !locLoading && (
+                          <div className="px-3 py-2 text-xs text-accent-red">{locError}</div>
+                        )}
+                        {!locLoading && !locError && locResults.length === 0 && locQuery.trim().length >= 2 && (
+                          <div className="px-3 py-2 text-xs text-text-muted">Sonuç bulunamadı</div>
+                        )}
+                        {locResults.map((r) => (
+                          <button
+                            key={`${r.lat},${r.lon},${r.label}`}
+                            onClick={() => {
+                              setWeatherLocation({ label: r.label, lat: r.lat, lon: r.lon });
+                              setLocQuery('');
+                              setLocResults([]);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-hover transition-colors border-b border-border last:border-0"
+                          >
+                            {r.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-[11px] text-text-muted mt-1.5">
+                  OpenWeatherMap üzerinden mahalle/semt seviyesinde arama. API anahtarı gerekir.
+                </p>
+              </Field>
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <div className="text-xs text-text-muted">
+                  {weatherData
+                    ? `Güncel: ${Math.round(weatherData.temp_c)}°C • ${weatherData.description} • ${weatherData.city}`
+                    : weatherError
+                      ? `Hata: ${weatherError}`
+                      : 'Henüz veri yok.'}
+                </div>
+                <button
+                  onClick={() => refreshWeather()}
+                  className="px-3 py-1.5 text-xs rounded-btn bg-bg-input border border-border text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  Şimdi yenile
+                </button>
+              </div>
+            </>
+          )}
+        </Section>
+
         {/* Device */}
-        <Section title="Cihaz Bağlantısı">
+        <Section title="Cihaz Bağlantısı" icon={Radio} color="cyan">
           <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-1">
             Sadık cihazı çoğu durumda otomatik algılanır. Gerekirse portu manuel seçebilirsiniz.
           </p>
@@ -245,7 +453,7 @@ export default function SettingsPage() {
         </Section>
 
         {/* Pomodoro */}
-        <Section title="Pomodoro Ayarları">
+        <Section title="Pomodoro Ayarları" icon={Timer} color="red">
           <div className="grid grid-cols-2 gap-4">
             <Field label="Çalışma Süresi (dk)">
               <input type="number" value={settings.pomodoro_work_minutes}
@@ -271,7 +479,7 @@ export default function SettingsPage() {
         </Section>
 
         {/* Personalization */}
-        <Section title="Kişiselleştirme">
+        <Section title="Kişiselleştirme" icon={Sparkles} color="pink">
           <Field label="Adınız">
             <input
               type="text"
@@ -322,10 +530,25 @@ export default function SettingsPage() {
           <p className="text-[11px] text-text-muted -mt-1">
             Ad veya hitap değiştiğinde eski konuşma bağlamı sıfırlanır.
           </p>
+
+          <Field label="Sadık'ın Konumu">
+            <select
+              value={sadikPosition}
+              onChange={(e) => setSadikPosition(e.target.value as 'left' | 'right' | 'top')}
+              className="input-field"
+            >
+              <option value="left">Sol</option>
+              <option value="right">Sağ</option>
+              <option value="top">Üst</option>
+            </select>
+            <p className="text-[11px] text-text-muted mt-1">
+              Sadık'ın fiziksel konumu — odaklanma animasyonu buna göre ayarlanır.
+            </p>
+          </Field>
         </Section>
 
         {/* Voice */}
-        <Section title="Ses Ayarları">
+        <Section title="Ses Ayarları" icon={Mic} color="purple">
           {/* TTS Provider */}
           <Field label="TTS Sağlayıcısı">
             <div className="flex flex-col gap-2">
@@ -432,6 +655,26 @@ export default function SettingsPage() {
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
                 ${wakeWordEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
+            <p className="text-[11px] text-text-muted mt-1.5">
+              openWakeWord tabanlı lokal algılama — backend çalışırken aktif olur. Şu an söylenmesi gereken uyandırma kelimesi: <strong>"Hey Jarvis"</strong>
+            </p>
+          </Field>
+
+          <Field label="Uyandırma Modeli">
+            <select
+              value={wakeModelPath}
+              onChange={(e) => applyWakeModel(e.target.value)}
+              disabled={applyingWake}
+              className="input-field"
+            >
+              <option value="">Varsayılan — Hey Jarvis (yerleşik)</option>
+              {wakeModels.map((m) => (
+                <option key={m.path} value={m.path}>{m.name}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-text-muted mt-1.5">
+              <code>sadik-backend/app/wake_models/</code> klasörüne .onnx dosyası ekleyip listeden seçin. Değişiklik anında uygulanır.
+            </p>
           </Field>
 
           {wakeWordEnabled && (
@@ -448,6 +691,45 @@ export default function SettingsPage() {
               </select>
             </Field>
           )}
+
+          {/* Wake detection tuning sliders */}
+          <Field label={`Algılama Eşiği — ${wakeThreshold.toFixed(2)}`}>
+            <input
+              type="range"
+              min={0.1} max={0.9} step={0.05}
+              value={wakeThreshold}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                wakeThresholdRef.current = v;
+                setWakeThreshold(v);
+              }}
+              onMouseUp={() => applyWakeDetectionSettings(wakeThresholdRef.current, wakeInputGainRef.current)}
+              onTouchEnd={() => applyWakeDetectionSettings(wakeThresholdRef.current, wakeInputGainRef.current)}
+              className="w-full accent-accent-purple"
+            />
+            <p className="text-[11px] text-text-muted mt-1">
+              Düşük değer = daha kolay tetiklenir (yanlış pozitif riski artar). Custom model için önerilen: 0.35.
+            </p>
+          </Field>
+
+          <Field label={`Giriş Kazancı — ${wakeInputGain.toFixed(1)}×`}>
+            <input
+              type="range"
+              min={1.0} max={3.0} step={0.1}
+              value={wakeInputGain}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                wakeInputGainRef.current = v;
+                setWakeInputGain(v);
+              }}
+              onMouseUp={() => applyWakeDetectionSettings(wakeThresholdRef.current, wakeInputGainRef.current)}
+              onTouchEnd={() => applyWakeDetectionSettings(wakeThresholdRef.current, wakeInputGainRef.current)}
+              className="w-full accent-accent-purple"
+            />
+            <p className="text-[11px] text-text-muted mt-1">
+              Mikrofon sesi düşükse artır. Çok yüksek ses / yakın mikrofonda 1.0 bırak.
+            </p>
+          </Field>
 
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -467,7 +749,7 @@ export default function SettingsPage() {
         </Section>
 
         {/* Audio Devices */}
-        <Section title="Ses Aygıtları">
+        <Section title="Ses Aygıtları" icon={Headphones} color="cyan">
           <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-1">
             Sadık için hangi mikrofon ve hoparlörün kullanılacağını seçin.
           </p>
@@ -511,7 +793,7 @@ export default function SettingsPage() {
         </Section>
 
         {/* App Behavior */}
-        <Section title="Uygulama">
+        <Section title="Uygulama" icon={Monitor} color="green">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-medium text-text-secondary mb-0.5">
@@ -540,7 +822,7 @@ export default function SettingsPage() {
         </Section>
 
         {/* Proactive Suggestions */}
-        <Section title="Proaktif Öneriler">
+        <Section title="Proaktif Öneriler" icon={Bell} color="orange">
           <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-1">
             Sadık kullanım alışkanlıklarınıza göre mola ve dikkat önerileri gösterebilir.
           </p>
@@ -682,11 +964,418 @@ export default function SettingsPage() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+// ---------------------------------------------------------------------------
+// Integrations panel
+// ---------------------------------------------------------------------------
+
+const PROVIDER_UI: Record<string, {
+  name: string;
+  desc: string;
+  icon: LucideIcon;
+  color: string;
+  iconClass: string;
+}> = {
+  google_calendar: {
+    name: 'Google Takvim',
+    desc: 'Etkinlikleri Ajanda sayfasına çek',
+    icon: Calendar,
+    color: 'cyan',
+    iconClass: 'text-accent-cyan',
+  },
+  notion: {
+    name: 'Notion',
+    desc: 'Veritabanlarını görevlere dönüştür',
+    icon: StickyNote,
+    color: 'purple',
+    iconClass: 'text-accent-purple',
+  },
+  slack: {
+    name: 'Slack',
+    desc: 'Aktif kanal aktivitesini takip et',
+    icon: MessageSquare,
+    color: 'pink',
+    iconClass: 'text-accent-pink',
+  },
+  zoom: {
+    name: 'Zoom',
+    desc: 'Aktif toplantıda modu tetikle',
+    icon: Video,
+    color: 'orange',
+    iconClass: 'text-accent-orange',
+  },
+};
+
+const KNOWN_PROVIDERS = ['google_calendar', 'notion', 'slack', 'zoom'];
+
+/** Simple relative-time formatter (no libraries) */
+function relativeTime(iso: string | null): string {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return 'az önce';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} dk önce`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} sa önce`;
+  return `${Math.floor(h / 24)} gün önce`;
+}
+
+// ---------------------------------------------------------------------------
+// Google Calendar card (full OAuth flow)
+// ---------------------------------------------------------------------------
+
+function GoogleCalendarCard({
+  status,
+  onRefresh,
+  showToast,
+}: {
+  status: IntegrationStatus;
+  onRefresh: () => void;
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+}) {
+  const [config, setConfig] = useState<ProviderConfig | null>(null);
+  const [showConfig, setShowConfig] = useState(false);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const isConnected = status.status === 'connected';
+  const isError = status.status === 'error';
+
+  useEffect(() => {
+    integrationsApi.getConfig('google_calendar').then(setConfig).catch(() => {});
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  const handleSaveConfig = async () => {
+    if (!clientId.trim() || !clientSecret.trim()) return;
+    setSavingConfig(true);
+    try {
+      await integrationsApi.setConfig('google_calendar', clientId.trim(), clientSecret.trim());
+      const cfg = await integrationsApi.getConfig('google_calendar');
+      setConfig(cfg);
+      setShowConfig(false);
+      setClientId('');
+      setClientSecret('');
+    } catch {
+      // ignore
+    } finally { setSavingConfig(false); }
+  };
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    try {
+      const { auth_url } = await integrationsApi.getConnectUrl('google_calendar');
+      if ((window as any).electronAPI?.shellOpenExternal) {
+        await (window as any).electronAPI.shellOpenExternal(auth_url);
+      } else {
+        window.open(auth_url, '_blank');
+      }
+      // Poll every 3s for up to 2 min waiting for callback to connect
+      let elapsed = 0;
+      pollRef.current = setInterval(async () => {
+        elapsed += 3000;
+        try {
+          const list = await integrationsApi.list();
+          const entry = list.find((i) => i.provider === 'google_calendar');
+          if (entry?.status === 'connected') {
+            clearInterval(pollRef.current!);
+            pollRef.current = null;
+            setConnecting(false);
+            onRefresh();
+            // Sync immediately so events appear without waiting for the 60 s tick.
+            setSyncing(true);
+            try {
+              await integrationsApi.syncNow('google_calendar');
+              showToast('Takvim senkronize edildi', 'success');
+              onRefresh();
+            } catch { /* best-effort */ } finally { setSyncing(false); }
+          }
+        } catch { /* ignore */ }
+        if (elapsed >= 120000) {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setConnecting(false);
+        }
+      }, 3000);
+    } catch {
+      setConnecting(false);
+    }
+  };
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      await integrationsApi.syncNow('google_calendar');
+      onRefresh();
+    } catch { /* ignore */ } finally { setSyncing(false); }
+  };
+
+  const handleDisconnect = async () => {
+    setDisconnecting(true);
+    try {
+      await integrationsApi.disconnect('google_calendar');
+      onRefresh();
+    } catch { /* ignore */ } finally { setDisconnecting(false); }
+  };
+
+  const credentialsReady = config?.client_id_set && config?.client_secret_set;
+
   return (
-    <div className="bg-bg-card border border-border rounded-card p-5 mb-4">
-      <h2 className="text-sm font-semibold text-text-primary mb-4 pb-3 border-b border-border">{title}</h2>
-      <div className="space-y-4">{children}</div>
+    <div className="bg-bg-card border border-border rounded-card px-4 py-3">
+      <div className="flex items-start gap-3">
+        {/* Icon */}
+        <span className="flex-shrink-0 mt-0.5 text-accent-cyan">
+          <Calendar size={20} />
+        </span>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-text-primary">Google Takvim</p>
+          <p className="text-xs text-text-muted leading-relaxed">Etkinlikleri Ajanda sayfasına çek</p>
+
+          {/* Status */}
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0
+              ${isConnected ? 'bg-accent-green' : isError ? 'bg-accent-red' : 'bg-text-muted/40'}`} />
+            <span className={`text-xs ${isConnected ? 'text-accent-green' : isError ? 'text-accent-red' : 'text-text-muted'}`}>
+              {isConnected
+                ? `Bağlı${status.account_email ? ': ' + status.account_email : ''}`
+                : isError ? 'Hata' : 'Bağlı değil'}
+            </span>
+          </div>
+
+          {isConnected && status.last_sync_at && (
+            <p className="text-[11px] text-text-muted mt-0.5">
+              Son senkron: {relativeTime(status.last_sync_at)}
+            </p>
+          )}
+          {isError && status.last_error && (
+            <p className="text-[11px] text-accent-red mt-0.5 truncate" title={status.last_error}>
+              {status.last_error}
+            </p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex-shrink-0 ml-2 mt-0.5 flex items-center gap-1.5">
+          {/* Gear / config button always visible */}
+          <button
+            onClick={() => setShowConfig((v) => !v)}
+            title="Yapılandır"
+            className="p-1.5 rounded-btn bg-bg-input border border-border text-text-muted hover:text-text-primary transition-colors"
+          >
+            <Settings2 size={14} />
+          </button>
+
+          {isConnected ? (
+            <>
+              <button
+                onClick={handleSyncNow}
+                disabled={syncing}
+                className="px-2.5 py-1.5 text-xs rounded-btn bg-bg-input border border-border text-text-secondary hover:text-accent-cyan hover:border-accent-cyan/40 transition-colors disabled:opacity-60"
+              >
+                {syncing ? '...' : 'Senkronla'}
+              </button>
+              <button
+                onClick={handleDisconnect}
+                disabled={disconnecting}
+                className="px-2.5 py-1.5 text-xs rounded-btn bg-bg-input border border-border text-text-secondary hover:text-accent-red hover:border-accent-red/40 transition-colors disabled:opacity-60"
+              >
+                {disconnecting ? '...' : 'Kes'}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handleConnect}
+              disabled={connecting || !credentialsReady}
+              title={credentialsReady ? 'Google ile bağlan' : 'Önce yapılandırın'}
+              className="px-3 py-1.5 text-xs rounded-btn bg-accent-cyan/15 border border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {connecting ? 'Bekleniyor…' : 'Bağlan'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Inline config panel */}
+      {showConfig && (
+        <div className="mt-3 pt-3 border-t border-border space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">OAuth Yapılandırması</p>
+            <button onClick={() => setShowConfig(false)} className="text-text-muted hover:text-text-primary"><X size={14} /></button>
+          </div>
+          <p className="text-[11px] text-text-muted leading-relaxed">
+            Google Cloud Console → API ve Hizmetler → Kimlik bilgileri → OAuth 2.0 İstemci Kimliği oluşturun
+            (tür: <strong>Web uygulaması</strong> — Desktop tipi sabit redirect URI kabul etmiyor). Yetkili yönlendirme URI olarak{' '}
+            <code className="bg-bg-input px-1 rounded text-accent-cyan">http://localhost:8000/api/integrations/google_calendar/callback</code>{' '}
+            ekleyin.
+          </p>
+          <div>
+            <label className="text-[11px] font-medium text-text-muted block mb-1">Client ID</label>
+            <input
+              type="password"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder={config?.client_id_set ? '••••••• (kayıtlı)' : 'xxxx.apps.googleusercontent.com'}
+              className="input-field w-full text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-text-muted block mb-1">Client Secret</label>
+            <input
+              type="password"
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              placeholder={config?.client_secret_set ? '••••••• (kayıtlı)' : 'GOCSPX-...'}
+              className="input-field w-full text-xs"
+            />
+          </div>
+          <button
+            onClick={handleSaveConfig}
+            disabled={savingConfig || (!clientId.trim() && !clientSecret.trim())}
+            className="w-full py-2 text-xs rounded-btn bg-accent-cyan/15 border border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/25 transition-colors disabled:opacity-50"
+          >
+            {savingConfig ? 'Kaydediliyor…' : 'Kaydet'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IntegrationsPanel({
+  integrations,
+  onDisconnect,
+  onRefresh,
+  showToast,
+}: {
+  integrations: IntegrationStatus[];
+  onDisconnect: (provider: string) => Promise<void>;
+  onRefresh: () => void;
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+}) {
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+
+  const byProvider = Object.fromEntries(integrations.map((i) => [i.provider, i]));
+
+  const gcStatus = byProvider['google_calendar'] ?? {
+    provider: 'google_calendar', status: 'disconnected',
+    account_email: null, last_sync_at: null, last_error: null, scopes: null, connected_at: null,
+  };
+
+  const otherProviders = KNOWN_PROVIDERS.filter((id) => id !== 'google_calendar');
+
+  return (
+    <div className="space-y-3">
+      {/* Google Calendar — full OAuth flow */}
+      <GoogleCalendarCard status={gcStatus} onRefresh={onRefresh} showToast={showToast} />
+
+      {/* Other providers — disabled for now */}
+      {otherProviders.map((id) => {
+        const meta = PROVIDER_UI[id];
+        const status = byProvider[id] ?? { provider: id, status: 'disconnected', account_email: null, last_sync_at: null, last_error: null, scopes: null, connected_at: null };
+        const Icon = meta.icon;
+        const isConnected = status.status === 'connected';
+        const isError = status.status === 'error';
+
+        return (
+          <div
+            key={id}
+            className="flex items-start gap-3 bg-bg-card border border-border rounded-card px-4 py-3"
+          >
+            <span className={`flex-shrink-0 mt-0.5 ${meta.iconClass}`}>
+              <Icon size={20} />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-text-primary">{meta.name}</p>
+              <p className="text-xs text-text-muted leading-relaxed">{meta.desc}</p>
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0
+                  ${isConnected ? 'bg-accent-green' : isError ? 'bg-accent-red' : 'bg-text-muted/40'}`} />
+                <span className={`text-xs ${isConnected ? 'text-accent-green' : isError ? 'text-accent-red' : 'text-text-muted'}`}>
+                  {isConnected
+                    ? `Bağlı${status.account_email ? ': ' + status.account_email : ''}`
+                    : isError ? 'Hata' : 'Bağlı değil'}
+                </span>
+              </div>
+            </div>
+            <div className="flex-shrink-0 ml-2 mt-0.5">
+              {isConnected ? (
+                <button
+                  disabled={disconnecting === id}
+                  onClick={async () => {
+                    setDisconnecting(id);
+                    try { await onDisconnect(id); } finally { setDisconnecting(null); }
+                  }}
+                  className="px-3 py-1.5 text-xs rounded-btn bg-bg-input border border-border text-text-secondary hover:text-accent-red hover:border-accent-red/40 transition-colors disabled:opacity-60"
+                >
+                  {disconnecting === id ? '...' : 'Bağlantıyı Kes'}
+                </button>
+              ) : (
+                <button
+                  disabled
+                  title="Yakında"
+                  className="px-3 py-1.5 text-xs rounded-btn bg-bg-input border border-border text-text-muted opacity-50 cursor-not-allowed"
+                >
+                  Bağlan
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const COLOR_CLASSES: Record<string, string> = {
+  purple: 'bg-accent-purple/15 text-accent-purple',
+  cyan:   'bg-accent-cyan/15 text-accent-cyan',
+  orange: 'bg-accent-orange/15 text-accent-orange',
+  yellow: 'bg-accent-yellow/15 text-accent-yellow',
+  pink:   'bg-accent-pink/15 text-accent-pink',
+  red:    'bg-accent-red/15 text-accent-red',
+  green:  'bg-accent-green/15 text-accent-green',
+};
+
+function Section({
+  title,
+  icon: Icon,
+  color,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  icon: LucideIcon;
+  color: keyof typeof COLOR_CLASSES;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="bg-bg-card border border-border rounded-card mb-4 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-3 px-5 py-4 hover:bg-bg-input/30 transition-colors"
+      >
+        <span className={`flex items-center justify-center w-8 h-8 rounded-lg ${COLOR_CLASSES[color]}`}>
+          <Icon size={18} />
+        </span>
+        <h2 className="text-sm font-semibold text-text-primary flex-1 text-left">{title}</h2>
+        <ChevronDown
+          size={16}
+          className={`text-text-muted transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open && (
+        <div className="px-5 pb-5 pt-1 space-y-4 border-t border-border">{children}</div>
+      )}
     </div>
   );
 }

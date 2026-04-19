@@ -14,7 +14,11 @@ const COLUMNS = [
   { status: 'archived',    label: 'Arşiv' },
 ];
 
-export default function TaskBoard() {
+interface TaskBoardProps {
+  highlightTaskId?: number | null;
+}
+
+export default function TaskBoard({ highlightTaskId }: TaskBoardProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | undefined>();
   const [showModal, setShowModal] = useState(false);
@@ -23,6 +27,7 @@ export default function TaskBoard() {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const navigate = useNavigate();
   const { showToast } = React.useContext(AppContext);
+  const highlightHandledRef = useRef(false);
 
   const loadTasks = useCallback(async () => {
     try {
@@ -34,6 +39,17 @@ export default function TaskBoard() {
   }, [showToast]);
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
+
+  // When navigated from Dashboard with a taskId, auto-open that task's modal once.
+  useEffect(() => {
+    if (!highlightTaskId || highlightHandledRef.current || tasks.length === 0) return;
+    const target = tasks.find((t) => t.id === highlightTaskId);
+    if (target) {
+      highlightHandledRef.current = true;
+      setSelectedTask(target);
+      setShowModal(true);
+    }
+  }, [highlightTaskId, tasks]);
 
   const openCreate = (status: string) => {
     setSelectedTask(undefined);

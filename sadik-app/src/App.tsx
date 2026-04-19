@@ -11,6 +11,9 @@ import ChatPage from './pages/ChatPage';
 import SettingsPage from './pages/SettingsPage';
 import InsightsPage from './pages/InsightsPage';
 import MemoryPage from './pages/MemoryPage';
+import WorkspacePage from './pages/WorkspacePage';
+import HabitsPage from './pages/HabitsPage';
+import AgendaPage from './pages/AgendaPage';
 import VoiceAssistant from './components/voice/VoiceAssistant';
 
 /**
@@ -55,22 +58,12 @@ function ChatTabs() {
  */
 function AppShell() {
   const location = useLocation();
-  const { voiceUiVisible, setVoiceUiVisible, wakeWordPending } = useContext(AppContext);
+  const { voiceUiVisible, setVoiceUiVisible } = useContext(AppContext);
   const onChatRoute = location.pathname === '/chat';
 
-  // When the user leaves /chat, the voice tab is no longer visible, but the
-  // VoiceAssistant keeps running in the background. On returning to /chat we
-  // default back to the chat tab unless an ongoing turn is speaking/listening.
   useEffect(() => {
     if (!onChatRoute && voiceUiVisible) setVoiceUiVisible(false);
   }, [onChatRoute, voiceUiVisible, setVoiceUiVisible]);
-
-  // Wake-word: surface the voice tab if the user happens to be on /chat, but
-  // never force-navigate away from another page — the voice flow runs in the
-  // background and the user stays where they are.
-  useEffect(() => {
-    if (wakeWordPending && onChatRoute) setVoiceUiVisible(true);
-  }, [wakeWordPending, onChatRoute, setVoiceUiVisible]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-bg-main">
@@ -83,6 +76,9 @@ function AppShell() {
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/memory" element={<MemoryPage />} />
+          <Route path="/workspace" element={<WorkspacePage />} />
+          <Route path="/habits" element={<HabitsPage />} />
+          <Route path="/agenda" element={<AgendaPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
         <div

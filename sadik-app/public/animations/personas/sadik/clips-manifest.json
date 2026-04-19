@@ -20,6 +20,16 @@
     "loop": true
   },
   {
+    "name": "idle_alt_look_down",
+    "category": "ambient",
+    "source": "idle_variations/idle_alt_look_down.json",
+    "frameCount": 12,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
     "name": "idle_alt_look_left",
     "category": "ambient",
     "source": "idle_variations/idle_alt_look_left.json",

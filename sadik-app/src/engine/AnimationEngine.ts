@@ -57,6 +57,10 @@ export class AnimationEngine {
 
   private streamingEnabled = true;
 
+  // ─── Focus-look state ────────────────────────────────────────────────────────
+  private focusActive: boolean = false;
+  private focusDirection: 'left' | 'right' | 'down' | null = null;
+
   constructor() {
     this.clearBuffer();
   }
@@ -79,9 +83,10 @@ export class AnimationEngine {
     this.streamingEnabled = enabled;
   }
 
-  async loadClips(): Promise<void> {
+  async loadClips(personaSlug: string = 'sadik'): Promise<void> {
+    const base = `/animations/personas/${personaSlug}`;
     try {
-      const res = await fetch('/animations/clips-manifest.json');
+      const res = await fetch(`${base}/clips-manifest.json`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const manifest: ClipManifestEntry[] = await res.json();
 
@@ -95,7 +100,7 @@ export class AnimationEngine {
 
       const loadPromises = manifest.map(async (entry) => {
         try {
-          const r = await fetch(`/animations/${entry.source}`);
+          const r = await fetch(`${base}/${entry.source}`);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const data = await r.json();
           const clip: ClipData = {
@@ -296,13 +301,25 @@ export class AnimationEngine {
    *  Used by modes that have a one-shot entry animation followed by a
    *  steady-state text/idle loop (e.g. mod_working → mod_working_text). */
   playModSequence(intro: string, loop: string): void {
+    this.playModSequenceWithCallback(intro, loop);
+  }
+
+  /**
+   * Play an intro clip once, call onIntroFinish when the intro completes,
+   * THEN start looping the loop clip.
+   * This allows the caller (e.g. acceptInsight) to start a backend timer
+   * precisely when the intro ends rather than in parallel.
+   */
+  /**
+   * Play an intro clip once and invoke onFinish when the last frame renders.
+   * The engine stays on that last frame until the next showText / event / clip
+   * call takes over. Used by voice-accepted break: intro plays, timer starts,
+   * then timer_tick's showText seamlessly replaces the held frame with MM:SS.
+   */
+  playModIntroOnce(intro: string, onFinish?: () => void): void {
     if (!this.clips.has(intro)) {
-      console.warn(`[AnimationEngine] Intro clip not found: ${intro} — falling back to loop`);
-      this.playModClip(loop);
-      return;
-    }
-    if (!this.clips.has(loop)) {
-      console.warn(`[AnimationEngine] Loop clip not found: ${loop}`);
+      console.warn(`[AnimationEngine] Intro clip not found: ${intro}`);
+      onFinish?.();
       return;
     }
     this.cancelIdleTimers();
@@ -310,6 +327,31 @@ export class AnimationEngine {
     this.playClip(intro, {
       loop: false,
       onFinish: () => {
+        onFinish?.();
+        this.emitState();
+      },
+    });
+    this.emitState();
+  }
+
+  playModSequenceWithCallback(intro: string, loop: string, onIntroFinish?: () => void): void {
+    if (!this.clips.has(intro)) {
+      console.warn(`[AnimationEngine] Intro clip not found: ${intro} — falling back to loop`);
+      onIntroFinish?.();
+      this.playModClip(loop);
+      return;
+    }
+    if (!this.clips.has(loop)) {
+      console.warn(`[AnimationEngine] Loop clip not found: ${loop}`);
+      onIntroFinish?.();
+      return;
+    }
+    this.cancelIdleTimers();
+    this.playbackMode = 'explicit_clip';
+    this.playClip(intro, {
+      loop: false,
+      onFinish: () => {
+        onIntroFinish?.();
         this.playClip(loop, { loop: true });
         this.emitState();
       },
@@ -322,7 +364,55 @@ export class AnimationEngine {
     this.emitState();
   }
 
+  /**
+   * Engage or disengage focus-look based on whether the app window is focused.
+   * direction: mapped clip direction (left/right/down), or null to disengage.
+   *
+   * Safety: if engine is in explicit_clip or text mode, just stores the state
+   * without interrupting. Focus-look re-applies on the next idle re-entry via
+   * startIdleOrchestration().
+   */
+  setFocusLook(direction: 'left' | 'right' | 'down' | null): void {
+    if (direction === null) {
+      this.focusActive = false;
+      // Only resume idle timers if we are actually in focus_look sub-state
+      if (this.playbackMode === 'idle' && this.idleSubState === 'focus_look') {
+        this.startIdleOrchestration();
+      }
+      return;
+    }
+
+    this.focusActive = true;
+    this.focusDirection = direction;
+
+    // Only act immediately when in idle mode; otherwise wait for return_to_idle
+    if (this.playbackMode === 'idle') {
+      this.enterFocusLook();
+    }
+  }
+
   // ─── Private helpers ─────────────────────────────────────────────────────────
+
+  /** Cancel idle timers and play the focus-look clip once; on finish, freeze on last frame. */
+  private enterFocusLook(): void {
+    if (!this.focusDirection) return;
+    const clipName = `idle_alt_look_${this.focusDirection}`;
+    if (!this.clips.has(clipName)) {
+      console.warn(`[AnimationEngine] focus-look clip not found: ${clipName}`);
+      return;
+    }
+    this.cancelIdleTimers();
+    this.idleSubState = 'focus_look';
+    this.playClip(clipName, {
+      loop: false,
+      onFinish: () => {
+        // Hold last frame — do not reschedule timers; idleSubState stays 'focus_look'
+        // pb.isPlaying is already false at this point (set by update() logic)
+        this.idleSubState = 'focus_look';
+        this.emitState();
+      },
+    });
+  }
 
   private enterTextMode(text: string): void {
     this.pb.isPlaying = false;
@@ -371,6 +461,13 @@ export class AnimationEngine {
     this.idleInitialized = false;
     this.lastVariationDirection = null;
     this.variationPending = false;
+
+    // If focus-look is active, play the look clip and freeze — skip normal timers
+    if (this.focusActive && this.focusDirection) {
+      this.enterFocusLook();
+      return;
+    }
+
     this.scheduleBlink();
     this.scheduleVariation();
   }
@@ -395,6 +492,7 @@ export class AnimationEngine {
         this.idleInitialized = true;
       }
     }
+    // 'focus_look': last frame held, pb.isPlaying=false — do not reinitialise idle loop
     // 'blink' and 'variation' sub-states are driven entirely by onFinish callbacks
   }
 

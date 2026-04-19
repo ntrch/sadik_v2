@@ -615,7 +615,10 @@ function createWindow() {
     webPreferences: {
       nodeIntegration:        false,
       contextIsolation:       true,
-      backgroundThrottling:   false,
+      // backgroundThrottling is left at the default (true) to avoid burning CPU
+      // when the window is visible and active.  We selectively disable it only
+      // while the window is hidden to tray so the rAF animation loop keeps ticking
+      // (see win.on('hide') / win.on('show') handlers below).
       preload: path.join(__dirname, 'preload.js'),
     },
     titleBarStyle:    process.platform === 'darwin' ? 'hidden' : 'default',
@@ -623,6 +626,40 @@ function createWindow() {
   });
 
   mainWindow = win;
+
+  // ── Tray-hide throttling: disable background throttling ONLY while hidden ──
+  //
+  // With backgroundThrottling=true (default), Chromium throttles rAF to 1 fps
+  // when the window is hidden, freezing the animation loop.  But keeping it
+  // disabled globally burns CPU even while the user is actively looking at the
+  // window (all JS / CSS animations also bypass throttling).
+  //
+  // Solution: re-enable throttling normally, and flip it off only when the window
+  // goes to tray.  This keeps the OLED animation alive while hidden without
+  // wasting CPU when the window is visible.
+  win.on('hide', () => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.setBackgroundThrottling(false);
+      tlog('[SADIK] Window hidden → background throttling disabled (keeps rAF alive)');
+    }
+  });
+  win.on('show', () => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.setBackgroundThrottling(true);
+      tlog('[SADIK] Window shown → background throttling restored');
+    }
+  });
+
+  // ── Shell open external URL ─────────────────────────────────────────────
+  ipcMain.handle('shell:openExternal', async (_e, url) => {
+    const { shell } = require('electron');
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
 
   // ── Clipboard write IPC ─────────────────────────────────────────────────
   // Uses Electron's native clipboard module, which works without
@@ -652,31 +689,636 @@ function createWindow() {
     }
   });
 
-  // ── DND IPC — toggle Windows Focus Assist via registry ──────────────────
+  // ── Focus-state IPC ────────────────────────────────────────────────────────
+  // Renderer can query initial focus state on mount so focus-look is applied
+  // correctly even before the first focus/blur event fires.
+  ipcMain.handle('get-focus-state', () => (win ? win.isFocused() : false));
+
+  // ── DND IPC — toggle Focus Assist / Do Not Disturb ─────────────────────────
   //
-  // Registry key: HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings
-  // Value: NOC_GLOBAL_SETTING_TOASTS_ENABLED  (DWORD)  1=on 0=off (inverted for DND)
+  // WINDOWS: NtUpdateWnfStateData is trust-gated since Win11 1909 — user-land
+  //   writes are silently rejected. Registry writes have no visible effect either.
+  //   SADIK's in-app DND (TTS mute / toast suppression / OLED) is handled at the
+  //   renderer layer. OS-level Focus Assist must be toggled manually: Win+A → Focus.
   //
-  // NOTE: This path controls "notification banners" globally (Focus Assist level 1).
-  // It does NOT require elevation — it's a per-user registry key. However, on some
-  // Windows 11 builds the key may be ignored if Focus Assist is managed via Group Policy.
-  // If the PowerShell call fails, we log the error and return ok:false — the in-app
-  // DND state (frontend toggle) still works regardless.
+  // MACOS APPROACH (Ventura+ Shortcuts CLI):
+  //   Uses `shortcuts run "Turn On/Off Do Not Disturb"` — these are built-in
+  //   system Shortcuts on macOS Ventura+. Falls back to a `defaults write`
+  //   on com.apple.ncprefs if the `shortcuts` CLI is absent or fails.
+  //   CAVEAT: Shortcuts CLI may prompt for Accessibility permission on first run.
+  //   The built-in "Turn On Do Not Disturb" Shortcut must exist (default on Ventura+).
   ipcMain.handle('set-dnd', async (_event, enabled) => {
-    const value = enabled ? 0 : 1; // 0 = toasts disabled (DND on), 1 = toasts enabled
-    const regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings';
-    const script = `Set-ItemProperty -Path '${regPath}' -Name 'NOC_GLOBAL_SETTING_TOASTS_ENABLED' -Value ${value} -Type DWord -Force`;
-    return new Promise((resolve) => {
-      const { exec } = require('child_process');
-      exec(`powershell.exe -NoProfile -NonInteractive -Command "${script}"`, { timeout: 5000 }, (err) => {
-        if (err) {
-          tlog(`[DND] Registry toggle failed (non-fatal): ${err.message}`);
-          resolve({ ok: false, error: err.message });
-        } else {
-          tlog(`[DND] Focus Assist toasts set to ${value} (DND ${enabled ? 'ON' : 'OFF'})`);
-          resolve({ ok: true });
-        }
+    const { exec } = require('child_process');
+
+    // ── Windows branch ────────────────────────────────────────────────────────
+    if (process.platform === 'win32') {
+      // Windows 11 blocks user-land Focus Assist toggling (WNF state is trust-gated since 1909).
+      // SADIK's in-app DND (TTS/toasts/OLED) is handled at the renderer layer — no OS call here.
+      // User must toggle system Focus Assist manually (Win+A → Focus).
+      return { ok: true, note: 'in-app only on Windows' };
+
+    // ── macOS branch ──────────────────────────────────────────────────────────
+    } else if (process.platform === 'darwin') {
+      const shortcutName = enabled ? 'Turn On Do Not Disturb' : 'Turn Off Do Not Disturb';
+
+      return new Promise((resolve) => {
+        // Primary: Shortcuts CLI (Ventura+, built-in system shortcut)
+        exec(
+          `shortcuts run "${shortcutName}"`,
+          { timeout: 8000 },
+          (err) => {
+            if (!err) {
+              tlog(`[DND] macOS Shortcuts: "${shortcutName}" executed`);
+              resolve({ ok: true });
+              return;
+            }
+            tlog(`[DND] shortcuts CLI failed (${err.message}), trying defaults write fallback`);
+            // Fallback: legacy defaults write on com.apple.ncprefs (best-effort, may need re-login)
+            // dnd_prefs is a base64-encoded binary plist; we toggle the global dndStart/End
+            // by writing a well-known minimal plist. Limited to older macOS / partial effect.
+            const dndFlag = enabled ? 1 : 0;
+            const fallbackCmd = [
+              `defaults write com.apple.ncprefs dnd_prefs -dict-add userPref ${dndFlag}`,
+              `killall usernoted 2>/dev/null || true`,
+            ].join(' && ');
+            exec(fallbackCmd, { timeout: 6000 }, (fbErr) => {
+              if (fbErr) {
+                resolve({ ok: false, error: `shortcuts: ${err.message} | defaults: ${fbErr.message}` });
+              } else {
+                tlog(`[DND] macOS defaults write fallback applied (DND ${enabled ? 'ON' : 'OFF'})`);
+                resolve({ ok: true });
+              }
+            });
+          }
+        );
       });
+
+    // ── Unsupported platform ──────────────────────────────────────────────────
+    } else {
+      return { ok: false, error: 'unsupported platform' };
+    }
+  });
+
+  // ── Workspace execute IPC ─────────────────────────────────────────────────
+  //
+  // Runs a list of workspace actions sequentially.  Each action is wrapped in
+  // try/catch so a single failure does not abort the remaining chain.
+  //
+  // Action types:
+  //   launch_app     — spawn a process detached so it outlives SADIK
+  //   open_url       — open a URL in the default browser via shell.openExternal
+  //   system_setting — night_light: best-effort; opens ms-settings:nightlight.
+  //                    Windows' actual night light state lives in a WNF blob
+  //                    requiring native calls (same class as Focus Assist) —
+  //                    not toggled reliably; we surface the panel for the user.
+  //   window_snap    — PowerShell P/Invoke: FindWindow + SetWindowPos.
+  //                    Reliability caveat: elevated/UWP windows may be invisible
+  //                    to Get-Process MainWindowHandle; retry up to 3× with 500ms
+  //                    gap.  Snap accuracy depends on workarea DPI.
+  ipcMain.handle('workspace:execute', async (_e, { actions, workspaceName, workspaceRunId }) => {
+    const { spawn } = require('child_process');
+    const { shell } = require('electron');
+    const { execFile } = require('child_process');
+
+    // Alias map for common app names → executable
+    const APP_ALIAS = {
+      code: 'code',
+      vscode: 'code',
+      terminal: 'wt.exe',
+      wt: 'wt.exe',
+      spotify: 'spotify',
+    };
+
+    function resolveApp(rawPath) {
+      const lower = rawPath.trim().toLowerCase();
+      return APP_ALIAS[lower] ?? rawPath;
+    }
+
+    // Run a PowerShell command via -EncodedCommand (UTF-16LE base64) to avoid
+    // quoting hell — same pattern as the DND handler above.
+    function runPowerShell(script) {
+      return new Promise((resolve) => {
+        const encoded = Buffer.from(script, 'utf16le').toString('base64');
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+          { timeout: 40000 },
+          (err, stdout, stderr) => {
+            resolve({ err, stdout: stdout ? stdout.trim() : '', stderr: stderr ? stderr.trim() : '' });
+          }
+        );
+      });
+    }
+
+    // Resolve the real target exe path of a .lnk shortcut via WScript.Shell COM.
+    async function resolveLnkTarget(lnkPath) {
+      const escaped = lnkPath.replace(/'/g, "''");
+      const ps = `$sh = New-Object -ComObject WScript.Shell; $lnk = $sh.CreateShortcut('${escaped}'); Write-Output $lnk.TargetPath`;
+      const { stdout } = await runPowerShell(ps);
+      const target = (stdout || '').trim();
+      return target || null;
+    }
+
+    // Window snap via PowerShell inline C# P/Invoke + EnumWindows for reliability.
+    async function windowSnap(target, side, knownPid) {
+      tlog('[Snap] target=' + target + ' side=' + side + ' knownPid=' + knownPid);
+      const sadikPid = process.pid;
+      const psScript = `
+Add-Type @"
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public class WinSnap {
+  public delegate bool EnumWndProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWndProc lpEnumFunc, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndAfter, int X, int Y, int W, int H, uint uFlags);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool SystemParametersInfo(uint uAction, uint uParam, ref RECT lpvParam, uint fuWinIni);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+  [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+  [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  public static List<IntPtr> GetWindowsForPid(uint pid) {
+    var list = new List<IntPtr>();
+    EnumWindows((h, _) => { uint p; GetWindowThreadProcessId(h, out p); if (p == pid && IsWindowVisible(h)) list.Add(h); return true; }, IntPtr.Zero);
+    return list;
+  }
+  // Find any visible top-level window whose owning process is in allowedPids,
+  // excluding windows owned by excludePids. Requires a non-empty title and
+  // no owner window (to filter out tool/splash windows).
+  public static IntPtr FindWindowByPids(HashSet<int> allowedPids, HashSet<int> excludePids) {
+    IntPtr found = IntPtr.Zero;
+    EnumWindows((h, _) => {
+      if (!IsWindowVisible(h)) return true;
+      if (GetWindowTextLength(h) == 0) return true;
+      uint p; GetWindowThreadProcessId(h, out p);
+      int pid = (int)p;
+      if (excludePids.Contains(pid)) return true;
+      if (!allowedPids.Contains(pid)) return true;
+      found = h;
+      return false;
+    }, IntPtr.Zero);
+    return found;
+  }
+  // Find any visible top-level window whose title contains titleMatch (case-insensitive),
+  // excluding windows owned by excludePids. Last-resort fallback.
+  public static IntPtr FindWindowByTitle(string titleMatch, HashSet<int> excludePids) {
+    IntPtr found = IntPtr.Zero;
+    string needle = titleMatch.ToLowerInvariant();
+    EnumWindows((h, _) => {
+      if (!IsWindowVisible(h)) return true;
+      int len = GetWindowTextLength(h);
+      if (len == 0) return true;
+      var sb = new StringBuilder(len + 1);
+      GetWindowText(h, sb, sb.Capacity);
+      if (sb.ToString().ToLowerInvariant().IndexOf(needle) < 0) return true;
+      uint p; GetWindowThreadProcessId(h, out p);
+      if (excludePids.Contains((int)p)) return true;
+      found = h;
+      return false;
+    }, IntPtr.Zero);
+    return found;
+  }
+}
+"@
+$target   = '${target.replace(/'/g, "''")}'
+$side     = '${side}'
+$knownPid = ${knownPid ? knownPid : 0}
+$sadikPid = ${sadikPid}
+
+$progressLog = Join-Path $env:TEMP "sadik_snap_progress.log"
+function Write-Progress-Log($msg) {
+  $ts = (Get-Date).ToString("HH:mm:ss.fff")
+  Add-Content -Path $progressLog -Value "[$ts][pid=$PID target=$target side=$side knownPid=$knownPid] $msg" -ErrorAction SilentlyContinue
+}
+Write-Progress-Log "PS started, Add-Type done"
+
+# Only exclude SADIK's own process — NOT descendants. Target name filter
+# (e.g. "chrome", "Canva") already disqualifies SADIK/PS helpers. Excluding
+# descendants risks excluding the target app itself when shell.openPath
+# parents it under SADIK (observed with Chrome browser process).
+$excludeSet = New-Object System.Collections.Generic.HashSet[int]
+[void]$excludeSet.Add([int]$sadikPid)
+Write-Progress-Log "excludeSet sadikPid only"
+
+$hWnd = [IntPtr]::Zero
+$deadline = (Get-Date).AddSeconds(60)
+$iter = 0
+$foundPath = ''
+while ((Get-Date) -lt $deadline) {
+  $iter++
+  # PATH 1 (fastest, most reliable): direct PID lookup when we know the PID
+  # from launch. Works for UWP, .lnk, and .exe uniformly since we captured
+  # the PID via process diff at launch time.
+  if ($knownPid -gt 0) {
+    $pidSet = New-Object System.Collections.Generic.HashSet[int]
+    [void]$pidSet.Add([int]$knownPid)
+    # Also include child processes (UWP apps sometimes spawn UI in child).
+    try {
+      $kids = Get-CimInstance Win32_Process -Filter "ParentProcessId=$knownPid" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessId
+      foreach ($k in $kids) { [void]$pidSet.Add([int]$k) }
+    } catch { }
+    $hWnd = [WinSnap]::FindWindowByPids($pidSet, $excludeSet)
+    if ($hWnd -ne [IntPtr]::Zero) { $foundPath = "byKnownPid"; break }
+  }
+  # PATH 2: name-based PID set.
+  $namedPids = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.ProcessName -eq $target -or $_.ProcessName -like "$target*"
+  } | Select-Object -ExpandProperty Id)
+  if ($iter -eq 1 -or $iter % 10 -eq 0) {
+    Write-Progress-Log "iter=$iter namedPids=$($namedPids.Count) knownPid=$knownPid"
+  }
+  if ($namedPids.Count -gt 0) {
+    $allowedSet = New-Object System.Collections.Generic.HashSet[int]
+    foreach ($np in $namedPids) { [void]$allowedSet.Add([int]$np) }
+    $hWnd = [WinSnap]::FindWindowByPids($allowedSet, $excludeSet)
+    if ($hWnd -ne [IntPtr]::Zero) { $foundPath = "byPids"; break }
+  }
+  # PATH 3 (last-resort): title substring match.
+  if ($target.Length -gt 0) {
+    $hWnd = [WinSnap]::FindWindowByTitle($target, $excludeSet)
+    if ($hWnd -ne [IntPtr]::Zero) { $foundPath = "byTitle"; break }
+  }
+  Start-Sleep -Milliseconds 300
+}
+if ($hWnd -ne [IntPtr]::Zero) {
+  Write-Progress-Log "window found iter=$iter path=$foundPath hWnd=$hWnd"
+}
+if ($hWnd -eq [IntPtr]::Zero) {
+  Write-Progress-Log "NOTFOUND after $iter iterations"
+  $diag = Get-Process | Where-Object { $_.ProcessName -like "*$target*" } | Select-Object Id, ProcessName, MainWindowHandle, MainWindowTitle | Format-Table -AutoSize | Out-String
+  Write-Output "NOTFOUND"
+  Write-Output "DIAG-BEGIN"
+  Write-Output $diag
+  Write-Output "DIAG-END"
+  exit 1
+}
+
+$wa = New-Object WinSnap+RECT
+[WinSnap]::SystemParametersInfo(0x30, 0, [ref]$wa, 0) | Out-Null
+$W  = $wa.Right  - $wa.Left
+$H  = $wa.Bottom - $wa.Top
+$HW = [int]($W / 2)
+$HH = [int]($H / 2)
+
+$preRect = New-Object WinSnap+RECT
+[WinSnap]::GetWindowRect($hWnd, [ref]$preRect) | Out-Null
+Write-Output "PRE_RECT hWnd=$hWnd L=$($preRect.Left) T=$($preRect.Top) R=$($preRect.Right) B=$($preRect.Bottom)"
+
+if ($side -eq 'maximize') {
+  [WinSnap]::ShowWindow($hWnd, 3) | Out-Null
+} else {
+  $x = $wa.Left; $y = $wa.Top; $w = $HW; $h = $H
+  if ($side -eq 'right')  { $x = $wa.Left + $HW }
+  if ($side -eq 'top')    { $w = $W; $h = $HH }
+  if ($side -eq 'bottom') { $w = $W; $h = $HH; $y = $wa.Top + $HH }
+  [WinSnap]::ShowWindow($hWnd, 9) | Out-Null
+  Start-Sleep -Milliseconds 250
+  $sp = [WinSnap]::SetWindowPos($hWnd, [IntPtr]::Zero, $x, $y, $w, $h, 0x0000)
+  Write-Progress-Log "SetWindowPos hWnd=$hWnd x=$x y=$y w=$w h=$h result=$sp"
+}
+Write-Progress-Log "OK"
+Write-Output "OK"
+`;
+      const snapResult = await runPowerShell(psScript);
+      tlog('[Snap] stdout=' + (snapResult.stdout||'').slice(0,1500) + ' stderr=' + (snapResult.stderr||'').slice(0,500) + ' errmsg=' + (snapResult.err?.message||''));
+      // Parse PRE_RECT line if present
+      const preRectMatch = (snapResult.stdout || '').match(/PRE_RECT hWnd=(\S+) L=(-?\d+) T=(-?\d+) R=(-?\d+) B=(-?\d+)/);
+      if (preRectMatch) {
+        snapResult.preRect = {
+          hwnd: preRectMatch[1],
+          rect: {
+            left:   parseInt(preRectMatch[2], 10),
+            top:    parseInt(preRectMatch[3], 10),
+            right:  parseInt(preRectMatch[4], 10),
+            bottom: parseInt(preRectMatch[5], 10),
+          },
+        };
+      }
+      return snapResult;
+    }
+
+    // Capture the PID of a newly launched process by diffing the process set
+    // before and after launch.  Polls every 200 ms until a new process with a
+    // visible main window appears, or until timeoutMs elapses.
+    // expectedName (optional): if provided, only consider processes whose name
+    // contains this string (case-insensitive, PowerShell -like wildcard match).
+    async function captureNewPid(preSet, timeoutMs = 3000, expectedName) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 200));
+        try {
+          const nameFilter = expectedName
+            ? `$_.ProcessName -like "*${expectedName}*" -and `
+            : '';
+          const { stdout } = await runPowerShell(
+            `Get-Process | Where-Object { ${nameFilter}$_.MainWindowTitle -ne '' } | Select-Object -ExpandProperty Id`
+          );
+          const nowPids = stdout.split(/\r?\n/).map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
+          const newPid = nowPids.find((p) => !preSet.has(p));
+          if (newPid != null) return newPid;
+        } catch { /* keep polling */ }
+      }
+      return null;
+    }
+
+    // Snapshot the current set of process IDs that have a visible window.
+    async function snapshotPidSet() {
+      try {
+        const { stdout } = await runPowerShell(
+          `Get-Process | Where-Object { $_.MainWindowTitle -ne '' } | Select-Object -ExpandProperty Id`
+        );
+        return new Set(stdout.split(/\r?\n/).map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n)));
+      } catch {
+        return new Set();
+      }
+    }
+
+    const results = [];
+
+    for (const action of (actions ?? [])) {
+      try {
+        const { type, payload } = action;
+
+        if (type === 'launch_app') {
+          const appPath = payload.path ?? '';
+          const isUwp   = appPath.startsWith('shell:AppsFolder\\');
+          const exePath = isUwp ? appPath : resolveApp(appPath);
+          const args    = payload.args ?? [];
+          const lnkBasename = path.basename(appPath).replace(/\.lnk$/i, '');
+          let launchedPid = null;
+          let resolvedExe = null; // set in .lnk branch; used for snapTarget below
+
+          let wasPreExisting = false;
+          try {
+            if (isUwp) {
+              // UWP: launch via explorer.exe; diff-based PID capture
+              const preSet = await snapshotPidSet();
+              const child = spawn('explorer.exe', [exePath], { detached: true, stdio: 'ignore' });
+              child.unref();
+              const uwpExpectedName = (exePath.split('!').pop() || exePath.split('.').pop()).toLowerCase();
+              launchedPid = await captureNewPid(preSet, 8000, uwpExpectedName);
+              wasPreExisting = (launchedPid == null);
+              tlog('[Snap] capturedPid=' + launchedPid + ' for ' + exePath);
+            } else if (exePath.toLowerCase().endsWith('.lnk')) {
+              // .lnk shortcuts can't be spawned directly — delegate to shell; diff-based PID capture.
+              // Resolve the real target exe first so captureNewPid/windowSnap use the correct process name.
+              resolvedExe = await resolveLnkTarget(exePath);
+              tlog('[Snap] .lnk resolved target=' + (resolvedExe || 'null') + ' for ' + exePath);
+              const lnkBase = resolvedExe
+                ? path.basename(resolvedExe, '.exe').toLowerCase()
+                : path.basename(exePath, '.lnk').toLowerCase().replace(/\s+/g, '');
+              const preSet = await snapshotPidSet();
+              await shell.openPath(exePath);
+              launchedPid = await captureNewPid(preSet, 15000, lnkBase);
+              wasPreExisting = (launchedPid == null);
+              tlog('[Snap] capturedPid=' + launchedPid + ' for ' + exePath);
+              if (launchedPid == null) {
+                const { stdout: lnkPidOut } = await runPowerShell(
+                  `Get-Process | Where-Object { $_.ProcessName -like "*${lnkBase}*" -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1 -ExpandProperty Id`
+                );
+                const parsed = parseInt(lnkPidOut.trim(), 10);
+                if (!isNaN(parsed)) launchedPid = parsed;
+              }
+            } else {
+              // Check if process already running to avoid duplicate launch
+              const exeBase = path.basename(exePath).replace(/\.exe$/i, '');
+              let existingPid = null;
+              try {
+                const { stdout: pidOut } = await runPowerShell(
+                  `Get-Process -Name '${exeBase.replace(/'/g, "''")}' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id`
+                );
+                const parsed = parseInt(pidOut.trim(), 10);
+                if (!isNaN(parsed)) existingPid = parsed;
+              } catch { /* ignore */ }
+
+              if (existingPid) {
+                launchedPid = existingPid;
+                wasPreExisting = true;
+              } else {
+                const child = spawn(exePath, args, { detached: true, stdio: 'ignore' });
+                launchedPid = child.pid;
+                wasPreExisting = false;
+                child.on('exit', (code) => console.log('[workspace] launched pid', child.pid, 'exited code', code));
+                child.unref();
+              }
+            }
+          } catch (launchErr) {
+            results.push({ type, ok: false, error: String(launchErr) });
+            continue;
+          }
+          // If snap is requested: fire-and-forget so the IPC returns fast
+          // and the UI doesn't block for the 30s PowerShell deadline.
+          if (payload.snap) {
+            const resolvedSnapBase = exePath.toLowerCase().endsWith('.lnk') && typeof resolvedExe === 'string' && resolvedExe
+              ? path.basename(resolvedExe, '.exe')
+              : null;
+            // For UWP (shell:AppsFolder\Publisher.Name_hash!EntryPoint), use the part
+            // after "!" as the target name (e.g. "Spotify"). This matches the
+            // actual .exe process name for most UWP apps.
+            const uwpSnapBase = isUwp ? (exePath.split('!').pop() || '') : null;
+            const snapTarget = resolvedSnapBase || uwpSnapBase || lnkBasename || path.basename(exePath).replace(/\.exe$/i, '');
+            const snapSide = payload.snap;
+            const snapPid  = launchedPid;
+            const snapWasPreExisting = wasPreExisting;
+            // No pre-delay — PS script has its own poll loop that waits for
+            // the window to become available (up to 30s).
+            windowSnap(snapTarget, snapSide, snapPid).then((snapResult) => {
+              if (snapResult.preRect && mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('workspace-snap-captured', {
+                  workspaceRunId,
+                  pid: snapPid,
+                  hwnd: snapResult.preRect.hwnd,
+                  rect: snapResult.preRect.rect,
+                  target: snapTarget,
+                  wasPreExisting: snapWasPreExisting,
+                });
+              }
+            }).catch((e) => {
+              tlog('[Snap-BG] error ' + (e?.message || e));
+            });
+          }
+          results.push({ type, ok: true, pid: launchedPid, wasPreExisting, target: path.basename(exePath).replace(/\.exe$/i, '').replace(/\.lnk$/i, '') });
+
+        } else if (type === 'open_url') {
+          await shell.openExternal(payload.url ?? '');
+          results.push({ type, ok: true });
+
+        } else if (type === 'system_setting') {
+          if (payload.setting === 'night_light') {
+            // Opens the Night Light settings panel — best-effort only.
+            // Programmatic state toggling requires a trust-gated WNF blob write
+            // (same restriction as Focus Assist) and is not reliably available
+            // from user-land.
+            spawn('powershell.exe', ['-Command', 'Start-Process ms-settings:nightlight'], {
+              detached: true, stdio: 'ignore', shell: false,
+            }).unref();
+            results.push({ type, ok: true, note: 'opens Night Light settings panel; toggle is manual' });
+          } else {
+            results.push({ type, ok: false, error: `unknown setting: ${payload.setting}` });
+          }
+
+        } else if (type === 'window_snap') {
+          const { err, stdout } = await windowSnap(payload.target ?? '', payload.side ?? 'maximize');
+          if (err || stdout === 'NOTFOUND') {
+            results.push({ type, ok: false, error: err ? err.message : 'window not found' });
+          } else {
+            results.push({ type, ok: true });
+          }
+
+        } else {
+          results.push({ type, ok: false, error: `unknown action type: ${type}` });
+        }
+      } catch (err) {
+        results.push({ type: action.type, ok: false, error: err.message });
+      }
+    }
+
+    tlog(`[Workspace] "${workspaceName}" executed — ${results.length} actions, ${results.filter((r) => r.ok).length} ok`);
+    return { ok: true, results };
+  });
+
+  // ── Workspace stop: restore window position ──────────────────────────────
+  ipcMain.handle('restore-window-position', async (_evt, { hwnd, rect }) => {
+    const { execFile } = require('child_process');
+    const L = rect.left, T = rect.top, R = rect.right, B = rect.bottom;
+    const ps = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class WinRestore {
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndAfter, int X, int Y, int W, int H, uint uFlags);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+[WinRestore]::ShowWindow([IntPtr]${hwnd}, 9) | Out-Null
+Start-Sleep -Milliseconds 200
+[WinRestore]::SetWindowPos([IntPtr]${hwnd}, [IntPtr]::Zero, ${L}, ${T}, ${R - L}, ${B - T}, 0x0000) | Out-Null
+Write-Output "OK"
+`;
+    return new Promise((resolve) => {
+      const encoded = Buffer.from(ps, 'utf16le').toString('base64');
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { timeout: 10000 }, (err, stdout) => {
+        if (err) { resolve({ ok: false, error: err.message }); }
+        else { resolve({ ok: (stdout || '').includes('OK') }); }
+      });
+    });
+  });
+
+  // ── Workspace stop: kill PIDs ─────────────────────────────────────────────
+  ipcMain.handle('kill-pids', async (_evt, { pids }) => {
+    const { execFile } = require('child_process');
+    const killed = [], failed = [];
+    await Promise.all((pids ?? []).map((pid) => new Promise((resolve) => {
+      execFile('taskkill.exe', ['/PID', String(pid), '/T', '/F'], (err) => {
+        if (err) { failed.push(pid); } else { killed.push(pid); }
+        resolve();
+      });
+    })));
+    return { killed, failed };
+  });
+
+  // ── Installed apps list (Windows Start Menu .lnk scan) ───────────────────
+  ipcMain.handle('workspace:list-apps', async () => {
+    if (process.platform !== 'win32') return [];
+    const startMenuDirs = [
+      path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+      path.join(process.env.APPDATA || os.homedir(), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+    ];
+
+    const LNK_SKIP_KEYWORDS = /uninstall|unins|readme|license|release notes|help|documentation|kaldır|website|modify|repair/i;
+    const LNK_SKIP_PYTHON   = /^(python|idle|pip|conda)\b/i;
+
+    async function walkDir(dir) {
+      const results = [];
+      let entries;
+      try {
+        entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      } catch {
+        return results;
+      }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          const sub = await walkDir(full);
+          results.push(...sub);
+        } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.lnk')) {
+          const baseName = entry.name.slice(0, -4);
+          if (LNK_SKIP_KEYWORDS.test(baseName)) continue;
+          if (LNK_SKIP_PYTHON.test(baseName)) continue;
+          results.push({ name: baseName, path: full, type: 'lnk' });
+        }
+      }
+      return results;
+    }
+
+    const all = [];
+    for (const dir of startMenuDirs) {
+      const found = await walkDir(dir);
+      all.push(...found);
+    }
+
+    // UWP apps via Get-StartApps (inline PS runner — list-apps handler scope)
+    let uwpApps = [];
+    try {
+      const script = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-StartApps | ConvertTo-Json -Compress';
+      const encoded = Buffer.from(script, 'utf16le').toString('base64');
+      const uwpRes = await new Promise((resolve) => {
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+          { timeout: 40000, maxBuffer: 10 * 1024 * 1024 },
+          (err, stdout, stderr) => resolve({ err, stdout: stdout || '', stderr: stderr || '' }),
+        );
+      });
+      if (uwpRes.err) {
+        console.warn('[workspace:list-apps] Get-StartApps error:', uwpRes.err.message || uwpRes.err, uwpRes.stderr);
+      }
+      const parsed = JSON.parse(uwpRes.stdout.trim() || '[]');
+      const arr = Array.isArray(parsed) ? parsed : [parsed];
+      uwpApps = arr
+        .filter((e) => e && e.Name && e.AppID)
+        .map((e) => ({
+          name: e.Name,
+          path: `shell:AppsFolder\\${e.AppID}`,
+          type: 'uwp',
+        }));
+      console.log('[workspace:list-apps] UWP apps found:', uwpApps.length);
+    } catch (uwpErr) {
+      console.warn('[workspace:list-apps] UWP parse failed:', uwpErr.message);
+    }
+
+    // Dedupe by name (case-insensitive), lnk wins over uwp for same name
+    const seen = new Set();
+    const unique = [];
+    for (const app of [...all, ...uwpApps]) {
+      const key = app.name.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(app);
+      }
+    }
+
+    // Sort alphabetically
+    unique.sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+    return unique;
+  });
+
+  // ── Workspace EXE file picker ─────────────────────────────────────────────
+  ipcMain.handle('workspace:pick-exe', async () => {
+    const { dialog } = require('electron');
+    return dialog.showOpenDialog(win, {
+      title: 'Uygulama Seç',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Programs', extensions: ['exe', 'lnk', 'bat', 'cmd'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
     });
   });
 
@@ -695,8 +1337,8 @@ function createWindow() {
   // ── Window lifecycle diagnostics ──────────────────────────────────────────
   win.once('ready-to-show', () => tlog('[SADIK] Window ready-to-show'));
   win.on('show',        () => tlog('[SADIK] Window show'));
-  win.on('focus',       () => tlog('[SADIK] Window focus'));
-  win.on('blur',        () => tlog('[SADIK] Window blur'));
+  win.on('focus',       () => { tlog('[SADIK] Window focus'); win.webContents.send('app-focus-changed', true); });
+  win.on('blur',        () => { tlog('[SADIK] Window blur');  win.webContents.send('app-focus-changed', false); });
   win.on('closed',      () => tlog('[SADIK] Window closed'));
   win.on('unresponsive',() => twarn('[SADIK] Window UNRESPONSIVE'));
   win.on('responsive',  () => tlog('[SADIK] Window responsive (was unresponsive)'));
@@ -780,7 +1422,7 @@ function createWindow() {
 // stops — this matches the user's spec ("app açıkken loglanan tüm ctrl+c'ler").
 // =============================================================================
 
-const CLIPBOARD_POLL_MS = 800;
+const CLIPBOARD_POLL_MS = 3000; // was 800 ms — 3 s reduces idle CPU while still catching all Ctrl+C events promptly
 let clipboardPollTimer = null;
 let lastClipboardHash  = null;
 
@@ -871,6 +1513,14 @@ function startClipboardMonitor() {
 // STATUS_ACCESS_VIOLATION (0xC0000005) in the renderer process.
 // Disabling it forces synchronous device creation, eliminating the race.
 app.commandLine.appendSwitch('disable-features', 'MediaFoundationAsyncCreate');
+
+// Windows toast notifications require a stable AppUserModelID so the OS can
+// associate the notification with a registered application. Without this,
+// Electron running as electron.exe (dev) or an unsigned build will silently
+// drop all Notification.show() calls on Windows 10/11.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.sadik.app');
+}
 
 app.whenReady().then(() => {
   tlog('[SADIK] app.whenReady() fired — starting initialization');

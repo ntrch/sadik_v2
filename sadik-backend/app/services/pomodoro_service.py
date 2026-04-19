@@ -19,6 +19,10 @@ class PomodoroService:
         self.long_break_minutes = 15
         self.sessions_before_long_break = 4
         self._task: Optional[asyncio.Task] = None
+        # True when the current break was started without a preceding work
+        # phase (e.g. proactive-insight accept). Natural completion of such a
+        # break should NOT chain into a new work phase.
+        self.standalone_break = False
 
     def get_state(self) -> dict:
         return {
@@ -50,10 +54,15 @@ class PomodoroService:
         self.remaining_seconds = self.total_seconds
         self.is_running = True
         self.is_paused = False
+        self.standalone_break = False
         self._task = asyncio.create_task(self._run())
 
-    async def _start_break_phase(self):
-        if self.current_session % self.sessions_before_long_break == 0:
+    async def _start_break_phase(self, override_minutes: Optional[int] = None):
+        if override_minutes is not None:
+            # Explicit duration requested (e.g. intensity-based from proactive accept flow)
+            self.phase = "break"
+            self.total_seconds = override_minutes * 60
+        elif self.current_session % self.sessions_before_long_break == 0:
             self.phase = "long_break"
             self.total_seconds = self.long_break_minutes * 60
         else:
@@ -91,7 +100,20 @@ class PomodoroService:
             })
             await self._start_break_phase()
         else:
-            await self._start_work_phase()
+            # Break finished — broadcast so the frontend can speak the break-end
+            # TTS. Any break (standalone or pomodoro work→break) terminates here
+            # and returns to idle; no automatic chain into a new work phase.
+            await ws_manager.broadcast({
+                "type": "break_completed",
+                "data": {"task_id": self.task_id}
+            })
+            self.is_running = False
+            self.is_paused = False
+            self.remaining_seconds = 0
+            self.total_seconds = 0
+            self.phase = "idle"
+            self.standalone_break = False
+            self._task = None
 
     async def pause(self):
         self.is_paused = True
@@ -110,6 +132,18 @@ class PomodoroService:
         self.phase = "idle"
         self.task_id = None
         self._task = None
+        self.standalone_break = False
+        # Final broadcast so any connected UI (Focus page Pomodoro card) drops
+        # back to 00:00 / idle instead of freezing on the last observed tick.
+        await ws_manager.broadcast({
+            "type": "timer_tick",
+            "data": {
+                "remaining_seconds": 0,
+                "total_seconds": 0,
+                "is_running": False,
+                "phase": "idle",
+            }
+        })
         return task_id
 
     async def update_settings(self, work_minutes: int = None, break_minutes: int = None,

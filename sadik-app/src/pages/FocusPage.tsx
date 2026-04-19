@@ -20,6 +20,7 @@ export default function FocusPage() {
   const handleStart = async () => {
     try {
       await start(selectedTask ?? undefined);
+      triggerEvent('confirmation_success');
     } catch {
       showToast('Timer başlatılamadı', 'error');
     }

@@ -7,6 +7,11 @@ from app.schemas.pomodoro import PomodoroStart, PomodoroStateResponse
 from app.services.pomodoro_service import pomodoro_service
 from sqlalchemy import select
 from datetime import datetime, timezone
+from typing import Optional
+from pydantic import BaseModel
+
+class StartBreakBody(BaseModel):
+    minutes: Optional[int] = None
 
 router = APIRouter(prefix="/api/pomodoro", tags=["pomodoro"])
 
@@ -56,3 +61,38 @@ async def stop_pomodoro(session: AsyncSession = Depends(get_session)):
             task.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
     return {"stopped": True}
+
+
+@router.post("/start-break")
+async def start_break(body: StartBreakBody = StartBreakBody(), session: AsyncSession = Depends(get_session)):
+    """Transition a running work cycle to break, or start a standalone break if idle.
+
+    Called by the proactive suggestion accept flow.  If pomodoro is already in a
+    work phase the current task is preserved.  If idle, a standalone break is started.
+    Optional `minutes` overrides the configured break duration (used for intensity-based breaks:
+    gentle → 5 min, strong → 15 min).
+    """
+    if pomodoro_service.is_running and pomodoro_service.phase == "work":
+        # Cancel the current work task and jump straight to break
+        if pomodoro_service._task and not pomodoro_service._task.done():
+            pomodoro_service._task.cancel()
+        pomodoro_service.standalone_break = False
+        await pomodoro_service._start_break_phase(override_minutes=body.minutes)
+    else:
+        # Idle — start a standalone break without a work phase
+        if body.minutes is not None:
+            break_minutes = body.minutes
+        else:
+            val = await get_setting_value(session, "pomodoro_break_minutes", "5")
+            break_minutes = int(val)
+        if pomodoro_service._task and not pomodoro_service._task.done():
+            pomodoro_service._task.cancel()
+        pomodoro_service.phase = "break"
+        pomodoro_service.total_seconds = break_minutes * 60
+        pomodoro_service.remaining_seconds = pomodoro_service.total_seconds
+        pomodoro_service.is_running = True
+        pomodoro_service.is_paused = False
+        pomodoro_service.standalone_break = True
+        import asyncio
+        pomodoro_service._task = asyncio.create_task(pomodoro_service._run())
+    return pomodoro_service.get_state()

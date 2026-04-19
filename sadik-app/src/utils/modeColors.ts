@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { settingsApi } from '../api/settings';
+import { DEFAULT_PRESET_ICONS } from './modeIcons';
 
-export interface CustomModeEntry { name: string; color: string; dnd: boolean; }
+export interface CustomModeEntry { name: string; color: string; dnd: boolean; icon?: string; }
 
 export const DEFAULT_PRESET_COLORS: Record<string, string> = {
   working: '#a78bfa',
@@ -28,6 +29,7 @@ export const PALETTE = [
 type State = {
   presetColors: Record<string, string>;
   presetDnd: Record<string, boolean>;
+  presetIcons: Record<string, string>;
   customModes: CustomModeEntry[];
   loaded: boolean;
 };
@@ -35,6 +37,7 @@ type State = {
 const state: State = {
   presetColors: { ...DEFAULT_PRESET_COLORS },
   presetDnd: { ...DEFAULT_PRESET_DND },
+  presetIcons: { ...DEFAULT_PRESET_ICONS },
   customModes: [],
   loaded: false,
 };
@@ -49,10 +52,11 @@ export async function loadModeColors(): Promise<void> {
     // Migrate: preset_mode_settings supersedes preset_mode_colors (adds dnd).
     if (s.preset_mode_settings) {
       try {
-        const parsed = JSON.parse(s.preset_mode_settings) as Record<string, { color: string; dnd?: boolean }>;
+        const parsed = JSON.parse(s.preset_mode_settings) as Record<string, { color: string; dnd?: boolean; icon?: string }>;
         Object.entries(parsed).forEach(([k, v]) => {
           if (v.color) state.presetColors[k] = v.color;
           if (typeof v.dnd === 'boolean') state.presetDnd[k] = v.dnd;
+          if (v.icon) state.presetIcons[k] = v.icon;
         });
       } catch { /* ignore */ }
     } else if (s.preset_mode_colors) {
@@ -72,6 +76,7 @@ export async function loadModeColors(): Promise<void> {
             name: String(o.name ?? ''),
             color: String(o.color ?? CUSTOM_DEFAULT_COLOR),
             dnd: typeof o.dnd === 'boolean' ? o.dnd : false,
+            icon: o.icon ? String(o.icon) : undefined,
           };
         }).filter((m) => m.name);
       } catch { /* ignore */ }
@@ -109,10 +114,14 @@ export function nextFreeColor(): string {
 
 async function persist(): Promise<void> {
   try {
-    // Build preset_mode_settings blob combining color + dnd
-    const presetSettings: Record<string, { color: string; dnd: boolean }> = {};
+    // Build preset_mode_settings blob combining color + dnd + icon
+    const presetSettings: Record<string, { color: string; dnd: boolean; icon: string }> = {};
     Object.keys(state.presetColors).forEach((k) => {
-      presetSettings[k] = { color: state.presetColors[k], dnd: state.presetDnd[k] ?? false };
+      presetSettings[k] = {
+        color: state.presetColors[k],
+        dnd:   state.presetDnd[k]   ?? false,
+        icon:  state.presetIcons[k] ?? DEFAULT_PRESET_ICONS[k] ?? 'briefcase',
+      };
     });
     await settingsApi.update({
       preset_mode_settings: JSON.stringify(presetSettings),
@@ -161,6 +170,24 @@ export function getCustomModes(): CustomModeEntry[] { return state.customModes; 
 export function getPresetColors(): Record<string, string> { return state.presetColors; }
 export function getPresetDnd(): Record<string, boolean> { return state.presetDnd; }
 
+export function getModeIcon(name: string): string | null {
+  if (state.presetIcons[name]) return state.presetIcons[name];
+  const c = state.customModes.find((m) => m.name === name);
+  return c?.icon ?? null;
+}
+
+export async function setPresetIcon(mode: string, icon: string): Promise<void> {
+  state.presetIcons = { ...state.presetIcons, [mode]: icon };
+  emit();
+  await persist();
+}
+
+export async function setCustomModeIcon(name: string, icon: string): Promise<void> {
+  state.customModes = state.customModes.map((m) => (m.name === name ? { ...m, icon } : m));
+  emit();
+  await persist();
+}
+
 /** Subscribe hook — rerenders on any color/custom-mode/dnd change. */
 export function useModeColors() {
   const [, setTick] = useState(0);
@@ -173,12 +200,16 @@ export function useModeColors() {
   return {
     presetColors: state.presetColors,
     presetDnd: state.presetDnd,
+    presetIcons: state.presetIcons,
     customModes: state.customModes,
     getModeColor,
     getModeDnd,
+    getModeIcon,
     nextFreeColor,
     setPresetColor,
     setModeDnd,
+    setPresetIcon,
+    setCustomModeIcon,
     addCustomMode,
     setCustomModeColor,
     removeCustomMode,

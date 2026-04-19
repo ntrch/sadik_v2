@@ -94,8 +94,12 @@ body {
   border-color: rgba(255, 255, 255, 0.06) !important;
 }
 
-/* ── Universal glass for interactive elements ─────────────────────────────── */
-button, .glass-btn {
+/* ── Glass for explicitly glass-styled buttons only ───────────────────────── */
+/* Removed the generic `button` selector — applying backdrop-filter to all
+   buttons inside .glass containers triggered a Chromium compositing bug where
+   nested backdrop-filter layers failed to paint their children on first render,
+   making card content invisible until hover forced a repaint. */
+.glass-btn {
   backdrop-filter: blur(12px) saturate(1.2);
   -webkit-backdrop-filter: blur(12px) saturate(1.2);
 }

@@ -109,8 +109,11 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-bg-card border border-border rounded-card w-full max-w-lg shadow-2xl">
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in"
+      onClick={onClose}
+    >
+      <div className="bg-bg-card border border-border rounded-card w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-border">
           <h2 className="text-base font-semibold text-text-primary">
             {task ? 'Görevi Düzenle' : 'Yeni Görev'}

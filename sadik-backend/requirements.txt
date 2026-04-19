@@ -10,3 +10,6 @@ edge-tts>=6.1.9
 python-multipart>=0.0.6
 pydantic>=2.5.3
 pydantic-settings>=2.1.0
+tzdata>=2024.1
+openwakeword>=0.6.0
+sounddevice>=0.4.6

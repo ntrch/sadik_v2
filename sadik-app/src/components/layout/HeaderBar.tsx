@@ -1,5 +1,6 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { Usb, Wifi, ChevronDown, X, RotateCw, Sun, SunDim, Mic, MicOff, Settings, Sunrise, CloudSun, Sunset, Moon, Radio, BellOff, Bell } from 'lucide-react';
+import { Usb, Wifi, ChevronDown, X, RotateCw, Sun, SunDim, Mic, MicOff, Settings, Sunrise, CloudSun, Sunset, Moon, Radio, BellOff, Bell, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, Cloud, CloudFog } from 'lucide-react';
+import type { WeatherGroup } from '../../api/weather';
 import { useDevice } from '../../hooks/useDevice';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { deviceApi, SerialPort } from '../../api/device';
@@ -16,12 +17,30 @@ function useCurrentTime() {
   return now;
 }
 
-function getTimeOfDayIcon(hour: number) {
-  if (hour >= 6 && hour < 12) return <Sunrise size={28} className="text-accent-yellow" />;
-  if (hour >= 12 && hour < 17) return <CloudSun size={28} className="text-accent-orange" />;
-  if (hour >= 17 && hour < 20) return <Sunset size={28} className="text-accent-orange" />;
-  if (hour >= 20 && hour < 23) return <Moon size={28} className="text-accent-purple" />;
-  return <Moon size={28} className="text-accent-yellow" />;
+function getTimeOfDayIcon(hour: number, size = 40) {
+  if (hour >= 6 && hour < 12) return <Sunrise size={size} className="text-accent-yellow" />;
+  if (hour >= 12 && hour < 17) return <CloudSun size={size} className="text-accent-orange" />;
+  if (hour >= 17 && hour < 20) return <Sunset size={size} className="text-accent-orange" />;
+  if (hour >= 20 && hour < 23) return <Moon size={size} className="text-accent-purple" />;
+  return <Moon size={size} className="text-accent-yellow" />;
+}
+
+/** Standalone weather icon — colored, shown to the right of the clock when
+ *  the feature is enabled. Sized to match the old time-of-day icon. */
+function getWeatherIcon(group: WeatherGroup | undefined, size = 42) {
+  if (!group) return null;
+  const filled = { fill: 'currentColor', strokeWidth: 1.25 } as const;
+  switch (group) {
+    case 'clear':        return <Sun            size={size} className="text-accent-yellow" {...filled} />;
+    case 'partly_cloudy':return <CloudSun       size={size} className="text-accent-orange" {...filled} />;
+    case 'clouds':       return <Cloud          size={size} className="text-text-secondary" {...filled} />;
+    case 'rain':         return <CloudRain      size={size} className="text-accent-cyan" {...filled} />;
+    case 'drizzle':      return <CloudDrizzle   size={size} className="text-accent-cyan" {...filled} />;
+    case 'thunderstorm': return <CloudLightning size={size} className="text-accent-purple" {...filled} />;
+    case 'snow':         return <CloudSnow      size={size} className="text-white" {...filled} />;
+    case 'mist':         return <CloudFog       size={size} className="text-text-secondary" {...filled} />;
+    default:             return <Cloud          size={size} className="text-text-secondary" {...filled} />;
+  }
 }
 
 export default function HeaderBar() {
@@ -30,6 +49,7 @@ export default function HeaderBar() {
     autoConnectDevice, wakeWordEnabled, wakeWordActive, toggleWakeWord,
     voiceAssistantActive, setVoiceUiVisible,
     dndActive, setDndActive,
+    weatherEnabled, weatherData,
   } = useContext(AppContext);
   const { connect, disconnect } = useDevice();
   const navigate = useNavigate();
@@ -80,20 +100,39 @@ export default function HeaderBar() {
 
   return (
     <header className="glass-heavy border-b border-border shadow-header sticky top-0 z-30">
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center px-5 py-2.5">
-        {/* Left — clock + date + greeting */}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center pl-8 pr-5 py-2.5">
+        {/* Left — weather icon (°C top-left) → clock+date → time-of-day icon → greeting */}
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2.5">
-            {getTimeOfDayIcon(hour)}
+          <div className="flex items-center gap-3">
+            {/* Weather icon first (colored, with °C badge top-left, spaced) */}
+            {weatherEnabled && weatherData && (
+              <>
+                <div
+                  className="relative inline-flex items-center justify-center flex-shrink-0"
+                  style={{ width: 48, height: 48 }}
+                  title={`${weatherData.description} • ${weatherData.city} • hissedilen ${weatherData.feels_like_c}°C`}
+                >
+                  {getWeatherIcon(weatherData.condition_group, 44)}
+                  <span className="absolute -top-3 -left-3 text-[10px] font-semibold text-text-primary tabular-nums bg-bg-card/90 rounded-full px-1.5 py-0.5 shadow-sm leading-none">
+                    {Math.round(weatherData.temp_c)}°
+                  </span>
+                </div>
+                <div className="w-px h-8 bg-border/40" />
+              </>
+            )}
+            {/* Clock + date with time-of-day icon inline next to the time */}
             <div>
-              <span className="text-2xl font-bold text-text-primary tabular-nums tracking-wide">{timeStr}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-3xl font-bold text-text-primary tabular-nums tracking-wide leading-none">{timeStr}</span>
+                <span className="flex-shrink-0">{getTimeOfDayIcon(hour, 24)}</span>
+              </div>
               <p className="text-xs text-text-secondary mt-0.5 capitalize">{dateStr}</p>
             </div>
           </div>
           {userName && (
             <>
               <div className="w-px h-8 bg-border/40" />
-              <span className="text-lg font-bold text-text-primary truncate">Merhaba, {userName}</span>
+              <span className="text-xl font-semibold text-text-primary truncate">Merhaba, {userName}</span>
             </>
           )}
         </div>
@@ -162,7 +201,7 @@ export default function HeaderBar() {
 
           <button
             onClick={() => setDndActive(!dndActive)}
-            title="Rahatsız Etmeyin"
+            title="Rahatsız Etmeyin (Windows'ta sistem Focus Assist'ini manuel açın: Win+A → Focus)"
             className={`p-2.5 rounded-full transition-all ${
               dndActive
                 ? 'bg-accent-red/20 text-accent-red hover:bg-accent-red/30'

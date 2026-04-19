@@ -3,6 +3,13 @@ import { getAnimationEngine } from '../engine/AnimationEngine';
 import { EngineState, AnimationEventType } from '../engine/types';
 import { deviceApi } from '../api/device';
 
+/** Map sadik_position setting → clip direction for focus-look. */
+function positionToClipDirection(pos: 'left' | 'right' | 'top'): 'left' | 'right' | 'down' {
+  if (pos === 'left')  return 'right'; // Sadık is left  → looks right (toward user)
+  if (pos === 'right') return 'left';  // Sadık is right → looks left  (toward user)
+  return 'down';                        // Sadık is top   → looks down  (toward user)
+}
+
 const defaultEngineState: EngineState = {
   playbackMode: 'text',
   currentClipName: null,
@@ -14,7 +21,11 @@ const defaultEngineState: EngineState = {
   fps: 12,
 };
 
-export function useAnimationEngine(deviceConnected: boolean) {
+export function useAnimationEngine(
+  deviceConnected: boolean,
+  sadikPosition: 'left' | 'right' | 'top' = 'left',
+  personaSlug: string = 'sadik',
+) {
   const engine = getAnimationEngine();
   const rafRef = useRef<number | null>(null);
   const bufferRef = useRef<Uint8Array>(new Uint8Array(1024));
@@ -24,7 +35,6 @@ export function useAnimationEngine(deviceConnected: boolean) {
 
   // Track frame streaming state with refs to avoid stale closures
   const deviceConnectedRef = useRef(deviceConnected);
-  const frameSendInFlightRef = useRef(false);
 
   // Keep ref in sync
   useEffect(() => {
@@ -42,61 +52,62 @@ export function useAnimationEngine(deviceConnected: boolean) {
       }
     });
 
-    // Single frame clock — preview AND OLED stream advance from the same
-    // callback so they stay frame-perfect in sync. The engine already paces
-    // frame production at clip.fps (~12fps) and only emits in text mode when
-    // the buffer changes, so no time-based throttle is needed here.
+    // Two-consumer design with rate matching:
+    //   • onFrameReady stages the LATEST buffer snapshot only.
+    //   • Background pump takes the latest, sends to OLED, and on ACK bumps
+    //     the preview — so screen preview visually matches the OLED refresh
+    //     rate exactly. When disconnected, preview repaints immediately on
+    //     each engine emit (OLED path skipped entirely).
+    const latestPendingBuffer: { current: Uint8Array | null } = { current: null };
     let frameCount = 0;
+
     engine.onFrameReady((buffer: Uint8Array) => {
-      // Snapshot the buffer for the preview canvas. The actual repaint
-      // (frameVersion bump) is deferred until the OLED has received this
-      // frame, so the preview never runs ahead of the physical display.
-      bufferRef.current = buffer;
-
-      // No device link → preview is the only consumer; repaint immediately.
+      const snapshot = new Uint8Array(buffer);
+      latestPendingBuffer.current = snapshot;
       if (!deviceConnectedRef.current) {
+        bufferRef.current = snapshot;
         setFrameVersion((v) => v + 1);
-        return;
       }
-      // Back-pressure: drop this frame if the previous send is still in
-      // flight. Dropping here also skips the preview repaint, keeping the
-      // two views frame-aligned.
-      if (frameSendInFlightRef.current) return;
+    });
 
-      frameSendInFlightRef.current = true;
-      frameCount++;
-      if (frameCount <= 5 || frameCount % 60 === 0) {
-        console.log(`[FrameStream] sending frame #${frameCount}, buffer[0..3]=${buffer[0]},${buffer[1]},${buffer[2]},${buffer[3]}`);
-      }
-      deviceApi.sendFrame(buffer)
-        .then((res: { success: boolean; error?: string }) => {
+    let pumpAlive = true;
+    const pump = async () => {
+      while (pumpAlive) {
+        const buf = latestPendingBuffer.current;
+        if (!buf || !deviceConnectedRef.current) {
+          await new Promise((r) => setTimeout(r, 30));
+          continue;
+        }
+        latestPendingBuffer.current = null;
+        frameCount++;
+        if (frameCount <= 5 || frameCount % 60 === 0) {
+          console.log(`[FrameStream] sending frame #${frameCount}`);
+        }
+        try {
+          const res = await deviceApi.sendFrame(buf);
           if (res.success) {
-            // Firmware ACK received → OLED has rendered this frame. Repaint
-            // preview in the same instant so the two views stay atomic.
+            // Screen preview now mirrors the OLED's true refresh cadence.
+            bufferRef.current = buf;
             setFrameVersion((v) => v + 1);
           } else {
-            // ACK timeout or serial failure — OLED did NOT render this
-            // frame. Do NOT bump preview (would desync). Ask the engine to
-            // re-emit the current buffer on the next tick so transient
-            // drops eventually recover (matters most for static text).
-            console.warn('[FrameStream] drop:', res.error);
+            console.warn('[FrameStream] drop');
             engine.markBufferDirty();
           }
-        })
-        .catch((e: unknown) => {
+        } catch (e) {
           console.warn('[FrameStream] send failed:', e);
           engine.markBufferDirty();
-        })
-        .finally(() => { frameSendInFlightRef.current = false; });
-    });
+        }
+      }
+    };
+    pump();
 
     // Register state change listener (throttled in the RAF loop instead)
     engine.onStateChange((state) => {
       setEngineState(state);
     });
 
-    // Load clips on mount
-    engine.loadClips();
+    // Load clips on mount (per active persona)
+    engine.loadClips(personaSlug);
 
     // rAF loop — drives the engine clock only. Preview repaint and OLED send
     // both happen inside onFrameReady, so they share the same cadence.
@@ -109,6 +120,7 @@ export function useAnimationEngine(deviceConnected: boolean) {
 
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      pumpAlive = false;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -122,6 +134,51 @@ export function useAnimationEngine(deviceConnected: boolean) {
     // APP_DISCONNECTED is sent by the backend disconnect endpoint before closing
     // the serial port, so the firmware receives it while the link is still open.
   }, [deviceConnected]);
+
+  // ── Focus-look wiring ────────────────────────────────────────────────────────
+  // Tracks window focus state via Electron IPC when available, falling back to
+  // document visibility / window focus events for web/dev builds.
+  const windowFocusedRef = useRef(false);
+
+  // Re-apply focus-look whenever sadikPosition changes while window is focused.
+  useEffect(() => {
+    if (!windowFocusedRef.current) return;
+    engine.setFocusLook(positionToClipDirection(sadikPosition));
+  }, [sadikPosition]);
+
+  useEffect(() => {
+    const applyFocus = (focused: boolean) => {
+      windowFocusedRef.current = focused;
+      if (focused) {
+        engine.setFocusLook(positionToClipDirection(sadikPosition));
+      } else {
+        engine.setFocusLook(null);
+      }
+    };
+
+    const electronAPI = (window as any).electronAPI;
+    if (electronAPI?.onAppFocusChanged && electronAPI?.getFocusState) {
+      // Electron path: subscribe to IPC events + query initial state
+      electronAPI.onAppFocusChanged(applyFocus);
+      electronAPI.getFocusState().then((focused: boolean) => applyFocus(focused)).catch(() => {});
+    } else {
+      // Fallback (web / no Electron preload)
+      const onFocus    = () => applyFocus(true);
+      const onBlur     = () => applyFocus(false);
+      const onVisibility = () => applyFocus(document.visibilityState === 'visible');
+      window.addEventListener('focus', onFocus);
+      window.addEventListener('blur',  onBlur);
+      document.addEventListener('visibilitychange', onVisibility);
+      // Apply initial state
+      applyFocus(!document.hidden);
+      return () => {
+        window.removeEventListener('focus', onFocus);
+        window.removeEventListener('blur',  onBlur);
+        document.removeEventListener('visibilitychange', onVisibility);
+      };
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const triggerEvent = useCallback(
     (event: AnimationEventType, payload?: { text?: string }) => {
@@ -150,6 +207,20 @@ export function useAnimationEngine(deviceConnected: boolean) {
     engine.playModSequence(intro, loop);
   }, []);
 
+  const playModSequenceWithCallback = useCallback(
+    (intro: string, loop: string, onIntroFinish?: () => void) => {
+      engine.playModSequenceWithCallback(intro, loop, onIntroFinish);
+    },
+    [],
+  );
+
+  const playModIntroOnce = useCallback(
+    (intro: string, onFinish?: () => void) => {
+      engine.playModIntroOnce(intro, onFinish);
+    },
+    [],
+  );
+
   const getLoadedClipNames = useCallback(() => engine.getLoadedClipNames(), []);
 
   return {
@@ -162,6 +233,8 @@ export function useAnimationEngine(deviceConnected: boolean) {
     playClipDirect,
     playModClip,
     playModSequence,
+    playModSequenceWithCallback,
+    playModIntroOnce,
     getLoadedClipNames,
   };
 }

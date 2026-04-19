@@ -3,7 +3,6 @@ import { Mic, MicOff, Volume2, Radio, X } from 'lucide-react';
 import axios from 'axios';
 import { MicVAD } from '@ricky0123/vad-web';
 import { voiceApi } from '../../api/voice';
-import { chatApi } from '../../api/chat';
 import { AppContext } from '../../context/AppContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -171,6 +170,7 @@ export default function VoiceAssistant() {
   const recordingStartTimeRef    = useRef<number>(0);        // Date.now() when recorder.start() fires
   const conversationActiveRef    = useRef(false);            // true while in an active voice conversation session
   const didntHearCountRef        = useRef(0);                // consecutive didntHear retries (safety limit)
+  const _listeningInProgress     = useRef(false);            // prevents concurrent startListening() calls
 
   // ── Refs — speaking interruption detector ─────────────────────────────────
   const interruptAudioCtxRef    = useRef<AudioContext | null>(null);
@@ -412,8 +412,32 @@ export default function VoiceAssistant() {
     setStatusOverride(null);
     setVoiceState('idle');
     returnToIdle();
+    // Drop any persistent mic stream so the OS fully releases the input device.
+    try {
+      if (persistentStreamRef.current) {
+        persistentStreamRef.current.getTracks().forEach((t) => t.stop());
+        persistentStreamRef.current = null;
+      }
+    } catch { /* ignore */ }
+    // Pause (don't stop) and auto-resume after a short settle window so the
+    // user doesn't have to toggle wake manually after every cancel. The 10 s
+    // frontend cooldown already fires from the detection that started this
+    // turn, so pausing here just keeps the WS alive; resumeWakeWord clears
+    // the cooldown so the next "Hey Jarvis" is heard immediately.
+    pauseWakeWord();
     resumeWakeWord();
-  }, [returnToIdle, resumeWakeWord, stopPlayback, stopSilenceDetection, destroyVAD, stopSpeakingInterruptDetection]);
+  }, [returnToIdle, pauseWakeWord, resumeWakeWord, stopPlayback, stopSilenceDetection, destroyVAD, stopSpeakingInterruptDetection]);
+
+  // Global Escape: cancel voice from anywhere in the app while a turn is live.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (voiceStateRef.current === 'idle') return;
+      cancelVoice();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cancelVoice]);
 
   // ── Speaking interruption detector — start ────────────────────────────────
   //
@@ -561,6 +585,23 @@ export default function VoiceAssistant() {
         return;
       }
 
+      // ── Step 2c: Hallucination filter — min 3 alphabetic chars total ──────
+      // Rejects noise artifacts like "M.K.", "a b", single-letter bursts that
+      // pass the word-count check above but carry no meaningful content.
+      const lettersOnly = trimmed.replace(/[^a-zA-ZğüşıöçĞÜŞİÖÇ]/g, '');
+      if (lettersOnly.length < 3) {
+        console.log('[STT] rejected short/noise transcript:', trimmed);
+        await handleDidntHear(signal);
+        return;
+      }
+      // Also reject if every word is ≤2 chars (e.g. "M K", "a b c")
+      const allWords = trimmed.split(/\s+/);
+      if (allWords.length > 0 && allWords.every((w) => w.replace(/[^a-zA-ZğüşıöçĞÜŞİÖÇ]/g, '').length <= 2)) {
+        console.log('[STT] rejected short/noise transcript:', trimmed);
+        await handleDidntHear(signal);
+        return;
+      }
+
       // ── Step 2b: Reject noise artifacts and accidental wake-name re-triggers ─
       //
       // Guards applied in sequence (all resolve to "didn't hear"):
@@ -629,92 +670,173 @@ export default function VoiceAssistant() {
       userRequestedEndRef.current = isUserEndingConversation(trimmed);
       didntHearCountRef.current = 0;  // Reset retry counter on successful speech
 
-      // ── Step 3: LLM ───────────────────────────────────────────────────────
-      // Thinking animation continues looping — no event change during LLM wait.
-      const res = await chatApi.sendMessage(trimmed, true, signal);
-      if (signal.aborted) return;
+      // ── Steps 3+4+5: Streaming LLM → TTS per sentence ────────────────────
+      //
+      // Instead of waiting for the full LLM response then sending it all to TTS,
+      // we stream LLM tokens on the backend, flush each sentence to edge-tts as
+      // it arrives, and play audio chunks sequentially.  The user hears the first
+      // sentence in ~2-4s instead of ~20s.
+      //
+      // Protocol: backend sends length-prefixed MP3 frames.
+      // voiceApi.voiceChatStream() decodes frames and calls onChunk per sentence.
 
-      const reply = res.response;
-      setBubbles((p) => [...p, { role: 'assistant', text: reply }]);
+      // Queue of audio blobs received from the stream.
+      const audioQueue: Blob[] = [];
+      let   streamDone         = false;
+      let   playingChunkIdx    = 0;   // index of the chunk currently being played
 
-      // ── Step 4: TTS fetch ─────────────────────────────────────────────────
-      // Keep the thinking animation looping throughout TTS generation.
-      // understanding_resolved fires only after the audio blob is ready so the
-      // understanding clip flows directly into speaking — the engine never has a
-      // chance to return to idle between the two events.
-      const audioBlob = await voiceApi.tts(prepareTtsText(reply), signal);
-      if (signal.aborted) return;
+      // Refs used inside the onChunk closure — stable across re-renders because
+      // processAudio is a useCallback and this closure is created fresh each call.
+      const onChunk = (blob: Blob, idx: number) => {
+        if (signal.aborted) return;
+        audioQueue.push(blob);
+        console.log(`[Voice] Received audio chunk #${idx} (${blob.size} bytes)`);
 
-      // ── Step 5: Understanding/Confirmation flash → speaking ───────────────
-      // Audio is in hand — flash understanding (or confirming) before playback.
-      const confirmatory = isConfirmation(reply);
-      console.log(`[Voice] Reply confirmation check: ${confirmatory} (first 80: "${reply.slice(0, 80)}")`);
-      if (confirmatory) {
-        triggerEvent('confirmation_success');
-      } else {
-        triggerEvent('understanding_resolved');
-      }
-      await sleep(1000, signal);         // hold understanding clip ≥ 1000 ms
-      if (signal.aborted) return;
+        // If this is the first chunk, trigger understanding animation + start playback.
+        if (idx === 0) {
+          // We don't have the text yet — use generic understanding event.
+          triggerEvent('understanding_resolved');
+          // Small lead-in so the clip has time to register before speaking starts.
+          setTimeout(() => {
+            if (signal.aborted) return;
+            setVoiceState('speaking');
+            triggerEvent('assistant_speaking');
+            if (!continuousConversationRef.current) resumeWakeWord();
+            playNextChunk();
+          }, 600);
+        }
+      };
 
-      setVoiceState('speaking');
-      triggerEvent('assistant_speaking');   // talking animation — loops while audio plays
+      // Sequential chunk player — called after each chunk finishes playing.
+      const playNextChunk = () => {
+        if (signal.aborted) return;
+        if (playingChunkIdx >= audioQueue.length) {
+          if (streamDone) {
+            // All chunks played — conversation finished.
+            stopSpeakingInterruptDetection();
+            const reply = lastReplyRef.current;
+            const shouldEnd = continuousConversationRef.current
+              ? userRequestedEndRef.current
+              : isConversationEnding(reply) || userRequestedEndRef.current;
+            userRequestedEndRef.current = false;
+            if (continuousConversationRef.current && !shouldEnd) {
+              triggerEvent('user_speaking');
+              setTimeout(() => startListeningRef.current(), 800);
+            } else {
+              conversationActiveRef.current = false;
+              didntHearCountRef.current = 0;
+              destroyVAD();
+              triggerEvent('conversation_finished');
+              pauseWakeWord();
+              if (returnTimer.current) clearTimeout(returnTimer.current);
+              returnTimer.current = setTimeout(() => returnToIdleFlow(), 1200);
+            }
+          }
+          // else: stream still in progress — onChunk will call playNextChunk
+          // when the next blob arrives via the setTimeout below.
+          return;
+        }
 
-      const url   = URL.createObjectURL(audioBlob);
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      lastReplyRef.current = reply;
+        const blob = audioQueue[playingChunkIdx];
+        playingChunkIdx++;
+        const url   = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audioRef.current = audio;
 
-      // Route to selected output device if the browser supports setSinkId.
-      if (selectedAudioOutputIdRef.current !== 'default') {
-        const audioWithSink = audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
-        if (typeof audioWithSink.setSinkId === 'function') {
-          try {
-            await audioWithSink.setSinkId(selectedAudioOutputIdRef.current);
-          } catch (e) {
-            console.warn('[Voice] setSinkId failed, using default output:', e);
+        if (selectedAudioOutputIdRef.current !== 'default') {
+          const audioWithSink = audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+          if (typeof audioWithSink.setSinkId === 'function') {
+            audioWithSink.setSinkId(selectedAudioOutputIdRef.current).catch((e) =>
+              console.warn('[Voice] setSinkId failed:', e)
+            );
           }
         }
+
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          playNextChunk();
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          playNextChunk();
+        };
+
+        audio.play().catch((e) => {
+          console.warn('[Voice] Chunk play failed:', e);
+          URL.revokeObjectURL(url);
+          playNextChunk();
+        });
+      };
+
+      // Poll for new chunks while stream is in progress (handles chunks arriving
+      // after the player has caught up with the queue).
+      const schedulePoll = () => {
+        if (signal.aborted || streamDone) return;
+        setTimeout(() => {
+          if (playingChunkIdx < audioQueue.length) {
+            // New chunk available — start playing if not already.
+            if (!audioRef.current || audioRef.current.paused) playNextChunk();
+          }
+          schedulePoll();
+        }, 200);
+      };
+      schedulePoll();
+
+      // Fire the stream — this resolves when all LLM+TTS is done.
+      const streamedReply = await voiceApi.voiceChatStream(
+        prepareTtsText(trimmed),
+        [],   // history handled server-side via DB
+        onChunk,
+        signal,
+      );
+      streamDone = true;
+      console.log('[Voice] voiceChatStream complete, reply:', streamedReply.slice(0, 80));
+
+      // Update bubble and refs with the full reply text from the metadata frame.
+      if (streamedReply) {
+        setBubbles((p) => [...p, { role: 'assistant', text: streamedReply }]);
+        lastReplyRef.current = streamedReply;
+        userRequestedEndRef.current = isUserEndingConversation(trimmed)
+          || isConversationEnding(streamedReply);
       }
 
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
+      // If no chunks arrived (e.g. empty LLM reply), fall back to didntHear.
+      if (audioQueue.length === 0) {
+        console.warn('[Voice] No audio chunks received from stream — didntHear');
+        await handleDidntHear(signal);
+        return;
+      }
+
+      // If playback hasn't started yet (stream resolved before 600ms setTimeout),
+      // trigger it now.
+      if (playingChunkIdx === 0 && voiceStateRef.current !== 'speaking') {
+        triggerEvent('understanding_resolved');
+        await sleep(600, signal);
+        if (signal.aborted) return;
+        setVoiceState('speaking');
+        triggerEvent('assistant_speaking');
+        if (!continuousConversationRef.current) resumeWakeWord();
+        playNextChunk();
+      } else if (playingChunkIdx >= audioQueue.length) {
+        // All chunks already played before streamDone was set — trigger finish now.
         stopSpeakingInterruptDetection();
+        const reply = lastReplyRef.current;
         const shouldEnd = continuousConversationRef.current
           ? userRequestedEndRef.current
-          : isConversationEnding(lastReplyRef.current) || userRequestedEndRef.current;
+          : isConversationEnding(reply) || userRequestedEndRef.current;
         userRequestedEndRef.current = false;
         if (continuousConversationRef.current && !shouldEnd) {
-          // Continuous mode: loop straight back to listening — no goodbye animation.
           triggerEvent('user_speaking');
           setTimeout(() => startListeningRef.current(), 800);
         } else {
-          // Normal mode or conversation-ending response: goodbye animation → idle.
           conversationActiveRef.current = false;
           didntHearCountRef.current = 0;
           destroyVAD();
-          triggerEvent('conversation_finished');  // goodbye_to_idle animation
-          // Pause wake word; returnToIdleFlow re-arms it with its 800 ms delay.
+          triggerEvent('conversation_finished');
           pauseWakeWord();
           if (returnTimer.current) clearTimeout(returnTimer.current);
           returnTimer.current = setTimeout(() => returnToIdleFlow(), 1200);
         }
-      };
-
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        stopSpeakingInterruptDetection();
-        returnToIdleFlow();
-      };
-
-      await audio.play();
-
-      // Re-arm wake word during TTS playback so barge-in is possible.
-      // SKIP in continuous mode: resumeWakeWord opens a new getUserMedia session
-      // which kills the persistent voice stream on Windows WASAPI.  In continuous
-      // mode barge-in isn't needed — the user just speaks on the next turn.
-      if (!continuousConversationRef.current) {
-        resumeWakeWord();
       }
 
       // Speaking interrupt detection disabled (safe mode):
@@ -736,6 +858,16 @@ export default function VoiceAssistant() {
   // ── Start listening ────────────────────────────────────────────────────────
 
   const startListening = useCallback(async (_fromWake?: boolean) => {
+    // Prevent concurrent entry — continuous-mode paths (playNextChunk, handleDidntHear,
+    // barge-in) can call startListening() from multiple setTimeout callbacks that
+    // race each other.  A second concurrent call would create a second MediaRecorder
+    // on the same stream, orphaning the first and duplicating VAD reset logic.
+    if (_listeningInProgress.current) {
+      console.log('[Voice] startListening: skipped — already entering (concurrent call)');
+      return;
+    }
+    _listeningInProgress.current = true;
+
     setError(null);
     cancelledRef.current  = false;
     conversationActiveRef.current = true;
@@ -945,7 +1077,14 @@ export default function VoiceAssistant() {
         }
       }, NO_SPEECH_TIMEOUT_MS);
 
+      // Recording is live — release the entry guard so the NEXT turn can enter.
+      // (It is intentionally cleared here, AFTER recorder.start() + VAD are live,
+      // so a truly concurrent call still gets blocked but the NEXT sequential
+      // turn — after recorder.onstop fires — can enter correctly.)
+      _listeningInProgress.current = false;
+
     } catch {
+      _listeningInProgress.current = false;
       setError('Mikrofon erişimi reddedildi');
       resumeWakeWord();
     }
