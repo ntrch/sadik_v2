@@ -110,7 +110,15 @@
   - Ara fix: STT halüsinasyon (RMS gate 0.005 + temperature=0 + 21 TR blacklist)
   - Ara fix: Text input focus (VoiceAssistant wakeWordPending/Escape handler'lara `isInputFocused()` guard)
 - **Sprint 2.5 tamamlandı ✅**
-- **Sprint 2.7 tamamlandı ✅ — 3-tier privacy preset (Full/Hybrid/Local) + advanced override — sıradaki: Sprint 3 (behavioral learning)**
+- **Sprint 2.7 tamamlandı ✅ — 3-tier privacy preset (Full/Hybrid/Local) + advanced override**
+- **Sprint 2.8 WIP — Notion-benzeri TaskDetailDrawer (rich-text `notes`, TipTap, sağdan slide)**
+  - ✅ TipTap deps (`@tiptap/react`, `starter-kit`, `image`, `task-list/item`, `placeholder`)
+  - ✅ `TaskDetailDrawer.tsx` (max-w 560px, sağdan slide, meta (status/priority/due) + rich editor + autosave 500ms)
+  - ✅ TaskBoard kart tıklaması drawer açıyor; "Yeni Görev" modal hızlı-ekleme için aynen kalıyor
+  - ✅ `notes` alanı JSON-aware — legacy plaintext paragraph olarak sarmalanıyor, veri kaybı yok
+  - ⏭️ Verify: eski görevler drawer'da açıldığında plaintext kaybolmuyor; görsel 2MB'a kadar base64 ekleniyor
+  - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
+
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 

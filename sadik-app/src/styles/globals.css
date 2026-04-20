@@ -141,3 +141,114 @@ body {
 button, a, input, select {
   transition: all 0.15s ease;
 }
+
+/* ── TipTap / ProseMirror editor styles ───────────────────────────────────── */
+
+.tiptap-editor .ProseMirror {
+  outline: none;
+  min-height: 100%;
+  color: #e4e4e7;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.tiptap-editor .ProseMirror > * + * {
+  margin-top: 0.6em;
+}
+
+.tiptap-editor .ProseMirror h1 { font-size: 1.8em; font-weight: 700; margin-top: 0.9em; }
+.tiptap-editor .ProseMirror h2 { font-size: 1.45em; font-weight: 700; margin-top: 0.8em; }
+.tiptap-editor .ProseMirror h3 { font-size: 1.2em; font-weight: 600; margin-top: 0.7em; }
+
+.tiptap-editor .ProseMirror ul,
+.tiptap-editor .ProseMirror ol {
+  padding-left: 1.2rem;
+}
+
+.tiptap-editor .ProseMirror ul { list-style-type: disc; }
+.tiptap-editor .ProseMirror ol { list-style-type: decimal; }
+
+.tiptap-editor .ProseMirror code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+.tiptap-editor .ProseMirror pre {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.9em;
+  overflow-x: auto;
+}
+.tiptap-editor .ProseMirror pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.tiptap-editor .ProseMirror blockquote {
+  border-left: 3px solid rgba(167, 139, 250, 0.5);
+  padding-left: 0.9rem;
+  color: #a1a1aa;
+  font-style: italic;
+}
+
+.tiptap-editor .ProseMirror img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 0.5rem 0;
+}
+
+.tiptap-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 1rem 0;
+}
+
+.tiptap-editor .ProseMirror ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+.tiptap-editor .ProseMirror ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.tiptap-editor .ProseMirror ul[data-type='taskList'] li > label {
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+}
+.tiptap-editor .ProseMirror ul[data-type='taskList'] li > div {
+  flex: 1;
+}
+.tiptap-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox'] {
+  accent-color: #a78bfa;
+  cursor: pointer;
+}
+.tiptap-editor .ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div > p {
+  color: #71717a;
+  text-decoration: line-through;
+}
+
+.tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #52525b;
+  pointer-events: none;
+  height: 0;
+  float: left;
+}
+
+/* ── Drawer slide-in ───────────────────────────────────────────────────────── */
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}

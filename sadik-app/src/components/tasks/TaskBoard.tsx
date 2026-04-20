@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Task, tasksApi } from '../../api/tasks';
 import TaskColumn from './TaskColumn';
 import TaskModal from './TaskModal';
+import TaskDetailDrawer from './TaskDetailDrawer';
 import { AppContext } from '../../context/AppContext';
 
 const COLUMNS = [
@@ -22,6 +23,7 @@ export default function TaskBoard({ highlightTaskId }: TaskBoardProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | undefined>();
   const [showModal, setShowModal] = useState(false);
+  const [drawerTask, setDrawerTask] = useState<Task | null>(null);
   const [defaultStatus, setDefaultStatus] = useState('todo');
   const [draggedTaskId, setDraggedTaskId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -46,8 +48,7 @@ export default function TaskBoard({ highlightTaskId }: TaskBoardProps) {
     const target = tasks.find((t) => t.id === highlightTaskId);
     if (target) {
       highlightHandledRef.current = true;
-      setSelectedTask(target);
-      setShowModal(true);
+      setDrawerTask(target);
     }
   }, [highlightTaskId, tasks]);
 
@@ -58,8 +59,7 @@ export default function TaskBoard({ highlightTaskId }: TaskBoardProps) {
   };
 
   const openEdit = (task: Task) => {
-    setSelectedTask(task);
-    setShowModal(true);
+    setDrawerTask(task);
   };
 
   const handleStartPomodoro = (task: Task) => {
@@ -140,6 +140,14 @@ export default function TaskBoard({ highlightTaskId }: TaskBoardProps) {
           task={selectedTask}
           defaultStatus={defaultStatus}
           onClose={() => setShowModal(false)}
+          onSaved={loadTasks}
+        />
+      )}
+
+      {drawerTask && (
+        <TaskDetailDrawer
+          task={drawerTask}
+          onClose={() => setDrawerTask(null)}
           onSaved={loadTasks}
         />
       )}
