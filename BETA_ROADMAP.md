@@ -255,7 +255,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - `summary_tr`: top-3 blok by duration ("Pazartesi 09-12 kod yazma; Salı 13-15 toplantı; ...")
   - `chat_service._build_messages` — `behavioral_summary` kwarg → system prompt'a eklenir
   - Gate: `privacy_flags["privacy_behavioral_learning"]=True` (default sadece Full tier'da)
-- [ ] **T3.3** Behavioral insight proactive category
+- [~] **T3.3 WIP [session-A]** Behavioral insight proactive category
   - Mevcut proactive sistemin üstüne yeni kategori
   - Logic: beklenen mode aktif değil + yetişecek task var + düşük usage → öneri
 
