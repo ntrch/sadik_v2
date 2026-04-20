@@ -8,6 +8,10 @@ from typing import Optional
 from app.database import get_session
 from app.models.app_usage_session import AppUsageSession
 from app.services.mode_tracker import mode_tracker
+from app.services.behavioral_insight import (
+    evaluate_behavioral_insight,
+    mark_behavioral_insight_fired,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/stats", tags=["stats"])
@@ -201,9 +205,10 @@ async def get_app_usage_insights(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Return ALL apps exceeding usage thresholds for today.
-    Each item has app_name, level, message. Returns {has_insight: false, insights: []}
-    when no threshold is reached.
+    Return ALL apps exceeding usage thresholds for today, plus a behavioral
+    insight (source='behavioral') when the privacy flag is on and conditions
+    hold.  Each item has app_name, level, message. Returns {has_insight: false,
+    insights: []} when no threshold is reached.
     """
     today     = datetime.now().date()
     day_start = datetime.combine(today, dt_time.min)
@@ -240,15 +245,38 @@ async def get_app_usage_insights(
                 "message":  f"{duration_str} {app_name} kullanıyorsun. Kısa bir mola iyi gelebilir.",
             })
 
-    if not insights:
+    # ── Behavioral insight category (T3.3) ───────────────────────────────────
+    # Evaluated alongside app-usage; fires only when privacy_behavioral_learning
+    # is True, the user is off-pattern, and an open task exists.  Anti-spam:
+    # 24 h cooldown persisted in Setting "proactive_behavioral_last_fired_at".
+    behavioral: Optional[dict] = None
+    try:
+        behavioral = await evaluate_behavioral_insight(session)
+        if behavioral:
+            # Mark delivered so anti-spam 24 h window starts now.
+            await mark_behavioral_insight_fired(session)
+    except Exception as exc:
+        logger.warning("[stats] behavioral_insight evaluation failed: %s", exc)
+
+    if not insights and not behavioral:
         return {"has_insight": False, "insights": []}
 
-    # Backward compat: top-level fields from the first (most used) app
-    top = insights[0]
-    return {
-        "has_insight": True,
-        "app_name":    top["app_name"],
-        "level":       top["level"],
-        "message":     top["message"],
-        "insights":    insights,
-    }
+    if insights:
+        # App-usage path — backward compat: top-level fields from the first app.
+        top = insights[0]
+        response: dict = {
+            "has_insight": True,
+            "app_name":    top["app_name"],
+            "level":       top["level"],
+            "message":     top["message"],
+            "source":      "app_usage",
+            "insights":    insights,
+        }
+        # Attach behavioral as secondary insight if present
+        if behavioral:
+            response["behavioral"] = behavioral
+        return response
+
+    # Behavioral-only path — no app-usage threshold reached.
+    assert behavioral is not None
+    return behavioral

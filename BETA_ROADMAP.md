@@ -255,9 +255,14 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - `summary_tr`: top-3 blok by duration ("Pazartesi 09-12 kod yazma; Salı 13-15 toplantı; ...")
   - `chat_service._build_messages` — `behavioral_summary` kwarg → system prompt'a eklenir
   - Gate: `privacy_flags["privacy_behavioral_learning"]=True` (default sadece Full tier'da)
-- [~] **T3.3 WIP [session-A]** Behavioral insight proactive category
-  - Mevcut proactive sistemin üstüne yeni kategori
-  - Logic: beklenen mode aktif değil + yetişecek task var + düşük usage → öneri
+- [x] **T3.3 tamam [session-A]** Behavioral insight proactive category ✅
+  - Yeni: `sadik-backend/app/services/behavioral_insight.py` — `evaluate_behavioral_insight(session)` + `mark_behavioral_insight_fired(session)`
+  - `sadik-backend/app/routers/stats.py` — `/app-usage/insights` endpoint'i behavioral kategorisini app-usage ile birlikte evaluate ediyor; behavioral-only path dict döner, app-usage path `behavioral` alt-alanı ekler
+  - Gate: `privacy_behavioral_learning` false iken ilk satırda return None + debug log
+  - Trigger: dow+block'ta `dominant_mode` var & `session_count >= 3` & current_mode ≠ dominant_mode & açık task var (önce <24h due, fallback any open)
+  - Level: due <= now+2h ise `strong`, aksi halde `gentle`
+  - Anti-spam: Setting key `proactive_behavioral_last_fired_at` ISO timestamp, 24h cooldown
+  - Action: `{"type": "switch_mode", "mode": dominant_mode}` — frontend wiring T3.5 scope
 
 **Concurrency zone B (frontend):**
 - [x] **T3.4 tamam [session-B]** Dashboard'da "Profil" kartı (opt-in toggle açıksa) ✅
