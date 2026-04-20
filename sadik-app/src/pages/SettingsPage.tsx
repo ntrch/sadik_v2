@@ -11,6 +11,7 @@ import { deviceApi, SerialPort } from '../api/device';
 import { chatApi } from '../api/chat';
 import { wakeApi, WakeModel } from '../api/wake';
 import { AppContext } from '../context/AppContext';
+import { KVKK_NOTICE } from '../content/kvkkNotice';
 
 const DEFAULT_SETTINGS: Settings = {
   openai_api_key: '',
@@ -1179,19 +1180,30 @@ const [saving, setSaving] = useState(false);
 
     {/* KVKK modal */}
     {kvkkModal && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-        <div className="bg-bg-card border border-border rounded-card w-full max-w-md mx-4 p-6 space-y-4">
-          <div className="flex items-center justify-between">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="bg-bg-card border border-border rounded-card w-full max-w-2xl max-h-[85vh] flex flex-col">
+          <div className="flex items-center justify-between p-6 border-b border-border">
             <h3 className="text-base font-bold text-text-primary">KVKK Aydınlatma Metni</h3>
             <button onClick={() => setKvkkModal(false)} className="text-text-muted hover:text-text-primary"><X size={18} /></button>
           </div>
-          <p className="text-sm text-text-muted leading-relaxed">Aydınlatma metni burada olacak (T2.6).</p>
-          <button
-            onClick={() => setKvkkModal(false)}
-            className="w-full py-2 text-sm rounded-btn bg-bg-input border border-border text-text-secondary hover:text-text-primary transition-colors"
-          >
-            Kapat
-          </button>
+          <div className="flex-1 overflow-y-auto p-6 space-y-5">
+            {KVKK_NOTICE.map((section) => (
+              <div key={section.title}>
+                <h4 className="text-sm font-semibold text-text-primary mb-2">{section.title}</h4>
+                {section.body.map((para, i) => (
+                  <p key={i} className="text-sm text-text-muted leading-relaxed whitespace-pre-line mb-2">{para}</p>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="p-6 border-t border-border">
+            <button
+              onClick={() => setKvkkModal(false)}
+              className="w-full py-2 text-sm rounded-btn bg-bg-input border border-border text-text-secondary hover:text-text-primary transition-colors"
+            >
+              Kapat
+            </button>
+          </div>
         </div>
       </div>
     )}

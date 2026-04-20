@@ -105,7 +105,7 @@
 - ✅ T1.4 proaktif regression — 1 bug fix + 4 telemetry log
 - ⏸️ T1.5 wake-word 48h monitoring — gerçek kullanıma ertelendi (beta'da gözlemlenir)
 - ⏸️ T1.6 memory leak testi — gerçek kullanıma ertelendi
-- **Sprint 2 — T2.1-T2.5 ✅, sıradaki: T2.6 KVKK aydınlatma metni içeriği**
+- **Sprint 2 tamamlandı ✅ — sıradaki: STT halüsinasyon fix (ara task) → sonra Sprint 3**
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
@@ -181,7 +181,10 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Backend: DEFAULT_SETTINGS'e `onboarding_completed=false` eklendi
   - Yeni: `sadik-app/src/pages/OnboardingPage.tsx`; App.tsx AppShell'de gating
   - KVKK metni linki placeholder (T2.6'da dolacak)
-- [WIP] **T2.6** KVKK aydınlatma metni dosyası (statik)
+- [x] **T2.6** KVKK aydınlatma metni dosyası (statik) ✅
+  - Yeni: `sadik-app/src/content/kvkkNotice.ts` (9 bölüm TR KVKK metni)
+  - Settings + Onboarding modal'larındaki placeholder → gerçek scrollable metin
+  - Versiyon tarihi: 2026-04-20
 
 **Exit criteria:** Tüm toggle'lar çalışır, redaction middleware testte LLM prompt'undan email mask'liyor.
 

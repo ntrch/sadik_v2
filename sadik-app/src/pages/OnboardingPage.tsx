@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { settingsApi } from '../api/settings';
+import { KVKK_NOTICE } from '../content/kvkkNotice';
 
 interface Props {
   onComplete: () => void;
@@ -54,18 +55,29 @@ export default function OnboardingPage({ onComplete }: Props) {
   return (
     <div className="fixed inset-0 z-50 bg-bg/95 backdrop-blur flex items-center justify-center p-4">
       {showKvkkModal && (
-        <div className="fixed inset-0 z-60 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-bg-card border border-border rounded-card max-w-lg w-full p-6 flex flex-col gap-4">
-            <h2 className="text-text-primary font-semibold text-lg">KVKK Aydınlatma Metni</h2>
-            <p className="text-text-secondary text-sm leading-relaxed">
-              Bu metin T2.6 sprint kapsamında doldurulacaktır. Kişisel verilerin işlenmesi, veri sorumlusu, aktarım ve haklarınız hakkında tam metin burada yer alacaktır.
-            </p>
-            <button
-              onClick={() => setShowKvkkModal(false)}
-              className="self-end px-4 py-2 rounded-card bg-accent-purple/20 text-accent-purple border border-accent-purple/30 text-sm font-semibold hover:bg-accent-purple/30 transition-colors"
-            >
-              Kapat
-            </button>
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-bg-card border border-border rounded-card max-w-2xl w-full max-h-[85vh] flex flex-col">
+            <div className="p-6 border-b border-border">
+              <h2 className="text-text-primary font-semibold text-lg">KVKK Aydınlatma Metni</h2>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {KVKK_NOTICE.map((section) => (
+                <div key={section.title}>
+                  <h4 className="text-sm font-semibold text-text-primary mb-2">{section.title}</h4>
+                  {section.body.map((para, i) => (
+                    <p key={i} className="text-sm text-text-secondary leading-relaxed whitespace-pre-line mb-2">{para}</p>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="p-6 border-t border-border">
+              <button
+                onClick={() => setShowKvkkModal(false)}
+                className="w-full px-4 py-2 rounded-card bg-accent-purple/20 text-accent-purple border border-accent-purple/30 text-sm font-semibold hover:bg-accent-purple/30 transition-colors"
+              >
+                Kapat
+              </button>
+            </div>
           </div>
         </div>
       )}
