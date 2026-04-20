@@ -181,7 +181,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Backend: DEFAULT_SETTINGS'e `onboarding_completed=false` eklendi
   - Yeni: `sadik-app/src/pages/OnboardingPage.tsx`; App.tsx AppShell'de gating
   - KVKK metni linki placeholder (T2.6'da dolacak)
-- [ ] **T2.6** KVKK aydınlatma metni dosyası (statik)
+- [WIP] **T2.6** KVKK aydınlatma metni dosyası (statik)
 
 **Exit criteria:** Tüm toggle'lar çalışır, redaction middleware testte LLM prompt'undan email mask'liyor.
 
