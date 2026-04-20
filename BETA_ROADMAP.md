@@ -158,7 +158,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Değişen: `sadik-backend/app/main.py` DEFAULT_SETTINGS dict'ine 4 key eklendi
   - Key-value tablosu → migration gerekmedi; lifespan startup'ta auto-seed eder
   - Generic GET/PUT endpoint'leri zaten çalışıyor
-- [ ] **T2.2** Redaction middleware (backend)
+- [WIP] **T2.2** Redaction middleware (backend)
   - Email/phone/IBAN/API key regex mask'le
   - LLM'e giden her prompt bundan geçsin
 - [ ] **T2.3** "Veri export" + "veri sil" endpoint'leri
