@@ -460,9 +460,12 @@ export default function DashboardPage() {
 
       {/* Today's tasks — accordion */}
       <div className="bg-bg-card border border-border rounded-card overflow-hidden mb-5 shadow-card">
-        <button
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => setTodayTasksOpen((o) => !o)}
-          className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors"
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTodayTasksOpen((o) => !o); } }}
+          className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors cursor-pointer select-none"
         >
           <span className="flex items-center gap-2">
             <span className="w-7 h-7 rounded-lg bg-accent-cyan/20 ring-1 ring-accent-cyan/40 flex items-center justify-center">
@@ -480,7 +483,7 @@ export default function DashboardPage() {
             </button>
             {todayTasksOpen ? <ChevronUp size={14} className="text-text-muted" /> : <ChevronDown size={14} className="text-text-muted" />}
           </div>
-        </button>
+        </div>
         {todayTasksOpen && (
           <div className="px-5 pb-4 border-t border-border pt-3">
             {activeTasks.length === 0 ? (
