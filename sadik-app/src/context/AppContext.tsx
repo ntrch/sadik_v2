@@ -8,6 +8,7 @@ import { settingsApi } from '../api/settings';
 import http from '../api/http';
 import { statsApi, AppInsight } from '../api/stats';
 import { tasksApi } from '../api/tasks';
+import { workspacesApi } from '../api/workspaces';
 import { voiceApi } from '../api/voice';
 import { weatherApi, CurrentWeather } from '../api/weather';
 import { integrationsApi, IntegrationStatus } from '../api/integrations';
@@ -1328,8 +1329,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
               });
             }
           }
-        } else if (appInsight.has_insight && !shouldSuppressByRejection({ ...appInsight, source: 'app_usage' })) {
-          eligibleAppInsights.push({ ...appInsight, source: 'app_usage' });
+        } else if (appInsight.has_insight && !shouldSuppressByRejection({ ...appInsight, source: appInsight.source ?? 'app_usage' })) {
+          // Preserve the backend-provided source (e.g. 'behavioral') — the old
+          // default of overwriting to 'app_usage' swallowed behavioral insights.
+          eligibleAppInsights.push({ ...appInsight, source: appInsight.source ?? 'app_usage' });
+        }
+
+        // ── Behavioral insight nested under app-usage response ───────────────
+        // When both fire, backend attaches behavioral as `response.behavioral`.
+        // Surface it so it's eligible alongside the app-usage items.
+        if (appInsight.behavioral && appInsight.behavioral.has_insight) {
+          const b = appInsight.behavioral;
+          if (!shouldSuppressByRejection({ ...b, source: 'behavioral' })) {
+            eligibleAppInsights.push({ ...b, source: 'behavioral' });
+          }
         }
 
         // ── Priority: strong task > app usage (longest first) > gentle task ──
@@ -1443,7 +1456,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const acceptInsight = useCallback(async () => {
     stopProactiveSpeech();
     const insight = activeInsightRef.current;
-    console.log('[Proactive] Accept — insight:', insight ? `${rejectionBaseKey(insight)} level=${insight.level}` : 'none');
+    console.log('[Proactive] Accept — insight:', insight ? `${rejectionBaseKey(insight)} level=${insight.level} action=${insight.action?.type ?? 'break'}` : 'none');
     // Clear any stored rejection for this key — user accepted, so resume normal cadence.
     if (insight) {
       rejectionMapRef.current.delete(rejectionBaseKey(insight));
@@ -1453,6 +1466,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
         breakAcceptedInsightRef.current = insight;
       }
     }
+
+    // ── Action dispatch ────────────────────────────────────────────────────
+    // Behavioral / workspace insights carry a typed `action` payload.
+    // Legacy app-usage path (no action) keeps its original break behavior.
+    const action = insight?.action;
+
+    if (action?.type === 'switch_mode') {
+      try {
+        await modesApi.setMode(action.mode);
+        setCurrentMode(action.mode);
+        showToast(`${action.mode} moduna geçildi`, 'success');
+        triggerEvent('confirmation_success');
+      } catch {
+        showToast('Mod değiştirilemedi', 'error');
+      }
+      setActiveInsight(null);
+      return;
+    }
+
+    if (action?.type === 'open_workspace') {
+      try {
+        const ws = await workspacesApi.get(action.workspace_id);
+        if (ws.mode_sync) {
+          try {
+            await modesApi.setMode(ws.mode_sync);
+            setCurrentMode(ws.mode_sync);
+          } catch { /* best-effort, still launch actions */ }
+        }
+        const electronAPI = (window as any).electronAPI;
+        if (electronAPI?.executeWorkspace) {
+          await electronAPI.executeWorkspace({
+            actions: ws.actions,
+            workspaceName: ws.name,
+            workspaceRunId: (globalThis.crypto?.randomUUID?.() ?? `proactive-${Date.now()}`),
+          });
+        }
+        showToast(`${ws.name} başlatıldı`, 'success');
+        triggerEvent('confirmation_success');
+      } catch (err) {
+        console.error('[Proactive] open_workspace failed', err);
+        showToast('Çalışma alanı başlatılamadı', 'error');
+      }
+      setActiveInsight(null);
+      return;
+    }
+
+    // ── Fallback: legacy app-usage break behavior ─────────────────────────
     // Map intensity to break minutes: gentle → 5 min, strong → 15 min
     const breakMinutes = insight?.level === 'strong' ? 15 : 5;
     console.log('[Proactive] Break start — level:', insight?.level, 'breakMinutes:', breakMinutes);
@@ -1482,7 +1542,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast('Mod değiştirilemedi', 'error');
     }
     setActiveInsight(null);
-  }, [showText, showToast, getLoadedClipNames]);
+  }, [showText, showToast, getLoadedClipNames, triggerEvent]);
 
   const denyInsight = useCallback(() => {
     // Capture whether proactive TTS was active BEFORE stopping it.

@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.setting import Setting
 from app.models.task import Task
+from app.models.workspace import Workspace
 from app.services.behavioral_patterns import (
     _BLOCKS,
     _DOW_NAMES,
@@ -197,17 +198,33 @@ async def evaluate_behavioral_insight(session: AsyncSession) -> Optional[dict]:
         logger.debug("[behavioral_insight] No open tasks — skipping")
         return None
 
+    # ── Workspace preference (T3.5) ─────────────────────────────────────────
+    # If a workspace exists with mode_sync == dominant_mode, prefer the
+    # "open_workspace" action — it activates the mode AND launches the user's
+    # configured apps/URLs in one tap.  Otherwise fall back to bare mode switch.
+    ws_result = await session.execute(
+        select(Workspace).where(Workspace.mode_sync == dominant_mode).limit(1)
+    )
+    workspace: Optional[Workspace] = ws_result.scalar_one_or_none()
+
     # ── Build message ────────────────────────────────────────────────────────
     h_start, h_end = _BLOCKS[blk_idx]
     block_label = _block_label(h_start, h_end)
     dow_tr = _DOW_TR[dow_iso]
     mode_tr = _MODE_TR.get(dominant_mode, dominant_mode)
 
-    message = (
-        f"Normalde {dow_tr} {block_label} {mode_tr} yapardın, bugün henüz başlamadın. "
-        f"'{task.title}' görevin seni bekliyor. "
-        f"{mode_tr.capitalize()} moduna geçelim mi?"
-    )
+    if workspace:
+        message = (
+            f"Normalde {dow_tr} {block_label} {mode_tr} yapardın, bugün henüz başlamadın. "
+            f"'{task.title}' görevin seni bekliyor. "
+            f"'{workspace.name}' çalışma alanını açalım mı?"
+        )
+    else:
+        message = (
+            f"Normalde {dow_tr} {block_label} {mode_tr} yapardın, bugün henüz başlamadın. "
+            f"'{task.title}' görevin seni bekliyor. "
+            f"{mode_tr.capitalize()} moduna geçelim mi?"
+        )
 
     # ── Determine level ───────────────────────────────────────────────────────
     level = "soft"
@@ -224,9 +241,15 @@ async def evaluate_behavioral_insight(session: AsyncSession) -> Optional[dict]:
         level = "gentle"
 
     # ── Action ────────────────────────────────────────────────────────────────
-    # "switch_mode" is not yet wired in the frontend (T3.5 scope); included here
-    # so the backend contract is complete and T3.5 only needs frontend changes.
-    action = {"type": "switch_mode", "mode": dominant_mode}
+    if workspace:
+        action = {
+            "type": "open_workspace",
+            "workspace_id": workspace.id,
+            "workspace_name": workspace.name,
+            "mode": dominant_mode,
+        }
+    else:
+        action = {"type": "switch_mode", "mode": dominant_mode}
 
     return {
         "has_insight": True,

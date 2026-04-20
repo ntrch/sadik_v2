@@ -270,8 +270,13 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Privacy gate: `privacy_behavioral_learning !== 'true'` iken kart hiç render olmuyor
   - Veri yoksa: "Henüz yeterli veri yok" placeholder
   - DashboardPage.tsx ActivityChart üstüne wire edildi
-- [~] **T3.5 WIP [session-A]** Proactive suggestion'da "workspace öner" aksiyonu
-  - Accept → ilgili workspace başlar
+- [x] **T3.5 tamam [session-A]** Proactive suggestion'da "workspace öner" aksiyonu ✅
+  - `api/stats.ts`: `AppInsight` type'ına `action: InsightAction` + `source: 'behavioral'` + nested `behavioral` alanı eklendi
+  - `behavioral_insight.py`: `dominant_mode`'a bağlı workspace varsa action = `open_workspace`, yoksa `switch_mode` (düşmeyen graceful fallback)
+  - `AppContext.acceptInsight`: action type'a göre branch — switch_mode, open_workspace (workspacesApi.get + electronAPI.executeWorkspace), veya legacy break
+  - Bug fix: behavioral-only insight'lar `source: 'app_usage'` olarak overwrite ediliyordu, artık backend source'u korunuyor
+  - Bug fix: app-usage + behavioral kombinasyonda behavioral nested dict'i eligible list'e de ekleniyor
+  - **Sprint 3 tamamlandı ✅**
 
 **Exit criteria:** 14 gün simulated usage data ile pattern job çalışır, anlamlı summary üretir, LLM responseda yansır.
 

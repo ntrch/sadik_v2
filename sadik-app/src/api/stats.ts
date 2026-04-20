@@ -21,6 +21,12 @@ export interface AppInsightItem {
   message: string;
 }
 
+/** Discriminated union for proactive insight accept actions.
+ *  Default (undefined) = legacy break behavior (app_usage path). */
+export type InsightAction =
+  | { type: 'switch_mode'; mode: string }
+  | { type: 'open_workspace'; workspace_id: number; workspace_name: string; mode?: string };
+
 export interface AppInsight {
   has_insight: boolean;
   app_name?: string;
@@ -29,8 +35,12 @@ export interface AppInsight {
   message?: string;
   /** All apps exceeding thresholds */
   insights?: AppInsightItem[];
-  /** Source of the insight: app usage, task deadline, or habit reminder */
-  source?: 'app_usage' | 'task' | 'habit';
+  /** Source of the insight */
+  source?: 'app_usage' | 'task' | 'habit' | 'behavioral';
+  /** Action taken when user accepts this insight. When absent, legacy break behavior applies. */
+  action?: InsightAction;
+  /** Nested behavioral insight — present when app-usage fired but behavioral also qualifies. */
+  behavioral?: AppInsight;
 }
 
 export interface AppUsageDailyTotal {
