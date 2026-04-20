@@ -262,6 +262,7 @@ class ChatService:
         is_pomodoro_active: bool = False,
         use_tools: bool = False,
         on_tool_event: Optional[Callable[[dict], Awaitable[None]]] = None,
+        privacy_flags: Optional[dict] = None,
     ) -> Optional[str]:
         if not api_key:
             return "OpenAI API anahtarı ayarlanmamış. Lütfen ayarlardan API anahtarınızı girin."
@@ -287,7 +288,9 @@ class ChatService:
                 from app.services.voice_tools import run_tool_loop
                 try:
                     _, final_text, _ = await run_tool_loop(
-                        messages, client, model, session, on_tool_event=on_tool_event
+                        messages, client, model, session,
+                        on_tool_event=on_tool_event,
+                        privacy_flags=privacy_flags,
                     )
                     return final_text
                 except Exception as tool_err:
@@ -315,6 +318,7 @@ class ChatService:
         is_pomodoro_active: bool = False,
         use_tools: bool = False,
         on_tool_event: Optional[Callable[[dict], Awaitable[None]]] = None,
+        privacy_flags: Optional[dict] = None,
     ):
         """Async generator that yields complete sentence strings for TTS.
 
@@ -358,7 +362,9 @@ class ChatService:
             try:
                 from app.services.voice_tools import run_tool_loop
                 _, final_text, tool_calls_used = await run_tool_loop(
-                    messages, client, model, session, on_tool_event=on_tool_event
+                    messages, client, model, session,
+                    on_tool_event=on_tool_event,
+                    privacy_flags=privacy_flags,
                 )
                 self._last_tool_calls_used = tool_calls_used
             except Exception as tool_err:

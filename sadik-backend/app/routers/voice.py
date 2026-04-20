@@ -293,6 +293,7 @@ async def voice_chat_stream(
             session=session,
             use_tools=True,
             on_tool_event=on_tool_event,
+            privacy_flags=privacy_flags,
         )
 
         async for sentence in response_gen:
@@ -365,9 +366,9 @@ async def voice_chat_stream(
         async for frame in flush_tool_frames():
             yield frame
 
-        # Persist assistant message and send reply text as final metadata frame.
+        # Persist assistant message only when voice memory is enabled.
         full_reply = " ".join(full_reply_parts)
-        if full_reply:
+        if full_reply and voice_memory_enabled:
             now2 = datetime.now(timezone.utc).replace(tzinfo=None)
             assistant_msg = ChatMessage(role="assistant", content=full_reply, created_at=now2)
             session.add(assistant_msg)

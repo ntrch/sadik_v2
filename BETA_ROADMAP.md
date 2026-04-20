@@ -80,7 +80,7 @@
 ## 4. Şu an neredeyiz (GÜNCEL DURUM)
 
 **Tarih:** 2026-04-20
-**Son commit:** `b16b60d` — büyük checkpoint backup
+**Son commit:** Sprint 2.5 hotfix
 **Branch:** main
 
 ### Yakın geçmişteki kazanımlar (tamamlandı, regression için test gerekli):
@@ -89,6 +89,7 @@
 - Windows native notification (setAppUserModelId)
 - Google Calendar entegrasyonu + Agenda sayfası + near-real-time sync
 - Mode system (unified popup, 130+ icon, DND per-mode)
+- Sprint 2.5 tamamlandı: privacy flag enforcement + voice delete expansion + confirm gate
 
 ### Bilinen sorunlar / verify bekleyen:
 - Proaktif 7 senaryo gerçek kullanımda test edilmedi
@@ -96,7 +97,7 @@
 - Long-session memory leak bilinmiyor
 - Faz 0.5 OAuth refactor (Desktop+PKCE) ship-blocker
 
-### Aktif sprint: **Sprint 1 — Stabilizasyon + Voice Tool-Use Foundation**
+### Aktif sprint: **Sprint 3 — Behavioral learning (opt-in)**
 
 **İlerleme:**
 - ✅ T1.1 voice tool-use backend (12 tool, registry, debug endpoint)
@@ -105,9 +106,10 @@
 - ✅ T1.4 proaktif regression — 1 bug fix + 4 telemetry log
 - ⏸️ T1.5 wake-word 48h monitoring — gerçek kullanıma ertelendi (beta'da gözlemlenir)
 - ⏸️ T1.6 memory leak testi — gerçek kullanıma ertelendi
-- **Sprint 2 + ara bug'lar tamamlandı ✅ — sıradaki: Sprint 3 (behavioral learning)**
+- **Sprint 2 + ara bug'lar tamamlandı ✅**
   - Ara fix: STT halüsinasyon (RMS gate 0.005 + temperature=0 + 21 TR blacklist)
   - Ara fix: Text input focus (VoiceAssistant wakeWordPending/Escape handler'lara `isInputFocused()` guard)
+- **Sprint 2.5 tamamlandı ✅ — sıradaki: Sprint 3 (behavioral learning)**
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
@@ -189,6 +191,27 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Versiyon tarihi: 2026-04-20
 
 **Exit criteria:** Tüm toggle'lar çalışır, redaction middleware testte LLM prompt'undan email mask'liyor.
+
+---
+
+### Sprint 2.5 (hotfix): Privacy enforcement + Voice delete expansion
+**Amaç:** Beta feedback'ine göre privacy toggle'ları fonksiyonel yap + sesli silme kapsamını genişlet.
+
+**Concurrency zone A (backend):**
+- [x] **T2.5.1** Privacy flag helper + tool-level enforcement
+  - Yeni: `sadik-backend/app/services/privacy_flags.py` — `get_privacy_flags(session)` helper, 4 flag, bool normalisation
+  - `voice_tools.py` `_get_today_agenda` — `privacy_flags` parametresi; `privacy_calendar_push=false` iken ExternalEvent sorgusu atlanır
+  - `execute_tool` + `run_tool_loop` — `privacy_flags` kwarg eklendi (opsiyonel, geriye uyumlu)
+- [x] **T2.5.2** Voice delete tool expansion (5 yeni + confirm gate)
+  - `delete_task` — `confirmed: bool` required eklendi; `confirmed=false` → erken dön
+  - Yeni tools: `delete_habit`, `delete_event`, `delete_workspace`, `delete_memory_note`, `delete_clipboard_item`
+  - Tüm yeni delete tool'ları `confirmed` required; gate mesajı: "Silme işlemi için önce onay gerekli."
+  - Tool description'larında Türkçe onay akışı talimatı
+- [x] **T2.5.3** Conversation history gate (privacy_voice_memory)
+  - `voice.py` `voice_chat_stream` — `privacy_voice_memory=false` iken `db_history=[]`, user+assistant mesajları DB'ye yazılmaz
+  - `chat_service.py` `send_message` + `stream_voice_response` — `privacy_flags` kwarg, `run_tool_loop`'a iletilir
+
+**Exit criteria:** `privacy_calendar_push=false` → "bugün ajandamda ne var?" testi Google Calendar verisi dönmez. `delete_habit` vb. tool'lar `confirmed=false` iken execute etmez. `privacy_voice_memory=false` → LLM prompt'una önceki mesajlar eklenmez, DB'ye yazılmaz.
 
 ---
 
