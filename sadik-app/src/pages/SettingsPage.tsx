@@ -2,9 +2,10 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
   Eye, EyeOff, RefreshCw, AlertTriangle, ChevronDown,
   Bot, Sun, Radio, Timer, Sparkles, Mic, Headphones, Monitor, Bell,
-  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, Settings2, X,
+  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, Settings2, X, Shield,
 } from 'lucide-react';
 import { settingsApi, Settings } from '../api/settings';
+import { privacyApi } from '../api/privacy';
 import { integrationsApi, IntegrationStatus, ProviderConfig } from '../api/integrations';
 import { deviceApi, SerialPort } from '../api/device';
 import { chatApi } from '../api/chat';
@@ -96,6 +97,15 @@ const [saving, setSaving] = useState(false);
     refreshWeather,
   } = useContext(AppContext);
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
+  const [privacyExporting, setPrivacyExporting] = useState(false);
+  const [purgeModal, setPurgeModal] = useState<'closed' | 'step1' | 'step2'>('closed');
+  const [purgeToken, setPurgeToken] = useState('');
+  const [purgeTokenInput, setPurgeTokenInput] = useState('');
+  const [purgeCountdown, setPurgeCountdown] = useState(0);
+  const [purgeRequesting, setPurgeRequesting] = useState(false);
+  const [purgeConfirming, setPurgeConfirming] = useState(false);
+  const [kvkkModal, setKvkkModal] = useState(false);
+  const purgeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showWeatherKey, setShowWeatherKey] = useState(false);
   const [weatherKeyDraft, setWeatherKeyDraft] = useState('');
   const [locQuery, setLocQuery] = useState('');
@@ -205,7 +215,90 @@ const [saving, setSaving] = useState(false);
     setPorts(p);
   };
 
+  const handlePrivacyToggle = async (key: string, value: boolean) => {
+    set(key, value ? 'true' : 'false');
+    try {
+      await settingsApi.update({ [key]: value ? 'true' : 'false' });
+    } catch {
+      showToast('Ayar kaydedilemedi', 'error');
+    }
+  };
+
+  const handleExportData = async () => {
+    setPrivacyExporting(true);
+    try {
+      const blob = await privacyApi.exportData();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const date = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `sadik-backup-${date}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Veri indirildi', 'success');
+    } catch {
+      showToast('Veri indirilemedi', 'error');
+    } finally {
+      setPrivacyExporting(false);
+    }
+  };
+
+  const handleRequestPurgeToken = async () => {
+    setPurgeRequesting(true);
+    try {
+      const res = await privacyApi.requestPurgeToken();
+      setPurgeToken(res.token);
+      setPurgeCountdown(res.expires_in);
+      setPurgeModal('step2');
+      if (purgeTimerRef.current) clearInterval(purgeTimerRef.current);
+      purgeTimerRef.current = setInterval(() => {
+        setPurgeCountdown((c) => {
+          if (c <= 1) {
+            clearInterval(purgeTimerRef.current!);
+            purgeTimerRef.current = null;
+            setPurgeModal('closed');
+            setPurgeToken('');
+            setPurgeTokenInput('');
+            return 0;
+          }
+          return c - 1;
+        });
+      }, 1000);
+    } catch {
+      showToast('Onay kodu alınamadı', 'error');
+    } finally {
+      setPurgeRequesting(false);
+    }
+  };
+
+  const handleConfirmPurge = async () => {
+    if (purgeTokenInput.trim() !== purgeToken) {
+      showToast('Kod hatalı', 'error');
+      return;
+    }
+    setPurgeConfirming(true);
+    try {
+      await privacyApi.confirmPurge(purgeToken);
+      showToast('Tüm veriler silindi', 'success');
+      setPurgeModal('closed');
+      setTimeout(() => window.location.reload(), 1500);
+    } catch {
+      showToast('Silme işlemi başarısız', 'error');
+    } finally {
+      setPurgeConfirming(false);
+    }
+  };
+
+  const closePurgeModal = () => {
+    if (purgeTimerRef.current) { clearInterval(purgeTimerRef.current); purgeTimerRef.current = null; }
+    setPurgeModal('closed');
+    setPurgeToken('');
+    setPurgeTokenInput('');
+    setPurgeCountdown(0);
+  };
+
   return (
+    <>
     <div className="h-full overflow-y-auto p-6 page-transition">
       <div className="max-w-2xl mx-auto">
         <h1 className="text-xl font-bold text-text-primary mb-6">Ayarlar</h1>
@@ -955,12 +1048,154 @@ const [saving, setSaving] = useState(false);
           )}
         </Section>
 
+        {/* Privacy */}
+        <Section title="Gizlilik ve Veri Kontrolü" icon={Shield} color="green">
+          {(
+            [
+              { key: 'privacy_behavioral_learning', label: 'Davranış Öğrenme', desc: 'Kullanım alışkanlıklarını öğrenip sana daha iyi öneriler getirsin.' },
+              { key: 'privacy_calendar_push',       label: 'Takvim Bilgisini LLM\'e Aktar', desc: 'Google Calendar etkinlikleri Sadık\'ın sesli cevaplarında kullanılabilsin.' },
+              { key: 'privacy_notion_push',         label: 'Notion İçeriğini LLM\'e Aktar', desc: 'Notion görevlerin Sadık\'ın context\'ine girsin.' },
+              { key: 'privacy_voice_memory',        label: 'Ses Hafızası', desc: 'Önceki sesli sohbetler hatırlansın.' },
+            ] as { key: string; label: string; desc: string }[]
+          ).map(({ key, label, desc }) => {
+            const enabled = settings[key] === 'true';
+            return (
+              <div key={key} className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-text-secondary mb-0.5">{label}</p>
+                  <p className="text-xs text-text-muted leading-relaxed">{desc}</p>
+                  <p className={`text-[11px] mt-1 ${enabled ? 'text-accent-orange' : 'text-text-muted'}`}>
+                    {enabled
+                      ? 'Şu an açık — veri OpenAI\'a gidebilir.'
+                      : 'Şu an kapalı — Sadık bu veriyi OpenAI\'a göndermiyor.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handlePrivacyToggle(key, !enabled)}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
+                    ${enabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                    ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+            );
+          })}
+
+          <div className="border-t border-border pt-4 flex flex-col gap-3">
+            <button
+              onClick={handleExportData}
+              disabled={privacyExporting}
+              className="w-full py-2 text-sm rounded-btn bg-bg-input border border-border text-text-secondary hover:text-text-primary hover:border-accent-green/40 transition-colors disabled:opacity-60"
+            >
+              {privacyExporting ? 'İndiriliyor…' : 'Verimi İndir'}
+            </button>
+            <button
+              onClick={() => setPurgeModal('step1')}
+              className="w-full py-2 text-sm rounded-btn bg-accent-red/10 border border-accent-red/30 text-accent-red hover:bg-accent-red/20 transition-colors font-semibold"
+            >
+              Tüm Verimi Sil
+            </button>
+          </div>
+
+          <button
+            onClick={() => setKvkkModal(true)}
+            className="text-xs text-text-muted underline underline-offset-2 hover:text-text-secondary transition-colors"
+          >
+            KVKK Aydınlatma Metni
+          </button>
+        </Section>
+
         <button onClick={handleSave} disabled={saving}
           className="w-full py-3 bg-accent-purple hover:bg-accent-purple-hover text-white font-semibold rounded-btn transition-colors disabled:opacity-60 text-sm mt-2">
           {saving ? 'Kaydediliyor...' : 'Kaydet'}
         </button>
       </div>
     </div>
+
+    {/* Purge modal */}
+    {purgeModal !== 'closed' && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="bg-bg-card border border-border rounded-card w-full max-w-md mx-4 p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold text-accent-red">Tüm Verimi Sil</h3>
+            <button onClick={closePurgeModal} className="text-text-muted hover:text-text-primary"><X size={18} /></button>
+          </div>
+
+          {purgeModal === 'step1' && (
+            <>
+              <div className="bg-accent-red/10 border border-accent-red/30 rounded-btn px-4 py-3">
+                <p className="text-sm text-accent-red font-semibold mb-1">Bu işlem geri alınamaz.</p>
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  Tüm görevlerin, alışkanlıkların, ayarların ve konuşma geçmişin silinecek.
+                  Onboarding'den yeniden başlayacaksın.
+                </p>
+              </div>
+              <button
+                onClick={handleRequestPurgeToken}
+                disabled={purgeRequesting}
+                className="w-full py-2.5 text-sm rounded-btn bg-accent-red text-white font-semibold hover:opacity-90 transition-opacity disabled:opacity-60"
+              >
+                {purgeRequesting ? 'Kod isteniyor…' : 'Onay Kodu İste'}
+              </button>
+              <button onClick={closePurgeModal} className="w-full py-2 text-xs text-text-muted hover:text-text-secondary transition-colors">
+                Vazgeç
+              </button>
+            </>
+          )}
+
+          {purgeModal === 'step2' && (
+            <>
+              <p className="text-sm text-text-secondary leading-relaxed">
+                Aşağıdaki kodu gir ve <strong>Sil</strong> butonuna bas. Kod{' '}
+                <span className="text-accent-red font-semibold">{purgeCountdown}s</span> içinde geçersiz olacak.
+              </p>
+              <div className="bg-bg-input border border-border rounded-btn px-4 py-3 text-center">
+                <code className="text-lg font-mono font-bold text-text-primary tracking-widest">{purgeToken}</code>
+              </div>
+              <input
+                type="text"
+                value={purgeTokenInput}
+                onChange={(e) => setPurgeTokenInput(e.target.value)}
+                placeholder="Kodu buraya yaz…"
+                className="input-field w-full font-mono tracking-widest text-center"
+                autoFocus
+              />
+              <button
+                onClick={handleConfirmPurge}
+                disabled={purgeConfirming || purgeTokenInput.trim().length === 0}
+                className="w-full py-2.5 text-sm rounded-btn bg-accent-red text-white font-semibold hover:opacity-90 transition-opacity disabled:opacity-60"
+              >
+                {purgeConfirming ? 'Siliniyor…' : 'Sil'}
+              </button>
+              <button onClick={closePurgeModal} className="w-full py-2 text-xs text-text-muted hover:text-text-secondary transition-colors">
+                Vazgeç
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    )}
+
+    {/* KVKK modal */}
+    {kvkkModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="bg-bg-card border border-border rounded-card w-full max-w-md mx-4 p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold text-text-primary">KVKK Aydınlatma Metni</h3>
+            <button onClick={() => setKvkkModal(false)} className="text-text-muted hover:text-text-primary"><X size={18} /></button>
+          </div>
+          <p className="text-sm text-text-muted leading-relaxed">Aydınlatma metni burada olacak (T2.6).</p>
+          <button
+            onClick={() => setKvkkModal(false)}
+            className="w-full py-2 text-sm rounded-btn bg-bg-input border border-border text-text-secondary hover:text-text-primary transition-colors"
+          >
+            Kapat
+          </button>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

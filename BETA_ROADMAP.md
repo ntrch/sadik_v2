@@ -105,7 +105,7 @@
 - ✅ T1.4 proaktif regression — 1 bug fix + 4 telemetry log
 - ⏸️ T1.5 wake-word 48h monitoring — gerçek kullanıma ertelendi (beta'da gözlemlenir)
 - ⏸️ T1.6 memory leak testi — gerçek kullanıma ertelendi
-- **Sprint 2 Zone A tamamlandı — T2.1 ✅ T2.2 ✅ T2.3 ✅, sıradaki: Zone B frontend (T2.4 Gizlilik sekmesi)**
+- **Sprint 2 — T2.1-T2.4 ✅, sıradaki: T2.5 onboarding consent flow**
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
@@ -171,10 +171,11 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Yeni: `sadik-backend/app/routers/privacy.py`; main.py'ye register edildi
 
 **Concurrency zone B (frontend):**
-- [WIP] **T2.4** Settings → Gizlilik sekmesi
-  - Her toggle: açıklama + canlı preview ("şu an bu kapalı, şunlar cloud'a gitmiyor")
-  - Toggle değişince backend'e push
-  - "Verimi İndir" + "Verimi Sil" butonları (T2.3 endpoint'lerini çağırır)
+- [x] **T2.4** Settings → Gizlilik sekmesi ✅
+  - 4 toggle (davranış öğrenme/calendar/notion/voice memory) + canlı preview
+  - "Verimi İndir" → blob download
+  - "Tüm Verimi Sil" → 2-adımlı token-confirm modal + 60s countdown + reload
+  - Yeni: `sadik-app/src/api/privacy.ts`; SettingsPage.tsx'e Shield section eklendi
 - [ ] **T2.5** Onboarding consent flow (yeni user)
   - Aydınlatma metni (TR) + açık rıza
   - Default tüm toggle'lar kapalı, opt-in
