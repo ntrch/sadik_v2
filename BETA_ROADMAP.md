@@ -105,7 +105,9 @@
 - ✅ T1.4 proaktif regression — 1 bug fix + 4 telemetry log
 - ⏸️ T1.5 wake-word 48h monitoring — gerçek kullanıma ertelendi (beta'da gözlemlenir)
 - ⏸️ T1.6 memory leak testi — gerçek kullanıma ertelendi
-- **Sprint 2 tamamlandı ✅ — sıradaki: [WIP] STT halüsinasyon + text input focus bug fix (ara task) → sonra Sprint 3**
+- **Sprint 2 + ara bug'lar tamamlandı ✅ — sıradaki: Sprint 3 (behavioral learning)**
+  - Ara fix: STT halüsinasyon (RMS gate 0.005 + temperature=0 + 21 TR blacklist)
+  - Ara fix: Text input focus (VoiceAssistant wakeWordPending/Escape handler'lara `isInputFocused()` guard)
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 

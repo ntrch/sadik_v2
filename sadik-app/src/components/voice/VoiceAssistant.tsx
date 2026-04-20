@@ -125,6 +125,22 @@ const TOOL_LABELS: Record<string, string> = {
   get_current_mode:      'Aktif mod kontrol ediliyor',
 };
 
+// ── Focus guard ───────────────────────────────────────────────────────────────
+//
+// Returns true when an editable element currently holds keyboard focus.
+// Used to prevent the global Escape handler and wake-word auto-start from
+// firing while the user is actively typing in an input, textarea, or any
+// element with contenteditable — avoiding focus-stealing re-render cascades.
+
+function isInputFocused(): boolean {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+  if ((el as HTMLElement).isContentEditable) return true;
+  return false;
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<VoiceState, string> = {
@@ -309,6 +325,17 @@ export default function VoiceAssistant() {
 
   useEffect(() => {
     if (!wakeWordPending) return;
+
+    // Focus guard: if the user is actively typing in an input/textarea, discard
+    // this wake-word trigger silently rather than stealing focus and starting a
+    // voice turn mid-keystroke.  The wake-word service will re-arm on the next
+    // detection cycle.
+    if (isInputFocused()) {
+      console.log('[Voice] wakeWordPending: skipped — input element is focused (focus guard)');
+      clearWakeWordPending();
+      return;
+    }
+
     const state = voiceStateRef.current;
 
     if (state === 'idle') {
@@ -448,10 +475,14 @@ export default function VoiceAssistant() {
   }, [returnToIdle, pauseWakeWord, resumeWakeWord, stopPlayback, stopSilenceDetection, destroyVAD, stopSpeakingInterruptDetection]);
 
   // Global Escape: cancel voice from anywhere in the app while a turn is live.
+  // Focus guard: skip if an input/textarea currently holds focus — the Escape
+  // keystroke belongs to that element (e.g. closing a modal, clearing a field)
+  // and we must not also trigger a voice-cancel re-render cascade on top of it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (voiceStateRef.current === 'idle') return;
+      if (isInputFocused()) return;
       cancelVoice();
     };
     window.addEventListener('keydown', onKey);

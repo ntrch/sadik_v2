@@ -1,6 +1,7 @@
 import logging
 import io
 import re
+import struct
 from typing import AsyncIterator, Optional
 from openai import AsyncOpenAI
 import edge_tts
@@ -53,6 +54,92 @@ def clean_text_for_tts(text: str) -> str:
     return text.strip()
 
 
+# ── Whisper STT hallucination defence ─────────────────────────────────────────
+#
+# Common Whisper hallucinations in Turkish, produced on near-silence or
+# background-noise-only audio.  Normalised substring match (lower, no punct).
+# List covers subscribe-bait phrases, ghost filler, and copyright footers that
+# Whisper was trained on and reproduces on silence.
+
+_HALLUCINATION_PHRASES: list[str] = [
+    # YouTube/podcast filler
+    "abone olmayı unutmayın",
+    "beğenmeyi unutmayın",
+    "bu videoyu beğendiyseniz",
+    "yorumlara yazın",
+    "görüşmek üzere",
+    "görüşürüz",
+    "teşekkür ederim",
+    "teşekkürler",
+    "iyi seyirler",
+    "iyi dinlemeler",
+    "iyi günler",
+    # Subtitle/caption artefacts
+    "altyazı",
+    "telif hakkı",
+    "telifi altyazı",
+    "subtitled by",
+    "subtitle",
+    "çeviri",
+    # Common ghost phrases Whisper generates on ambient noise
+    "bir sonraki videoda görüşmek üzere",
+    "beğenip abone olursanız",
+    "kanalıma abone olun",
+    "desteklerinizi bekliyorum",
+]
+
+# Pre-compiled normalised phrases (lower, letters/spaces only)
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z\u00c0-\u024f\u011e\u011f\u0130\u0131\u015e\u015f\u00fc\u00fb\u00f6\u00e7\s]", "", s.lower()).strip()
+
+_HALLUCINATION_NORMS: list[str] = [_norm(p) for p in _HALLUCINATION_PHRASES]
+
+
+def _is_hallucination(text: str) -> bool:
+    """Return True if *text* appears to be a Whisper silence-hallucination."""
+    n = _norm(text)
+    if not n:
+        return True
+    for phrase in _HALLUCINATION_NORMS:
+        if phrase and phrase in n:
+            return True
+    return False
+
+
+def _rms_from_audio_bytes(audio_bytes: bytes) -> float:
+    """Estimate RMS energy from raw PCM/WAV bytes.
+
+    Tries to parse as WAV first (strips 44-byte header).  Falls back to
+    treating the entire buffer as raw int16 little-endian PCM.  Returns 0.0
+    on any parse error — callers treat 0 as silence.
+    """
+    try:
+        import math
+        data = audio_bytes
+        # Skip WAV header if present (RIFF magic)
+        if data[:4] == b"RIFF" and len(data) > 44:
+            data = data[44:]
+        if len(data) < 2:
+            return 0.0
+        # Truncate to even number of bytes for int16 unpacking
+        n_samples = len(data) // 2
+        if n_samples == 0:
+            return 0.0
+        samples = struct.unpack(f"<{n_samples}h", data[: n_samples * 2])
+        sum_sq = sum(s * s for s in samples)
+        # Normalise to float range [-1, 1] (int16 max = 32768)
+        rms_int16 = math.sqrt(sum_sq / n_samples)
+        return rms_int16 / 32768.0
+    except Exception:
+        return 0.0
+
+
+# RMS gate threshold — audio below this is treated as silence and Whisper is
+# skipped entirely.  Value in normalised float [0, 1].  0.005 ≈ very quiet
+# ambient room noise; genuine speech is typically 0.02+.
+_RMS_GATE_THRESHOLD = 0.005
+
+
 # ── Service ────────────────────────────────────────────────────────────────────
 
 
@@ -82,15 +169,49 @@ class VoiceService:
             logger.warning("STT: audio_bytes too small (%d bytes), skipping Whisper", len(audio_bytes))
             return ""
 
+        # ── Pre-flight RMS gate ────────────────────────────────────────────────
+        # Skip Whisper entirely on near-silence — it hallucinates on low-energy
+        # audio more than on genuine speech.  Only applied to non-webm/compressed
+        # formats that carry raw PCM; for opaque container formats the gate may
+        # return 0 (treated as "silent") conservatively, but webm blobs from
+        # MediaRecorder always exceed 1 kB for real speech so the byte-size guard
+        # above catches those first.
+        rms = _rms_from_audio_bytes(audio_bytes)
+        if 0.0 < rms < _RMS_GATE_THRESHOLD:
+            logger.warning(
+                "STT rejected: reason=rms_gate, rms=%.5f (threshold=%.5f), bytes=%d",
+                rms, _RMS_GATE_THRESHOLD, len(audio_bytes),
+            )
+            return ""
+
         try:
             client = AsyncOpenAI(api_key=api_key, max_retries=0 if fast else 2)
             audio_file = io.BytesIO(audio_bytes)
             audio_file.name = "audio.webm"
-            kwargs: dict = dict(model="whisper-1", file=audio_file, language="tr")
+            kwargs: dict = dict(
+                model="whisper-1",
+                file=audio_file,
+                language="tr",
+                # temperature=0 → deterministic output, avoids creative/random
+                # hallucinations on near-silence.  OpenAI SDK whisper-1 accepts
+                # temperature in [0, 1]; condition_on_previous_text and
+                # no_speech_threshold are local-Whisper-only and not in the API.
+                temperature=0.0,
+            )
             if prompt:
                 kwargs["prompt"] = prompt
             transcript = await client.audio.transcriptions.create(**kwargs)
-            return transcript.text
+            text = transcript.text
+
+            # ── Post-process hallucination blacklist ───────────────────────────
+            if text and _is_hallucination(text):
+                logger.warning(
+                    "STT rejected: reason=hallucination_blacklist, text=%s",
+                    text[:120],
+                )
+                return ""
+
+            return text
         except Exception as e:
             err_str = str(e).lower()
             if "could not be decoded" in err_str or "format is not supported" in err_str:
