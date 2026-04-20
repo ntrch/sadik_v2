@@ -63,16 +63,13 @@ function prepareTtsText(text: string): string {
 
 function isConversationEnding(text: string): boolean {
   const lower = text.toLowerCase();
+  // Only unambiguous goodbyes. LLM frequently uses polite sign-offs
+  // ("buradayım", "ihtiyacın olduğunda", "iyi günler") as filler —
+  // matching those caused false-positive "return to idle" mid-flow.
   const endings = [
-    'durdurabilirim', 'durduruyorum',
-    'ihtiyacın olduğunda', 'ihtiyacınız olduğunda',
-    'buradayım', 'her zaman buradayım',
-    'görüşürüz', 'hoşça kal', 'iyi günler', 'iyi geceler', 'iyi akşamlar',
-    'bu kadar', 'tamam o zaman',
-    'konuşmayı sonlandır', 'konuşmayı bitir',
+    'görüşürüz', 'sonra görüşürüz', 'sonra konuşuruz',
+    'hoşça kal', 'hoşçakal',
     'güle güle', 'bye', 'goodbye',
-    'sonra görüşürüz', 'sonra konuşuruz',
-    'kendine iyi bak',
   ];
   return endings.some(e => lower.includes(e));
 }
@@ -857,8 +854,7 @@ export default function VoiceAssistant() {
       if (streamedReply) {
         setBubbles((p) => [...p, { role: 'assistant', text: streamedReply }]);
         lastReplyRef.current = streamedReply;
-        userRequestedEndRef.current = isUserEndingConversation(trimmed)
-          || isConversationEnding(streamedReply);
+        userRequestedEndRef.current = isUserEndingConversation(trimmed);
       }
 
       // If no chunks arrived (e.g. empty LLM reply), fall back to didntHear.

@@ -95,6 +95,9 @@ async def _delete_task(session: AsyncSession, args: dict) -> str:
     from app.models.task import Task
     from app.services.ws_manager import ws_manager
 
+    if not args.get("confirmed", False):
+        return "Silme işlemi için önce onay gerekli."
+
     task_id = args.get("task_id")
     if task_id is None:
         return "Görev ID'si belirtilmedi."
@@ -133,7 +136,11 @@ async def _list_habits(session: AsyncSession, args: dict) -> str:
     return f"{len(rows)} aktif alışkanlık:\n" + "\n".join(lines)
 
 
-async def _get_today_agenda(session: AsyncSession, args: dict) -> str:
+async def _get_today_agenda(
+    session: AsyncSession,
+    args: dict,
+    privacy_flags: dict[str, bool] | None = None,
+) -> str:
     from app.models.event import Event
     from app.models.external_event import ExternalEvent
 
@@ -145,13 +152,18 @@ async def _get_today_agenda(session: AsyncSession, args: dict) -> str:
         select(Event).where(Event.starts_at >= day_start).where(Event.starts_at < day_end).order_by(Event.starts_at)
     )).scalars().all()
 
-    ext_rows = (await session.execute(
-        select(ExternalEvent)
-        .where(ExternalEvent.deleted_in_source == False)
-        .where(ExternalEvent.start_at >= day_start)
-        .where(ExternalEvent.start_at < day_end)
-        .order_by(ExternalEvent.start_at)
-    )).scalars().all()
+    # Privacy gate: skip ExternalEvent (Google Calendar) query when
+    # privacy_calendar_push is disabled.  Native Event rows are always allowed.
+    calendar_allowed = (privacy_flags or {}).get("privacy_calendar_push", True)
+    ext_rows: list = []
+    if calendar_allowed:
+        ext_rows = (await session.execute(
+            select(ExternalEvent)
+            .where(ExternalEvent.deleted_in_source == False)
+            .where(ExternalEvent.start_at >= day_start)
+            .where(ExternalEvent.start_at < day_end)
+            .order_by(ExternalEvent.start_at)
+        )).scalars().all()
 
     items: list[tuple[datetime, str]] = []
     for ev in native_rows:
@@ -335,6 +347,114 @@ async def _get_current_mode(session: AsyncSession, args: dict) -> str:
     return f'Aktif mod: "{current.mode}", {_fmt_dur(elapsed_secs)} önce başladı.'
 
 
+# ── Delete tools (5 new + confirm gate) ───────────────────────────────────────
+
+_CONFIRM_GATE_MSG = "Silme işlemi için önce onay gerekli."
+
+
+async def _delete_habit(session: AsyncSession, args: dict) -> str:
+    from app.models.habit import Habit
+
+    if not args.get("confirmed", False):
+        return _CONFIRM_GATE_MSG
+
+    habit_id = args.get("habit_id")
+    if habit_id is None:
+        return "Alışkanlık ID'si belirtilmedi."
+
+    habit = await session.get(Habit, int(habit_id))
+    if not habit:
+        return f"ID'si {habit_id} olan alışkanlık bulunamadı."
+
+    name = habit.name
+    await session.delete(habit)
+    await session.commit()
+    return f'"{name}" alışkanlığı silindi.'
+
+
+async def _delete_event(session: AsyncSession, args: dict) -> str:
+    """Delete a native (local) Event only. ExternalEvents are never touched."""
+    from app.models.event import Event
+
+    if not args.get("confirmed", False):
+        return _CONFIRM_GATE_MSG
+
+    event_id = args.get("event_id")
+    if event_id is None:
+        return "Etkinlik ID'si belirtilmedi."
+
+    event = await session.get(Event, int(event_id))
+    if not event:
+        return f"ID'si {event_id} olan yerel etkinlik bulunamadı."
+
+    title = event.title
+    await session.delete(event)
+    await session.commit()
+    return f'"{title}" etkinliği silindi.'
+
+
+async def _delete_workspace(session: AsyncSession, args: dict) -> str:
+    from app.models.workspace import Workspace
+    from app.services.ws_manager import ws_manager
+
+    if not args.get("confirmed", False):
+        return _CONFIRM_GATE_MSG
+
+    workspace_id = args.get("workspace_id")
+    if workspace_id is None:
+        return "Çalışma alanı ID'si belirtilmedi."
+
+    workspace = await session.get(Workspace, int(workspace_id))
+    if not workspace:
+        return f"ID'si {workspace_id} olan çalışma alanı bulunamadı."
+
+    name = workspace.name
+    await session.delete(workspace)
+    await session.commit()
+    await ws_manager.broadcast({"type": "workspace_deleted", "data": {"id": workspace_id}})
+    return f'"{name}" çalışma alanı silindi.'
+
+
+async def _delete_memory_note(session: AsyncSession, args: dict) -> str:
+    from app.models.memory import BrainstormNote
+
+    if not args.get("confirmed", False):
+        return _CONFIRM_GATE_MSG
+
+    note_id = args.get("note_id")
+    if note_id is None:
+        return "Not ID'si belirtilmedi."
+
+    note = await session.get(BrainstormNote, int(note_id))
+    if not note:
+        return f"ID'si {note_id} olan not bulunamadı."
+
+    snippet = (note.title or note.content[:40]).strip()
+    await session.delete(note)
+    await session.commit()
+    return f'"{snippet}" notu silindi.'
+
+
+async def _delete_clipboard_item(session: AsyncSession, args: dict) -> str:
+    from app.models.memory import ClipboardItem
+
+    if not args.get("confirmed", False):
+        return _CONFIRM_GATE_MSG
+
+    clip_id = args.get("clip_id")
+    if clip_id is None:
+        return "Pano öğesi ID'si belirtilmedi."
+
+    clip = await session.get(ClipboardItem, int(clip_id))
+    if not clip:
+        return f"ID'si {clip_id} olan pano öğesi bulunamadı."
+
+    snippet = clip.content[:40].strip()
+    await session.delete(clip)
+    await session.commit()
+    return f'Pano öğesi silindi: "{snippet}"'
+
+
 # ── Tool registry ──────────────────────────────────────────────────────────────
 
 TOOLS: dict[str, Tool] = {
@@ -356,16 +476,25 @@ TOOLS: dict[str, Tool] = {
     ),
     "delete_task": Tool(
         name="delete_task",
-        description="Belirtilen ID'deki görevi sil. Kullanıcı silmek istediğini onayladıktan sonra çağır.",
+        description=(
+            "Belirtilen ID'deki görevi sil. "
+            "Bu aracı sadece kullanıcı önceki turn'de sözlü olarak ('evet', 'sil', 'onaylıyorum') "
+            "silme onayı verdiyse confirmed=true ile çağır. "
+            "Onay yoksa önce kullanıcıya 'X görevi silinsin mi?' diye sor, cevabı bekle."
+        ),
         parameters={
             "type": "object",
             "properties": {
                 "task_id": {
                     "type": "integer",
                     "description": "Silinecek görevin ID'si",
-                }
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": "Kullanıcı sözlü onay verdiyse true",
+                },
             },
-            "required": ["task_id"],
+            "required": ["task_id", "confirmed"],
         },
         execute=_delete_task,
     ),
@@ -475,6 +604,127 @@ TOOLS: dict[str, Tool] = {
         parameters={"type": "object", "properties": {}, "required": []},
         execute=_get_current_mode,
     ),
+    "delete_habit": Tool(
+        name="delete_habit",
+        description=(
+            "Belirtilen ID'deki alışkanlığı sil. "
+            "Bu aracı sadece kullanıcı önceki turn'de sözlü olarak ('evet', 'sil', 'onaylıyorum') "
+            "silme onayı verdiyse confirmed=true ile çağır. "
+            "Onay yoksa önce kullanıcıya 'X alışkanlığı silinsin mi?' diye sor, cevabı bekle."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "habit_id": {
+                    "type": "integer",
+                    "description": "Silinecek alışkanlığın ID'si",
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": "Kullanıcı sözlü onay verdiyse true",
+                },
+            },
+            "required": ["habit_id", "confirmed"],
+        },
+        execute=_delete_habit,
+    ),
+    "delete_event": Tool(
+        name="delete_event",
+        description=(
+            "Belirtilen ID'deki yerel (SADIK'a eklenen) etkinliği sil. "
+            "Google Calendar etkinliklerine dokunmaz; sadece native etkinlikler silinebilir. "
+            "Bu aracı sadece kullanıcı önceki turn'de sözlü olarak ('evet', 'sil', 'onaylıyorum') "
+            "silme onayı verdiyse confirmed=true ile çağır. "
+            "Onay yoksa önce kullanıcıya 'X etkinliği silinsin mi?' diye sor, cevabı bekle."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "integer",
+                    "description": "Silinecek yerel etkinliğin ID'si",
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": "Kullanıcı sözlü onay verdiyse true",
+                },
+            },
+            "required": ["event_id", "confirmed"],
+        },
+        execute=_delete_event,
+    ),
+    "delete_workspace": Tool(
+        name="delete_workspace",
+        description=(
+            "Belirtilen ID'deki çalışma alanını sil. "
+            "Bu aracı sadece kullanıcı önceki turn'de sözlü olarak ('evet', 'sil', 'onaylıyorum') "
+            "silme onayı verdiyse confirmed=true ile çağır. "
+            "Onay yoksa önce kullanıcıya 'X çalışma alanı silinsin mi?' diye sor, cevabı bekle."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "workspace_id": {
+                    "type": "integer",
+                    "description": "Silinecek çalışma alanının ID'si",
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": "Kullanıcı sözlü onay verdiyse true",
+                },
+            },
+            "required": ["workspace_id", "confirmed"],
+        },
+        execute=_delete_workspace,
+    ),
+    "delete_memory_note": Tool(
+        name="delete_memory_note",
+        description=(
+            "Belirtilen ID'deki hafıza notunu (brainstorm notu) sil. "
+            "Bu aracı sadece kullanıcı önceki turn'de sözlü olarak ('evet', 'sil', 'onaylıyorum') "
+            "silme onayı verdiyse confirmed=true ile çağır. "
+            "Onay yoksa önce kullanıcıya 'X notu silinsin mi?' diye sor, cevabı bekle."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "note_id": {
+                    "type": "integer",
+                    "description": "Silinecek notun ID'si",
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": "Kullanıcı sözlü onay verdiyse true",
+                },
+            },
+            "required": ["note_id", "confirmed"],
+        },
+        execute=_delete_memory_note,
+    ),
+    "delete_clipboard_item": Tool(
+        name="delete_clipboard_item",
+        description=(
+            "Belirtilen ID'deki pano öğesini sil. "
+            "Bu aracı sadece kullanıcı önceki turn'de sözlü olarak ('evet', 'sil', 'onaylıyorum') "
+            "silme onayı verdiyse confirmed=true ile çağır. "
+            "Onay yoksa önce kullanıcıya 'X pano öğesi silinsin mi?' diye sor, cevabı bekle."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "clip_id": {
+                    "type": "integer",
+                    "description": "Silinecek pano öğesinin ID'si",
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": "Kullanıcı sözlü onay verdiyse true",
+                },
+            },
+            "required": ["clip_id", "confirmed"],
+        },
+        execute=_delete_clipboard_item,
+    ),
 }
 
 
@@ -536,15 +786,29 @@ def _log_tool_call(tool_name: str, args: dict, result_len: int, duration_ms: flo
         logger.warning(f"[voice_tools] log write failed: {e}")
 
 
-async def execute_tool(tool_name: str, args: dict, session: AsyncSession) -> str:
-    """Execute a single tool and return its natural-language result string."""
+async def execute_tool(
+    tool_name: str,
+    args: dict,
+    session: AsyncSession,
+    privacy_flags: dict[str, bool] | None = None,
+) -> str:
+    """Execute a single tool and return its natural-language result string.
+
+    privacy_flags: optional dict from get_privacy_flags(). Passed to tools
+    that need per-flag data filtering (e.g. get_today_agenda).  Default None
+    preserves backward-compatible behaviour (no filtering applied).
+    """
     tool = TOOLS.get(tool_name)
     if not tool:
         return f"Bilinmeyen araç: {tool_name}"
 
     t0 = time.monotonic()
     try:
-        result = await tool.execute(session, args)
+        # Privacy-aware tools receive flags as a keyword argument.
+        if tool_name == "get_today_agenda":
+            result = await _get_today_agenda(session, args, privacy_flags=privacy_flags)
+        else:
+            result = await tool.execute(session, args)
     except Exception as e:
         logger.error(f"[voice_tools] {tool_name} execute error: {e}")
         result = f"Araç çalıştırılırken hata oluştu: {e}"
@@ -559,6 +823,7 @@ async def run_tool_loop(
     model: str,
     session: AsyncSession,
     on_tool_event: Callable[[dict], Awaitable[None]] | None = None,
+    privacy_flags: dict[str, bool] | None = None,
 ) -> tuple[list[dict], str, list[dict]]:
     """Execute the LLM tool-use loop (max MAX_TOOL_ROUNDS rounds).
 
@@ -626,7 +891,7 @@ async def run_tool_loop(
                 # Emit executing event before tool runs
                 await _emit({"type": "tool_status", "tool_name": fn_name, "phase": "executing"})
 
-                tool_result = await execute_tool(fn_name, fn_args, session)
+                tool_result = await execute_tool(fn_name, fn_args, session, privacy_flags=privacy_flags)
 
                 # Emit completed event after tool finishes
                 await _emit({"type": "tool_status", "tool_name": fn_name, "phase": "completed"})

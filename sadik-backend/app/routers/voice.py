@@ -226,21 +226,32 @@ async def voice_chat_stream(
     if not api_key:
         raise HTTPException(status_code=400, detail="OpenAI API key not configured")
 
-    # Fetch conversation history for context (last 20 messages).
-    result = await session.execute(
-        select(ChatMessage).order_by(ChatMessage.created_at.asc()).limit(40)
-    )
-    db_history = [
-        {"role": m.role, "content": m.content}
-        for m in result.scalars().all()
-    ]
+    # Read privacy flags once; passed to tool loop and history gate.
+    from app.services.privacy_flags import get_privacy_flags
+    privacy_flags = await get_privacy_flags(session)
+    voice_memory_enabled = privacy_flags.get("privacy_voice_memory", False)
 
-    # Persist user message before streaming so history is consistent.
+    # Fetch conversation history for context (last 20 messages).
+    # Gate: if privacy_voice_memory=false, pass an empty history so the LLM
+    # sees no prior turns (stateless turn).
+    if voice_memory_enabled:
+        result = await session.execute(
+            select(ChatMessage).order_by(ChatMessage.created_at.asc()).limit(40)
+        )
+        db_history = [
+            {"role": m.role, "content": m.content}
+            for m in result.scalars().all()
+        ]
+    else:
+        db_history = []
+
+    # Persist user message only when voice memory is enabled.
     from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    user_msg = ChatMessage(role="user", content=body.text, created_at=now)
-    session.add(user_msg)
-    await session.commit()
+    if voice_memory_enabled:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        user_msg = ChatMessage(role="user", content=body.text, created_at=now)
+        session.add(user_msg)
+        await session.commit()
 
     async def generate() -> AsyncIterator[bytes]:
         """Yield typed length-prefixed frames.
