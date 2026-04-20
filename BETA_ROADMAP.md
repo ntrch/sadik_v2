@@ -152,7 +152,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 **Amaç:** LLM'e cloud push'u user control'e al, KVKK uyumlu aydınlatma+rıza akışı.
 
 **Concurrency zone A (backend):**
-- [ ] **T2.1** Settings tablosuna privacy flag'leri
+- [WIP] **T2.1** Settings tablosuna privacy flag'leri
   - `privacy_behavioral_learning`, `privacy_calendar_push`, `privacy_notion_push`, `privacy_voice_memory`
   - Hepsi default `false`
 - [ ] **T2.2** Redaction middleware (backend)
