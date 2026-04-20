@@ -14,6 +14,7 @@ from typing import Any, Callable, Awaitable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from app.services.redaction import redact_messages
 
 logger = logging.getLogger(__name__)
 
@@ -587,7 +588,7 @@ async def run_tool_loop(
     for round_idx in range(MAX_TOOL_ROUNDS):
         response = await client.chat.completions.create(
             model=model,
-            messages=msgs,
+            messages=redact_messages(msgs),
             tools=tool_schemas,
             tool_choice="auto",
         )
@@ -651,7 +652,7 @@ async def run_tool_loop(
     logger.warning("[voice_tools] max rounds reached, forcing final response without tools")
     response = await client.chat.completions.create(
         model=model,
-        messages=msgs,
+        messages=redact_messages(msgs),
     )
     final_text = response.choices[0].message.content or ""
     return msgs, final_text, tool_calls_used

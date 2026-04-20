@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 
 from app.models.app_usage_session import AppUsageSession
 from app.models.task import Task
+from app.services.redaction import redact_messages
 
 logger = logging.getLogger(__name__)
 
@@ -294,7 +295,7 @@ class ChatService:
 
             response = await client.chat.completions.create(
                 model=model,
-                messages=messages,
+                messages=redact_messages(messages),
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -379,7 +380,7 @@ class ChatService:
         try:
             async with await client.chat.completions.create(
                 model=model,
-                messages=messages,
+                messages=redact_messages(messages),
                 stream=True,
             ) as stream:
                 async for chunk in stream:

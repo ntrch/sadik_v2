@@ -105,7 +105,7 @@
 - ✅ T1.4 proaktif regression — 1 bug fix + 4 telemetry log
 - ⏸️ T1.5 wake-word 48h monitoring — gerçek kullanıma ertelendi (beta'da gözlemlenir)
 - ⏸️ T1.6 memory leak testi — gerçek kullanıma ertelendi
-- **Sprint 2 başladı — T2.1 ✅, sıradaki: T2.2 redaction middleware**
+- **Sprint 2 — T2.1 ✅ T2.2 ✅, sıradaki: T2.3 data export/purge endpoint'leri**
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
@@ -158,9 +158,12 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Değişen: `sadik-backend/app/main.py` DEFAULT_SETTINGS dict'ine 4 key eklendi
   - Key-value tablosu → migration gerekmedi; lifespan startup'ta auto-seed eder
   - Generic GET/PUT endpoint'leri zaten çalışıyor
-- [WIP] **T2.2** Redaction middleware (backend)
-  - Email/phone/IBAN/API key regex mask'le
+- [x] **T2.2** Redaction middleware (backend) ✅
+  - Email/phone/IBAN/API key/credit card regex mask'le
   - LLM'e giden her prompt bundan geçsin
+  - Yeni: `sadik-backend/app/services/redaction.py` (`redact`, `redact_messages`)
+  - Entegrasyon: chat_service (send_message + stream_voice_response) + voice_tools (run_tool_loop iki create noktası)
+  - Test edildi: saat "09:30" bozulmuyor, e-mail/phone/IBAN/API key mask'leniyor
 - [ ] **T2.3** "Veri export" + "veri sil" endpoint'leri
   - `GET /api/privacy/export` — JSON full data
   - `DELETE /api/privacy/purge` — confirm token ile
