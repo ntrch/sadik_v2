@@ -237,13 +237,16 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 **Amaç:** Sadık "normalde bu saatte kod yazardın" diyebilsin.
 
 **Concurrency zone A (backend):**
-- [ ] **T3.1** App usage pattern mining job
-  - Günlük scheduled job (lifespan scheduler üzerine)
-  - Input: son 14 gün app usage
-  - Output: haftanın her günü için saat dilimi bazlı baskın mode (JSON, `user_profile_patterns` setting'ine yaz)
-- [ ] **T3.2** Pattern summary generator
-  - Raw cluster'dan doğal dil cümleleri üret ("Pazartesi 09-12 coding aktif, 13-15 meeting yoğun")
-  - LLM system prompt injection noktası (sadece `privacy_behavioral_learning=true` ise)
+- [x] **T3.1 tamam [session-A]** App usage pattern mining job ✅
+  - NEW `services/behavioral_patterns.py` — `compute_weekly_patterns` (14 gün ModeLog, 7 gün × 8 blok × 3h grid), 6h scheduler
+  - ModeLog kaynak (explicit mode tracking), hour-by-hour split + overlap
+  - JSON v1: `{version, generated_at, days_analyzed, weekly[dow][blocks], summary_tr}`
+  - Insufficient data (<3 session) → dominant_mode=null
+  - Setting: `user_profile_patterns` (empty string default)
+- [x] **T3.2 tamam [session-A]** Pattern summary generator + LLM injection ✅
+  - `summary_tr`: top-3 blok by duration ("Pazartesi 09-12 kod yazma; Salı 13-15 toplantı; ...")
+  - `chat_service._build_messages` — `behavioral_summary` kwarg → system prompt'a eklenir
+  - Gate: `privacy_flags["privacy_behavioral_learning"]=True` (default sadece Full tier'da)
 - [ ] **T3.3** Behavioral insight proactive category
   - Mevcut proactive sistemin üstüne yeni kategori
   - Logic: beklenen mode aktif değil + yetişecek task var + düşük usage → öneri

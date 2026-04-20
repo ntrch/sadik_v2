@@ -84,6 +84,7 @@ DEFAULT_SETTINGS = {
     "privacy_voice_memory": "false",
     "privacy_tier": "hybrid",
     "onboarding_completed": "false",
+    "user_profile_patterns": "",
 }
 
 @asynccontextmanager
@@ -130,6 +131,11 @@ async def lifespan(app: FastAPI):
     from app.services import integration_service
     _integrations_task = integration_service.create_scheduler_task()
 
+    # Behavioral pattern mining (Sprint 3). Writes user_profile_patterns setting
+    # every 6h; LLM injection + Dashboard "Profil" card both read from it.
+    from app.services import behavioral_patterns
+    _patterns_task = behavioral_patterns.create_scheduler_task()
+
     # Best-effort auto-connect on startup — must never block indefinitely.
     # Each port gets a 2 s internal timeout; the whole scan gets a 10 s outer
     # guard so startup always completes even if a port stalls in the OS layer.
@@ -164,8 +170,10 @@ async def lifespan(app: FastAPI):
     await pomodoro_service.stop()
     await device_manager.disconnect()
     await mode_tracker.end_current()
+    from app.services import behavioral_patterns as _bp
     await _hs.stop_scheduler()
     await _is.stop_scheduler()
+    await _bp.stop_scheduler()
     logger.info("SADIK backend shutdown complete")
 
 app = FastAPI(title="SADIK Backend", version="1.0.0", lifespan=lifespan)

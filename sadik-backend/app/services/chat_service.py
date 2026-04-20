@@ -72,6 +72,34 @@ def _fmt_duration_tr(total_seconds: int) -> str:
     return f"{max(m, 1)} dakika"
 
 
+# ── Behavioral profile injection (Sprint 3 T3.2) ──────────────────────────────
+
+async def _get_behavioral_summary(
+    session: Optional[AsyncSession],
+    privacy_flags: Optional[dict],
+) -> str:
+    """Return the cached behavioral summary_tr string, or "" when gated off.
+
+    Gate: requires `privacy_behavioral_learning=True` (only active in the Full
+    tier by default). Returns "" silently on any error — the LLM simply runs
+    without the behavioural context.
+    """
+    if session is None:
+        return ""
+    if not privacy_flags or not privacy_flags.get("privacy_behavioral_learning"):
+        return ""
+    try:
+        from app.services.behavioral_patterns import get_cached_patterns
+        patterns = await get_cached_patterns(session)
+        if not patterns:
+            return ""
+        summary = patterns.get("summary_tr") or ""
+        return summary.strip()
+    except Exception as exc:
+        logger.warning(f"[ChatService] behavioral summary fetch failed: {exc}")
+        return ""
+
+
 # ── Local context builder ──────────────────────────────────────────────────────
 
 async def _build_local_context(
@@ -208,6 +236,7 @@ class ChatService:
         user_name: str,
         greeting_style: str,
         local_ctx: str = "",
+        behavioral_summary: str = "",
     ) -> list[dict]:
         """Construct the messages array for a chat completion request."""
         recent = history[-20:] if len(history) > 20 else history
@@ -242,6 +271,15 @@ class ChatService:
 
         if local_ctx:
             system = system + "\n\n" + local_ctx
+
+        if behavioral_summary:
+            system = system + (
+                "\n\n--- KULLANICININ DAVRANIŞ PROFİLİ (son 14 gün) ---\n"
+                f"{behavioral_summary}\n"
+                "Bu profil yalnızca bağlam içindir; kullanıcıya ezberden okuma. "
+                "Kullanıcıya 'normalde bu saatte X yapıyorsun' gibi önerilerde bulunabilirsin.\n"
+                "--- PROFİL SONU ---"
+            )
 
         messages: list[dict] = [{"role": "system", "content": system}]
         messages.extend(recent)
@@ -279,8 +317,11 @@ class ChatService:
                 except Exception as ctx_err:
                     logger.warning(f"[ChatService] Local context build failed: {ctx_err}")
 
+            behavioral_summary = await _get_behavioral_summary(session, privacy_flags)
+
             messages = self._build_messages(
-                user_content, history, voice_mode, user_name, greeting_style, local_ctx
+                user_content, history, voice_mode, user_name, greeting_style, local_ctx,
+                behavioral_summary=behavioral_summary,
             )
 
             client = AsyncOpenAI(api_key=api_key)
@@ -354,8 +395,11 @@ class ChatService:
             except Exception as ctx_err:
                 logger.warning(f"[ChatService] Local context build failed: {ctx_err}")
 
+        behavioral_summary = await _get_behavioral_summary(session, privacy_flags)
+
         messages = self._build_messages(
-            user_content, history, True, user_name, greeting_style, local_ctx
+            user_content, history, True, user_name, greeting_style, local_ctx,
+            behavioral_summary=behavioral_summary,
         )
 
         client = AsyncOpenAI(api_key=api_key)
