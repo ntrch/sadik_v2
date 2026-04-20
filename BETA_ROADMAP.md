@@ -249,7 +249,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Logic: beklenen mode aktif değil + yetişecek task var + düşük usage → öneri
 
 **Concurrency zone B (frontend):**
-- [ ] **T3.4** Dashboard'da "Profil" kartı (opt-in toggle açıksa)
+- [ ] **T3.4 WIP [session-B]** Dashboard'da "Profil" kartı (opt-in toggle açıksa)
   - Haftalık pattern özeti görsel
 - [ ] **T3.5** Proactive suggestion'da "workspace öner" aksiyonu
   - Accept → ilgili workspace başlar
