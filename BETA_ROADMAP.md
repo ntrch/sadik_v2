@@ -102,7 +102,10 @@
 - ✅ T1.1 voice tool-use backend (12 tool, registry, debug endpoint)
 - ✅ T1.2 backend frame protocol (tool_status frame + tool_calls_used metadata)
 - ✅ T1.3 frontend tool indicator (TR label, animate-pulse)
-- Sıradaki: T1.4 proaktif 7 senaryo regression
+- ✅ T1.4 proaktif regression — 1 bug fix + 4 telemetry log
+- ⏸️ T1.5 wake-word 48h monitoring — gerçek kullanıma ertelendi (beta'da gözlemlenir)
+- ⏸️ T1.6 memory leak testi — gerçek kullanıma ertelendi
+- **Sprint 1 functional tamamlandı → Sprint 2 başlıyor**
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
@@ -133,10 +136,13 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - `VoiceAssistant.tsx`: `TOOL_LABELS` (12 tool TR), `activeTools` state, status label altında animate-pulse indicator
 
 **Concurrency zone B (frontend stabilizasyon):**
-- [WIP] **T1.4** Proaktif 7 senaryo regression — Sonnet'e delege, kod okuyarak logical test
-  - Senaryo 7 (organik end-to-end) özellikle önemli
-- [ ] **T1.5** Wake-word 48h monitoring — sadece log analizi, ek kod yok; bulgular buraya
-- [ ] **T1.6** Long-session memory leak testi — Electron DevTools Memory snapshot, 2+ saat
+- [x] **T1.4** Proaktif 7 senaryo regression ✅
+  - 1 gerçek bug bulundu + fixlendi: `setActiveInsight` Rule A/F/B/C'den önce çağrılıyordu → DND/quiet hours aktifken dashboard kart görünüyordu (AppContext.tsx:1154→1175)
+  - 4 telemetry log eklendi: poll entry, sweep non-empty, accept/deny, break start/cancel/complete
+  - 7 senaryonun tamamı call-chain ile trace edildi, hepsi ✅ logical test pass
+  - Manual test prosedürü rapor içinde detaylı
+- [DEFERRED-REAL-USE] **T1.5** Wake-word 48h monitoring — gerçek kullanım gerektirir, beta sürecinde gözlemlenir
+- [DEFERRED-REAL-USE] **T1.6** Long-session memory leak testi — gerçek kullanım gerektirir, beta sürecinde gözlemlenir
 
 **Exit criteria:** Voice ile "bugün teslim edeceğim task'lar ne?" soruldu → TTS cevap verdi + listing doğru. Proaktif 7 senaryo ✅.
 

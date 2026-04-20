@@ -1150,9 +1150,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Dashboard card: reflect the newly eligible insight
-        setActiveInsight(insight);
-
         // Deduplication — only notify (toast + native notification) when the insight is new or escalated
         const key = `${insight.source}:${insight.app_name ?? insight.message?.slice(0, 30)}:${insight.level}`;
         const alreadyNotified = key === lastShownInsightKeyRef.current;
@@ -1173,6 +1170,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         // Rule C: Pomodoro / focus suppression — blocks both notification and TTS
         if (pomodoroStateRef.current.is_running) { console.log('[Proactive] ✗ Rule C — pomodoro running'); return; }
+
+        // Dashboard card: reflect the newly eligible insight (after all hard gates)
+        setActiveInsight(insight);
 
         const now = Date.now();
 
@@ -1287,6 +1287,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const sweepQueue = async () => {
       const now = Date.now();
       const queue = pendingInsightQueueRef.current;
+      if (queue.length > 0) {
+        console.log('[Proactive][Queue] Sweep tick — pending:', queue.length, queue.map((e) => `${e.insight.app_name}/${e.insight.level} in ${Math.round((e.notBefore - now) / 1000)}s`));
+      }
       // Find first entry whose notBefore has elapsed
       const idx = queue.findIndex((e) => now >= e.notBefore);
       if (idx === -1) return;
@@ -1297,6 +1300,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     /** Fetch real insights from backend + tasks, then pipe through processInsight. */
     const poll = async () => {
+      console.log('[Proactive] Poll: START', new Date().toLocaleTimeString());
       try {
         const [appInsight, taskInsight] = await Promise.all([
           statsApi.appInsights(),
@@ -1439,6 +1443,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const acceptInsight = useCallback(async () => {
     stopProactiveSpeech();
     const insight = activeInsightRef.current;
+    console.log('[Proactive] Accept — insight:', insight ? `${rejectionBaseKey(insight)} level=${insight.level}` : 'none');
     // Clear any stored rejection for this key — user accepted, so resume normal cadence.
     if (insight) {
       rejectionMapRef.current.delete(rejectionBaseKey(insight));
@@ -1450,6 +1455,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     // Map intensity to break minutes: gentle → 5 min, strong → 15 min
     const breakMinutes = insight?.level === 'strong' ? 15 : 5;
+    console.log('[Proactive] Break start — level:', insight?.level, 'breakMinutes:', breakMinutes);
 
     try {
       await modesApi.setMode('break');
@@ -1492,7 +1498,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const lvl = (current.level === 'strong' ? 'strong' : 'gentle') as 'gentle' | 'strong';
       rejectionMapRef.current.set(rejectionBaseKey(current), { level: lvl, at: Date.now() });
       persistRejectionMap(rejectionMapRef.current);
-      console.log('[Proactive] Rejection recorded (persisted)', { key: rejectionBaseKey(current), level: lvl });
+      console.log('[Proactive] Deny — insight:', rejectionBaseKey(current), 'level recorded:', lvl);
       // Reset the dedup key so a different insight can surface immediately
       lastShownInsightKeyRef.current = null;
     }
@@ -1803,6 +1809,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // would otherwise fire on the subsequent is_running→false transition.
           skipNextBreakStopWatcherRef.current = true;
           // Spec: natural break end → counter reset (suggestion "completed")
+          console.log('[Proactive] Break completed (natural) — counter reset');
           clearBreakAcceptedInsightRef.current();
           _speakProactiveRef.current('Mola bitti. Hazırsan devam edelim.');
           showToast('Mola sona erdi!', 'info');
@@ -1902,6 +1909,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       // Spec: early break cancel → counter reset, suggestion "completed+accepted"
+      console.log('[Proactive] Break cancelled early — counter reset');
       clearBreakAcceptedInsightRef.current();
       modesApi.endCurrent().then(() => setCurrentMode(null)).catch(() => {});
       getAnimationEngine().triggerEvent('confirmation_success');
