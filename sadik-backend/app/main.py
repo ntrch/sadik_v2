@@ -77,6 +77,10 @@ DEFAULT_SETTINGS = {
     "google_client_id": "",
     "google_client_secret": "",
     "google_oauth_state": "",  # short-lived, cleared after callback
+    "privacy_behavioral_learning": "false",
+    "privacy_calendar_push": "false",
+    "privacy_notion_push": "false",
+    "privacy_voice_memory": "false",
 }
 
 @asynccontextmanager

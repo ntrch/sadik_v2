@@ -105,7 +105,7 @@
 - ✅ T1.4 proaktif regression — 1 bug fix + 4 telemetry log
 - ⏸️ T1.5 wake-word 48h monitoring — gerçek kullanıma ertelendi (beta'da gözlemlenir)
 - ⏸️ T1.6 memory leak testi — gerçek kullanıma ertelendi
-- **Sprint 1 functional tamamlandı → Sprint 2 başlıyor**
+- **Sprint 2 başladı — T2.1 ✅, sıradaki: T2.2 redaction middleware**
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
@@ -152,9 +152,12 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 **Amaç:** LLM'e cloud push'u user control'e al, KVKK uyumlu aydınlatma+rıza akışı.
 
 **Concurrency zone A (backend):**
-- [WIP] **T2.1** Settings tablosuna privacy flag'leri
+- [x] **T2.1** Settings tablosuna privacy flag'leri ✅
   - `privacy_behavioral_learning`, `privacy_calendar_push`, `privacy_notion_push`, `privacy_voice_memory`
   - Hepsi default `false`
+  - Değişen: `sadik-backend/app/main.py` DEFAULT_SETTINGS dict'ine 4 key eklendi
+  - Key-value tablosu → migration gerekmedi; lifespan startup'ta auto-seed eder
+  - Generic GET/PUT endpoint'leri zaten çalışıyor
 - [ ] **T2.2** Redaction middleware (backend)
   - Email/phone/IBAN/API key regex mask'le
   - LLM'e giden her prompt bundan geçsin
