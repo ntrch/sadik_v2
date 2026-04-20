@@ -171,9 +171,10 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Yeni: `sadik-backend/app/routers/privacy.py`; main.py'ye register edildi
 
 **Concurrency zone B (frontend):**
-- [ ] **T2.4** Settings → Gizlilik sekmesi
+- [WIP] **T2.4** Settings → Gizlilik sekmesi
   - Her toggle: açıklama + canlı preview ("şu an bu kapalı, şunlar cloud'a gitmiyor")
   - Toggle değişince backend'e push
+  - "Verimi İndir" + "Verimi Sil" butonları (T2.3 endpoint'lerini çağırır)
 - [ ] **T2.5** Onboarding consent flow (yeni user)
   - Aydınlatma metni (TR) + açık rıza
   - Default tüm toggle'lar kapalı, opt-in
