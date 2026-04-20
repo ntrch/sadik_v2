@@ -227,8 +227,9 @@ async def voice_chat_stream(
         raise HTTPException(status_code=400, detail="OpenAI API key not configured")
 
     # Read privacy flags once; passed to tool loop and history gate.
-    from app.services.privacy_flags import get_privacy_flags
+    from app.services.privacy_flags import get_privacy_flags, get_privacy_tier
     privacy_flags = await get_privacy_flags(session)
+    tier = await get_privacy_tier(session)
     voice_memory_enabled = privacy_flags.get("privacy_voice_memory", False)
 
     # Fetch conversation history for context (last 20 messages).
@@ -294,6 +295,7 @@ async def voice_chat_stream(
             use_tools=True,
             on_tool_event=on_tool_event,
             privacy_flags=privacy_flags,
+            tier=tier,
         )
 
         async for sentence in response_gen:

@@ -109,7 +109,8 @@
 - **Sprint 2 + ara bug'lar tamamlandı ✅**
   - Ara fix: STT halüsinasyon (RMS gate 0.005 + temperature=0 + 21 TR blacklist)
   - Ara fix: Text input focus (VoiceAssistant wakeWordPending/Escape handler'lara `isInputFocused()` guard)
-- **Sprint 2.5 tamamlandı ✅ — sıradaki: Sprint 3 (behavioral learning)**
+- **Sprint 2.5 tamamlandı ✅**
+- **Sprint 2.7 tamamlandı ✅ — 3-tier privacy preset (Full/Hybrid/Local) + advanced override — sıradaki: Sprint 3 (behavioral learning)**
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
@@ -212,6 +213,23 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - `chat_service.py` `send_message` + `stream_voice_response` — `privacy_flags` kwarg, `run_tool_loop`'a iletilir
 
 **Exit criteria:** `privacy_calendar_push=false` → "bugün ajandamda ne var?" testi Google Calendar verisi dönmez. `delete_habit` vb. tool'lar `confirmed=false` iken execute etmez. `privacy_voice_memory=false` → LLM prompt'una önceki mesajlar eklenmez, DB'ye yazılmaz.
+
+---
+
+### Sprint 2.7 (refactor): 3-tier privacy preset
+**Amaç:** 4 ayrı toggle yerine tek "AI Deneyim Modu" seçimi (Full / Hybrid / Local). Kullanıcının zihinsel modeli "LLM'e ne kadar güveniyorum" tek sorusu olsun.
+
+**Concurrency zone A (backend):**
+- [x] **T2.7a** Tier → flag mapping + tool schema filtresi
+  - `privacy_flags.py`: `TIER_FLAG_MAP`, `get_privacy_tier`, `apply_tier_to_flags`
+  - `voice_tools.py`: `get_tool_schemas(provider, tier)` — local → `[]`, hybrid → 2 tool hariç (`get_app_usage_summary`, `search_memory`), full → hepsi
+  - `run_tool_loop(tier="full")` — tools=[] iken `tool_choice` gönderilmez
+- [x] **T2.7b** `chat_service.send_message` + `stream_voice_response` — `tier` kwarg, `run_tool_loop`'a forward
+- [x] **T2.7c** `/api/privacy/tier` — GET (tier+flags) + PUT (apply_tier_to_flags)
+- [x] **T2.7d** `SettingsPage` Gizlilik — 3 preset kart + "Gelişmiş Ayarlar" accordion (mevcut 4 toggle advanced'a taşındı); tek toggle değişince `privacy_tier=custom` flag'lenir
+- [x] **T2.7e** `OnboardingPage` 2. adım — 4 toggle yerine 3 tier seçim kartı (active bullet detayları); `privacyApi.setTier()` ile kaydedilir
+
+**Exit criteria:** Local modda voice chat tool kullanmaz, sadece generic TR chat döner. Hybrid modda `get_app_usage_summary` tetiklenmez. Full modda davranış: Sprint 2.5 ile aynı.
 
 ---
 

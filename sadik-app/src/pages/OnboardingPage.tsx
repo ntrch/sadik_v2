@@ -1,51 +1,63 @@
 import React, { useState } from 'react';
 import { settingsApi } from '../api/settings';
+import { privacyApi } from '../api/privacy';
 import { KVKK_NOTICE } from '../content/kvkkNotice';
 
 interface Props {
   onComplete: () => void;
 }
 
-const TOGGLE_LABELS: Record<string, { title: string; desc: string }> = {
-  privacy_behavioral_learning: {
-    title: 'Davranış Öğrenme',
-    desc: 'Sadık kullanım alışkanlıklarını öğrenir ve önerilerini kişiselleştirir.',
-  },
-  privacy_calendar_push: {
-    title: 'Takvim Bilgisini LLM\'e Aktar',
-    desc: 'Takvim etkinliklerin konuşma bağlamı olarak yapay zekaya gönderilir.',
-  },
-  privacy_notion_push: {
-    title: 'Notion İçeriğini LLM\'e Aktar',
-    desc: 'Notion sayfaların konuşma bağlamı olarak yapay zekaya gönderilir.',
-  },
-  privacy_voice_memory: {
-    title: 'Ses Hafızası',
-    desc: 'Sesli konuşmalar özetlenerek uzun vadeli hafızada saklanır.',
-  },
-};
+type TierId = 'full' | 'hybrid' | 'local';
 
-const TOGGLE_KEYS = Object.keys(TOGGLE_LABELS);
+const TIERS: { id: TierId; title: string; short: string; bullets: string[] }[] = [
+  {
+    id: 'full',
+    title: '🔓 Tam AI',
+    short: 'Maksimum zeka — tüm context + tool\'lar + davranış öğrenme',
+    bullets: [
+      'Takvim, görev, alışkanlık ve uygulama kullanım verisi Sadık\'ın cevaplarına dahil edilir',
+      'Tüm sesli araçlar açık (liste, silme, ajanda, kullanım analizi)',
+      'Davranış öğrenme ile kişiselleştirilmiş öneriler',
+    ],
+  },
+  {
+    id: 'hybrid',
+    title: '⚖️ Dengeli',
+    short: 'Okuma/silme araçları, davranış öğrenme kapalı',
+    bullets: [
+      'Sesli komutla görev/alışkanlık/ajanda yönetebilir',
+      'Davranış öğrenme kapalı — Sadık geçmişini analiz etmez',
+      'Uygulama kullanım analizi ve uzun vadeli hafıza araçları devre dışı',
+    ],
+  },
+  {
+    id: 'local',
+    title: '🔒 Yerel-only',
+    short: 'Sadık sadece sohbet eder; veriye erişmez',
+    bullets: [
+      'Verilerin (görev, ajanda, alışkanlık) OpenAI\'a hiç gönderilmez',
+      'Sadık tool kullanamaz, "bugün ne yaptım" gibi sorulara cevap veremez',
+      'STT + TTS için ses yine OpenAI\'a gider (kaçınılmaz)',
+    ],
+  },
+];
 
 export default function OnboardingPage({ onComplete }: Props) {
   const [step, setStep] = useState(1);
   const [readChecked, setReadChecked] = useState(false);
-  const [toggles, setToggles] = useState<Record<string, boolean>>(
-    Object.fromEntries(TOGGLE_KEYS.map((k) => [k, false]))
-  );
+  const [selectedTier, setSelectedTier] = useState<TierId>('hybrid');
   const [consentChecked, setConsentChecked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showKvkkModal, setShowKvkkModal] = useState(false);
 
-  const activeToggles = TOGGLE_KEYS.filter((k) => toggles[k]);
+  const selectedMeta = TIERS.find((t) => t.id === selectedTier)!;
 
   async function handleFinish() {
     if (!consentChecked || saving) return;
     setSaving(true);
     try {
-      const updates: Record<string, string> = { onboarding_completed: 'true' };
-      for (const k of TOGGLE_KEYS) updates[k] = toggles[k] ? 'true' : 'false';
-      await settingsApi.update(updates);
+      await privacyApi.setTier(selectedTier);
+      await settingsApi.update({ onboarding_completed: 'true' });
       onComplete();
     } catch {
       setSaving(false);
@@ -83,7 +95,6 @@ export default function OnboardingPage({ onComplete }: Props) {
       )}
 
       <div className="bg-bg-card border border-border rounded-card max-w-lg w-full flex flex-col gap-6 p-6">
-        {/* Stepper */}
         <div className="flex items-center justify-center gap-3">
           {[1, 2, 3].map((n) => (
             <React.Fragment key={n}>
@@ -105,24 +116,23 @@ export default function OnboardingPage({ onComplete }: Props) {
           ))}
         </div>
 
-        {/* Step 1 */}
         {step === 1 && (
           <div className="flex flex-col gap-4">
-            <h1 className="text-text-primary text-xl font-bold">Sadik'a Hos Geldin</h1>
+            <h1 className="text-text-primary text-xl font-bold">Sadık'a Hoş Geldin</h1>
             <p className="text-text-secondary text-sm leading-relaxed">
-              Sadik, gunluk gorev takibi, aliskanlık yonetimi, takvim entegrasyonu ve sesli asistan ozellikleriyle sana ozel calisan bir masaustu yapay zeka asistanidir. Seni tanıdıkca daha iyi oneri sunar.
+              Sadık; görev takibi, alışkanlık yönetimi, takvim entegrasyonu ve sesli asistan özellikleriyle sana özel çalışan bir masaüstü yapay zeka asistanıdır.
             </p>
             <p className="text-text-secondary text-sm leading-relaxed">
-              Sadik; gorevlerini, takvim etkinliklerini, Notion iceriklerini ve ses konusmalarini isleyebilir. Bu veriler varsayilan olarak yalnizca yerel cihazinda saklanir. Bazi ozellikler icin ilgili toggle'i acman durumunda veri, yalnizca o ozelligin calistirilmasi amaciyla LLM'e gonderilebilir.
+              Verilerin (görev, takvim, Notion, ses sohbeti) varsayılan olarak yalnızca yerel cihazında saklanır. Bir sonraki adımda hangi verilerin LLM'e aktarılacağına sen karar vereceksin.
             </p>
             <p className="text-text-secondary text-sm leading-relaxed">
-              KVKK kapsaminda verilerini diledigin zaman silebilir veya indirebilirsin. Tum hakların Settings → Gizlilik bolumunde listelidir.
+              KVKK kapsamında verilerini dilediğin zaman silebilir veya indirebilirsin.
             </p>
             <button
               onClick={() => setShowKvkkModal(true)}
               className="text-accent-purple text-sm underline text-left w-fit"
             >
-              KVKK Aydinlatma Metni'nin Tamamini Oku
+              KVKK Aydınlatma Metni'nin Tamamını Oku
             </button>
             <label className="flex items-start gap-3 cursor-pointer">
               <input
@@ -131,9 +141,7 @@ export default function OnboardingPage({ onComplete }: Props) {
                 onChange={(e) => setReadChecked(e.target.checked)}
                 className="mt-0.5 accent-purple-500 w-4 h-4 flex-shrink-0"
               />
-              <span className="text-text-secondary text-sm">
-                Aydinlatma metnini okudum, anladim.
-              </span>
+              <span className="text-text-secondary text-sm">Aydınlatma metnini okudum, anladım.</span>
             </label>
             <button
               disabled={!readChecked}
@@ -145,40 +153,38 @@ export default function OnboardingPage({ onComplete }: Props) {
           </div>
         )}
 
-        {/* Step 2 */}
         {step === 2 && (
           <div className="flex flex-col gap-4">
-            <h2 className="text-text-primary text-lg font-bold">Gizlilik Tercihleri</h2>
-            <div className="flex flex-col gap-3">
-              {TOGGLE_KEYS.map((k) => {
-                const { title, desc } = TOGGLE_LABELS[k];
+            <h2 className="text-text-primary text-lg font-bold">AI Deneyim Modu</h2>
+            <p className="text-text-secondary text-sm leading-relaxed">
+              Sadık'ın verilerinle ne kadar etkileşeceğini sen belirlersin. İstediğin zaman Ayarlar'dan değiştirebilirsin.
+            </p>
+            <div className="flex flex-col gap-2">
+              {TIERS.map((t) => {
+                const active = selectedTier === t.id;
                 return (
-                  <div key={k} className="flex items-start gap-3 bg-bg-main border border-border rounded-card p-3">
-                    <div className="flex-1 flex flex-col gap-0.5">
-                      <span className="text-text-primary text-sm font-medium">{title}</span>
-                      <span className="text-text-secondary text-xs leading-relaxed">{desc}</span>
-                    </div>
-                    <button
-                      role="switch"
-                      aria-checked={toggles[k]}
-                      onClick={() => setToggles((prev) => ({ ...prev, [k]: !prev[k] }))}
-                      className={`relative flex-shrink-0 mt-0.5 w-10 h-5 rounded-full transition-colors ${
-                        toggles[k] ? 'bg-accent-purple' : 'bg-border'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                          toggles[k] ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
+                  <button
+                    key={t.id}
+                    onClick={() => setSelectedTier(t.id)}
+                    className={`text-left p-3 rounded-card border transition-colors ${
+                      active
+                        ? 'bg-accent-purple/10 border-accent-purple'
+                        : 'bg-bg-main border-border hover:border-accent-purple/40'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-text-primary">{t.title}</p>
+                    <p className="text-xs text-text-secondary mt-0.5">{t.short}</p>
+                    {active && (
+                      <ul className="mt-2 space-y-1">
+                        {t.bullets.map((b) => (
+                          <li key={b} className="text-[11px] text-text-muted leading-relaxed">• {b}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </button>
                 );
               })}
             </div>
-            <p className="text-text-secondary text-xs leading-relaxed">
-              Bu ayarlari Settings → Gizlilik bolumunden her zaman degistirebilirsin. Tum anahtarlar kapali kalsa bile Sadik temel islevleriyle calisir.
-            </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setStep(1)}
@@ -196,21 +202,13 @@ export default function OnboardingPage({ onComplete }: Props) {
           </div>
         )}
 
-        {/* Step 3 */}
         {step === 3 && (
           <div className="flex flex-col gap-4">
-            <h2 className="text-text-primary text-lg font-bold">Acik Riza Onayi</h2>
+            <h2 className="text-text-primary text-lg font-bold">Açık Rıza Onayı</h2>
             <div className="bg-bg-main border border-border rounded-card p-3 flex flex-col gap-1">
-              <span className="text-text-secondary text-xs font-semibold uppercase tracking-wide">Sectiklerin</span>
-              {activeToggles.length === 0 ? (
-                <span className="text-text-secondary text-sm">Tum cloud paylasimi kapali</span>
-              ) : (
-                activeToggles.map((k) => (
-                  <span key={k} className="text-text-primary text-sm">
-                    • {TOGGLE_LABELS[k].title}
-                  </span>
-                ))
-              )}
+              <span className="text-text-secondary text-xs font-semibold uppercase tracking-wide">Seçilen Mod</span>
+              <span className="text-text-primary text-sm font-semibold">{selectedMeta.title}</span>
+              <span className="text-text-secondary text-xs">{selectedMeta.short}</span>
             </div>
             <label className="flex items-start gap-3 cursor-pointer">
               <input
@@ -220,7 +218,7 @@ export default function OnboardingPage({ onComplete }: Props) {
                 className="mt-0.5 accent-purple-500 w-4 h-4 flex-shrink-0"
               />
               <span className="text-text-secondary text-sm leading-relaxed">
-                Yukardaki tercihleri ve KVKK aydinlatma metnini kabul ediyor, kisisel verilerimin bu kapsamda islenmesine acik riza veriyorum.
+                Seçtiğim modu ve KVKK aydınlatma metnini kabul ediyor, kişisel verilerimin bu kapsamda işlenmesine açık rıza veriyorum.
               </span>
             </label>
             <div className="flex gap-3">
@@ -235,7 +233,7 @@ export default function OnboardingPage({ onComplete }: Props) {
                 onClick={handleFinish}
                 className="flex-1 py-2.5 rounded-card text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-accent-purple text-white hover:bg-accent-purple/90"
               >
-                {saving ? 'Kaydediliyor...' : "Sadik'i Baslat"}
+                {saving ? 'Kaydediliyor...' : "Sadık'ı Başlat"}
               </button>
             </div>
           </div>

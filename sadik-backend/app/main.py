@@ -82,6 +82,7 @@ DEFAULT_SETTINGS = {
     "privacy_calendar_push": "false",
     "privacy_notion_push": "false",
     "privacy_voice_memory": "false",
+    "privacy_tier": "hybrid",
     "onboarding_completed": "false",
 }
 

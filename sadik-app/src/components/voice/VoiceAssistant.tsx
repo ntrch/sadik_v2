@@ -715,6 +715,7 @@ export default function VoiceAssistant() {
 
       // Track if user is signalling end of conversation (e.g. "bitirelim", "görüşürüz").
       userRequestedEndRef.current = isUserEndingConversation(trimmed);
+      console.log(`[Voice] END-CHECK trimmed="${trimmed}" userEnd=${userRequestedEndRef.current} continuous=${continuousConversationRef.current}`);
       didntHearCountRef.current = 0;  // Reset retry counter on successful speech
 
       // ── Steps 3+4+5: Streaming LLM → TTS per sentence ────────────────────
@@ -765,6 +766,7 @@ export default function VoiceAssistant() {
             const shouldEnd = continuousConversationRef.current
               ? userRequestedEndRef.current
               : isConversationEnding(reply) || userRequestedEndRef.current;
+            console.log(`[Voice] END-DECISION shouldEnd=${shouldEnd} userEnd=${userRequestedEndRef.current} continuous=${continuousConversationRef.current} replyMatch=${isConversationEnding(reply)}`);
             userRequestedEndRef.current = false;
             if (continuousConversationRef.current && !shouldEnd) {
               triggerEvent('user_speaking');

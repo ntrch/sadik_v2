@@ -730,12 +730,25 @@ TOOLS: dict[str, Tool] = {
 
 # ── Schema serializers ─────────────────────────────────────────────────────────
 
-def get_tool_schemas(provider: str = "openai") -> list[dict]:
+def get_tool_schemas(provider: str = "openai", tier: str = "full") -> list[dict]:
     """Return tool definitions in the format expected by the LLM provider.
 
     provider: 'openai' — works for both OpenAI and OpenAI-compatible APIs.
+    tier: 'full' | 'hybrid' | 'local' | 'custom'
+        - full: all 12 tools exposed (default / backward-compatible)
+        - hybrid: all tools EXCEPT get_app_usage_summary and search_memory
+          (those tools inject "context query" data that belongs behind full consent)
+        - local: empty list — LLM gets no tools at all; pure generic chat
+        - custom: treated same as full (user hand-picked individual flags)
+
     Future: 'anthropic' format can be added here without touching callers.
     """
+    if tier == "local":
+        return []
+
+    # Tools excluded from hybrid tier
+    _HYBRID_EXCLUDED = frozenset(["get_app_usage_summary", "search_memory"])
+
     if provider == "openai":
         return [
             {
@@ -747,6 +760,7 @@ def get_tool_schemas(provider: str = "openai") -> list[dict]:
                 },
             }
             for t in TOOLS.values()
+            if tier not in ("hybrid",) or t.name not in _HYBRID_EXCLUDED
         ]
     raise ValueError(f"Unknown provider: {provider!r}")
 
@@ -824,6 +838,7 @@ async def run_tool_loop(
     session: AsyncSession,
     on_tool_event: Callable[[dict], Awaitable[None]] | None = None,
     privacy_flags: dict[str, bool] | None = None,
+    tier: str = "full",
 ) -> tuple[list[dict], str, list[dict]]:
     """Execute the LLM tool-use loop (max MAX_TOOL_ROUNDS rounds).
 
@@ -840,7 +855,7 @@ async def run_tool_loop(
     """
     import json
     msgs = list(messages)  # shallow copy — don't mutate caller's list
-    tool_schemas = get_tool_schemas("openai")
+    tool_schemas = get_tool_schemas("openai", tier=tier)
     tool_calls_used: list[dict] = []
 
     async def _emit(event: dict) -> None:
@@ -851,12 +866,14 @@ async def run_tool_loop(
                 logger.warning(f"[voice_tools] on_tool_event error: {ev_err}")
 
     for round_idx in range(MAX_TOOL_ROUNDS):
-        response = await client.chat.completions.create(
-            model=model,
-            messages=redact_messages(msgs),
-            tools=tool_schemas,
-            tool_choice="auto",
-        )
+        create_kwargs: dict = {
+            "model": model,
+            "messages": redact_messages(msgs),
+        }
+        if tool_schemas:
+            create_kwargs["tools"] = tool_schemas
+            create_kwargs["tool_choice"] = "auto"
+        response = await client.chat.completions.create(**create_kwargs)
         choice = response.choices[0]
         msg = choice.message
 

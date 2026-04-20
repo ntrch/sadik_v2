@@ -99,6 +99,9 @@ const [saving, setSaving] = useState(false);
   } = useContext(AppContext);
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
   const [privacyExporting, setPrivacyExporting] = useState(false);
+  const [privacyTier, setPrivacyTier] = useState<'full' | 'hybrid' | 'local' | 'custom'>('hybrid');
+  const [privacyAdvancedOpen, setPrivacyAdvancedOpen] = useState(false);
+  const [tierApplying, setTierApplying] = useState(false);
   const [purgeModal, setPurgeModal] = useState<'closed' | 'step1' | 'step2'>('closed');
   const [purgeToken, setPurgeToken] = useState('');
   const [purgeTokenInput, setPurgeTokenInput] = useState('');
@@ -219,11 +222,33 @@ const [saving, setSaving] = useState(false);
   const handlePrivacyToggle = async (key: string, value: boolean) => {
     set(key, value ? 'true' : 'false');
     try {
-      await settingsApi.update({ [key]: value ? 'true' : 'false' });
+      await settingsApi.update({ [key]: value ? 'true' : 'false', privacy_tier: 'custom' });
+      setPrivacyTier('custom');
     } catch {
       showToast('Ayar kaydedilemedi', 'error');
     }
   };
+
+  const handleTierSelect = async (tier: 'full' | 'hybrid' | 'local') => {
+    setTierApplying(true);
+    try {
+      const res = await privacyApi.setTier(tier);
+      setPrivacyTier(res.tier);
+      Object.entries(res.flags).forEach(([k, v]) => set(k, v ? 'true' : 'false'));
+      set('privacy_tier', res.tier);
+      showToast('Gizlilik modu güncellendi', 'success');
+    } catch {
+      showToast('Gizlilik modu güncellenemedi', 'error');
+    } finally {
+      setTierApplying(false);
+    }
+  };
+
+  useEffect(() => {
+    privacyApi.getTier()
+      .then((res) => setPrivacyTier(res.tier))
+      .catch(() => {});
+  }, []);
 
   const handleExportData = async () => {
     setPrivacyExporting(true);
@@ -1051,6 +1076,55 @@ const [saving, setSaving] = useState(false);
 
         {/* Privacy */}
         <Section title="Gizlilik ve Veri Kontrolü" icon={Shield} color="green">
+          {/* AI Deneyim Modu — 3 preset */}
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-text-secondary">AI Deneyim Modu</p>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Sadık'ın OpenAI'a ne kadar veri paylaşacağını belirler. İstediğin zaman değiştirebilirsin.
+            </p>
+            <div className="grid grid-cols-1 gap-2 pt-1">
+              {([
+                { id: 'full',   title: '🔓 Tam',       sub: 'Maksimum zeka — tüm context + tool\'lar + öğrenme' },
+                { id: 'hybrid', title: '⚖️ Dengeli',    sub: 'Okuma/silme araçları, davranış öğrenme kapalı' },
+                { id: 'local',  title: '🔒 Yerel',     sub: 'Sadık sadece sohbet eder; veriye erişmez' },
+              ] as const).map(({ id, title, sub }) => {
+                const active = privacyTier === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => handleTierSelect(id)}
+                    disabled={tierApplying}
+                    className={`text-left p-3 rounded-btn border transition-colors disabled:opacity-60
+                      ${active
+                        ? 'bg-accent-purple/10 border-accent-purple'
+                        : 'bg-bg-input border-border hover:border-accent-purple/40'}`}
+                  >
+                    <p className="text-sm font-semibold text-text-primary">{title}</p>
+                    <p className="text-xs text-text-muted mt-0.5">{sub}</p>
+                  </button>
+                );
+              })}
+            </div>
+            {privacyTier === 'custom' && (
+              <p className="text-[11px] text-accent-orange pt-1">
+                Özel ayar aktif — gelişmiş bölümden tek tek değiştirdin.
+              </p>
+            )}
+          </div>
+
+          {/* Gelişmiş accordion */}
+          <div className="border-t border-border pt-4">
+            <button
+              onClick={() => setPrivacyAdvancedOpen((o) => !o)}
+              className="w-full flex items-center justify-between text-xs font-medium text-text-secondary hover:text-text-primary transition-colors"
+            >
+              <span>Gelişmiş Ayarlar</span>
+              <span className="text-text-muted">{privacyAdvancedOpen ? '▲' : '▼'}</span>
+            </button>
+          </div>
+
+          {privacyAdvancedOpen && (
+          <>
           {(
             [
               { key: 'privacy_behavioral_learning', label: 'Davranış Öğrenme', desc: 'Kullanım alışkanlıklarını öğrenip sana daha iyi öneriler getirsin.' },
@@ -1082,6 +1156,8 @@ const [saving, setSaving] = useState(false);
               </div>
             );
           })}
+          </>
+          )}
 
           <div className="border-t border-border pt-4 flex flex-col gap-3">
             <button

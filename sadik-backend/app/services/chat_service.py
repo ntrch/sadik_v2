@@ -263,6 +263,7 @@ class ChatService:
         use_tools: bool = False,
         on_tool_event: Optional[Callable[[dict], Awaitable[None]]] = None,
         privacy_flags: Optional[dict] = None,
+        tier: str = "full",
     ) -> Optional[str]:
         if not api_key:
             return "OpenAI API anahtarı ayarlanmamış. Lütfen ayarlardan API anahtarınızı girin."
@@ -291,6 +292,7 @@ class ChatService:
                         messages, client, model, session,
                         on_tool_event=on_tool_event,
                         privacy_flags=privacy_flags,
+                        tier=tier,
                     )
                     return final_text
                 except Exception as tool_err:
@@ -319,6 +321,7 @@ class ChatService:
         use_tools: bool = False,
         on_tool_event: Optional[Callable[[dict], Awaitable[None]]] = None,
         privacy_flags: Optional[dict] = None,
+        tier: str = "full",
     ):
         """Async generator that yields complete sentence strings for TTS.
 
@@ -365,6 +368,7 @@ class ChatService:
                     messages, client, model, session,
                     on_tool_event=on_tool_event,
                     privacy_flags=privacy_flags,
+                    tier=tier,
                 )
                 self._last_tool_calls_used = tool_calls_used
             except Exception as tool_err:

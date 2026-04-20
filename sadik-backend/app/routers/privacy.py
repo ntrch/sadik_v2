@@ -6,7 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pydantic import BaseModel
+
 from app.database import get_session, Base, AsyncSessionLocal
+from app.services.privacy_flags import apply_tier_to_flags, get_privacy_tier, get_privacy_flags
 from app.models import (  # noqa: F401 — ensure all models are registered on Base.metadata
     Task, ModeLog, ChatMessage, Setting, AppUsageSession,
     ClipboardItem, BrainstormNote, Workspace, WorkspaceAction,
@@ -130,3 +133,26 @@ async def purge_data(token: str = Query(...)):
 
     del _pending_purge_tokens[token]
     return {"purged": True, "tables_cleared": tables_cleared, "re_seeded_settings": True}
+
+
+class TierUpdate(BaseModel):
+    tier: str
+
+
+@router.get("/tier")
+async def get_tier(session: AsyncSession = Depends(get_session)):
+    tier = await get_privacy_tier(session)
+    flags = await get_privacy_flags(session)
+    return {"tier": tier, "flags": flags}
+
+
+@router.put("/tier")
+async def set_tier(body: TierUpdate, session: AsyncSession = Depends(get_session)):
+    if body.tier not in ("full", "hybrid", "local"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid tier. Must be 'full', 'hybrid', or 'local'.",
+        )
+    await apply_tier_to_flags(session, body.tier)
+    flags = await get_privacy_flags(session)
+    return {"tier": body.tier, "flags": flags}
