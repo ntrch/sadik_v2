@@ -253,7 +253,7 @@ class ChatService:
         user_content: str,
         history: list[dict],
         api_key: str,
-        model: str = "gpt-4o",
+        model: str = "gpt-4o-mini",
         voice_mode: bool = False,
         user_name: str = "",
         greeting_style: str = "",

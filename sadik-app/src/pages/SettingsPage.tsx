@@ -15,7 +15,7 @@ import { KVKK_NOTICE } from '../content/kvkkNotice';
 
 const DEFAULT_SETTINGS: Settings = {
   openai_api_key: '',
-  llm_model: 'gpt-4o',
+  llm_model: 'gpt-4o-mini',
   connection_method: 'serial',
   serial_port: 'auto',
   serial_baudrate: '460800',

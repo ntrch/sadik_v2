@@ -503,7 +503,7 @@ def get_tool_schemas(provider: str = "openai") -> list[dict]:
 
 # ── Dispatcher ─────────────────────────────────────────────────────────────────
 
-MAX_TOOL_ROUNDS = 3
+MAX_TOOL_ROUNDS = 2
 
 _LOG_PATH: str | None = None
 
