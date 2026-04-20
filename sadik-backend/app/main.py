@@ -14,6 +14,7 @@ from app.routers import events as events_router_mod
 from app.routers import wake as wake_router_mod
 from app.routers import integrations as integrations_router_mod
 from app.routers import external_events as external_events_router_mod
+from app.routers import privacy as privacy_router_mod
 from app.services.providers import google_calendar  # noqa: F401 — self-registers PROVIDERS
 
 logging.basicConfig(level=logging.INFO)
@@ -192,6 +193,7 @@ app.include_router(events_router_mod.router)
 app.include_router(wake_router_mod.router)
 app.include_router(integrations_router_mod.router)
 app.include_router(external_events_router_mod.router)
+app.include_router(privacy_router_mod.router)
 
 @app.get("/")
 async def root():

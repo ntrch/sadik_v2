@@ -105,7 +105,7 @@
 - ✅ T1.4 proaktif regression — 1 bug fix + 4 telemetry log
 - ⏸️ T1.5 wake-word 48h monitoring — gerçek kullanıma ertelendi (beta'da gözlemlenir)
 - ⏸️ T1.6 memory leak testi — gerçek kullanıma ertelendi
-- **Sprint 2 — T2.1 ✅ T2.2 ✅, sıradaki: T2.3 data export/purge endpoint'leri**
+- **Sprint 2 Zone A tamamlandı — T2.1 ✅ T2.2 ✅ T2.3 ✅, sıradaki: Zone B frontend (T2.4 Gizlilik sekmesi)**
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
@@ -164,9 +164,11 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Yeni: `sadik-backend/app/services/redaction.py` (`redact`, `redact_messages`)
   - Entegrasyon: chat_service (send_message + stream_voice_response) + voice_tools (run_tool_loop iki create noktası)
   - Test edildi: saat "09:30" bozulmuyor, e-mail/phone/IBAN/API key mask'leniyor
-- [WIP] **T2.3** "Veri export" + "veri sil" endpoint'leri
-  - `GET /api/privacy/export` — JSON full data
-  - `DELETE /api/privacy/purge` — confirm token ile (Option A: ayarlar dahil her şey silinir, onboarding'den başlar)
+- [x] **T2.3** "Veri export" + "veri sil" endpoint'leri ✅
+  - `GET /api/privacy/export` — 13 tablo full JSON dump
+  - `POST /api/privacy/purge/request` — 60s geçerli confirm token
+  - `DELETE /api/privacy/purge?token=...` — Option A: tüm tabloları FK-aware sırayla sil + DEFAULT_SETTINGS re-seed
+  - Yeni: `sadik-backend/app/routers/privacy.py`; main.py'ye register edildi
 
 **Concurrency zone B (frontend):**
 - [ ] **T2.4** Settings → Gizlilik sekmesi
