@@ -61,31 +61,46 @@ def clean_text_for_tts(text: str) -> str:
 # List covers subscribe-bait phrases, ghost filler, and copyright footers that
 # Whisper was trained on and reproduces on silence.
 
+# Substring triggers: any transcript CONTAINING one of these is a hallucination.
+# Must be specific enough that legit speech never contains them.
 _HALLUCINATION_PHRASES: list[str] = [
-    # YouTube/podcast filler
+    # YouTube/podcast filler (specific multi-word phrases)
     "abone olmayı unutmayın",
     "beğenmeyi unutmayın",
     "bu videoyu beğendiyseniz",
     "yorumlara yazın",
     "görüşmek üzere",
-    "görüşürüz",
-    "teşekkür ederim",
-    "teşekkürler",
     "iyi seyirler",
     "iyi dinlemeler",
-    "iyi günler",
     # Subtitle/caption artefacts
     "altyazı",
     "telif hakkı",
     "telifi altyazı",
     "subtitled by",
     "subtitle",
-    "çeviri",
     # Common ghost phrases Whisper generates on ambient noise
-    "bir sonraki videoda görüşmek üzere",
-    "beğenip abone olursanız",
-    "kanalıma abone olun",
+    "bir sonraki videoda",
+    "beğenip abone",
+    "kanalıma abone",
     "desteklerinizi bekliyorum",
+    # YouTube fragment triggers — user observed full hallucination:
+    # "Kanalıma abone olmayı, yorum yapmayı ve beğen butonuna tıklamayı unutmayın"
+    "abone olmayı",
+    "beğen butonu",
+    "beğen butonuna",
+    "tıklamayı unutmayın",
+]
+
+# Standalone-only triggers: reject ONLY if the entire transcript (normalised) == phrase.
+# These words can appear inside legit speech ("hayır teşekkürler", "seninle görüşürüz"),
+# so substring match would cause false-positive rejection.
+_HALLUCINATION_STANDALONE: list[str] = [
+    "teşekkür ederim",
+    "teşekkürler",
+    "çeviri",
+    # Note: "görüşürüz" / "iyi günler" NOT listed — user may legitimately
+    # say just these words to end the conversation. RMS gate already blocks
+    # most silence cases; accept the small false-positive trade for UX.
 ]
 
 # Pre-compiled normalised phrases (lower, letters/spaces only)
@@ -93,6 +108,7 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z\u00c0-\u024f\u011e\u011f\u0130\u0131\u015e\u015f\u00fc\u00fb\u00f6\u00e7\s]", "", s.lower()).strip()
 
 _HALLUCINATION_NORMS: list[str] = [_norm(p) for p in _HALLUCINATION_PHRASES]
+_HALLUCINATION_STANDALONE_NORMS: list[str] = [_norm(p) for p in _HALLUCINATION_STANDALONE]
 
 
 def _is_hallucination(text: str) -> bool:
@@ -100,6 +116,13 @@ def _is_hallucination(text: str) -> bool:
     n = _norm(text)
     if not n:
         return True
+    # Standalone match — reject only if whole transcript equals a known
+    # silence-hallucination phrase (or collapsed whitespace equals it).
+    collapsed = " ".join(n.split())
+    for phrase in _HALLUCINATION_STANDALONE_NORMS:
+        if phrase and collapsed == phrase:
+            return True
+    # Substring match — unambiguous phrases never appearing in legit speech.
     for phrase in _HALLUCINATION_NORMS:
         if phrase and phrase in n:
             return True
