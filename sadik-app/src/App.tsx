@@ -1,4 +1,4 @@
-import React, { useContext, useEffect } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { MessageSquare, Mic } from 'lucide-react';
 import { AppProvider } from './context/AppContext';
@@ -15,6 +15,8 @@ import WorkspacePage from './pages/WorkspacePage';
 import HabitsPage from './pages/HabitsPage';
 import AgendaPage from './pages/AgendaPage';
 import VoiceAssistant from './components/voice/VoiceAssistant';
+import OnboardingPage from './pages/OnboardingPage';
+import { settingsApi } from './api/settings';
 
 /**
  * Tab selector for the /chat route. Lives at App level so the persistent
@@ -60,10 +62,23 @@ function AppShell() {
   const location = useLocation();
   const { voiceUiVisible, setVoiceUiVisible } = useContext(AppContext);
   const onChatRoute = location.pathname === '/chat';
+  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    settingsApi.get('onboarding_completed')
+      .then((s) => setOnboardingDone(s.value === 'true'))
+      .catch(() => setOnboardingDone(true));
+  }, []);
 
   useEffect(() => {
     if (!onChatRoute && voiceUiVisible) setVoiceUiVisible(false);
   }, [onChatRoute, voiceUiVisible, setVoiceUiVisible]);
+
+  if (onboardingDone === null) return null;
+
+  if (!onboardingDone) {
+    return <OnboardingPage onComplete={() => setOnboardingDone(true)} />;
+  }
 
   return (
     <div className="flex flex-col h-screen w-screen bg-bg-main">

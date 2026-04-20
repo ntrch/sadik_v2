@@ -105,7 +105,7 @@
 - ✅ T1.4 proaktif regression — 1 bug fix + 4 telemetry log
 - ⏸️ T1.5 wake-word 48h monitoring — gerçek kullanıma ertelendi (beta'da gözlemlenir)
 - ⏸️ T1.6 memory leak testi — gerçek kullanıma ertelendi
-- **Sprint 2 — T2.1-T2.4 ✅, sıradaki: T2.5 onboarding consent flow**
+- **Sprint 2 — T2.1-T2.5 ✅, sıradaki: T2.6 KVKK aydınlatma metni içeriği**
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
@@ -176,9 +176,11 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - "Verimi İndir" → blob download
   - "Tüm Verimi Sil" → 2-adımlı token-confirm modal + 60s countdown + reload
   - Yeni: `sadik-app/src/api/privacy.ts`; SettingsPage.tsx'e Shield section eklendi
-- [WIP] **T2.5** Onboarding consent flow (yeni user)
-  - Aydınlatma metni (TR) + açık rıza
-  - Default tüm toggle'lar kapalı, opt-in
+- [x] **T2.5** Onboarding consent flow (yeni user) ✅
+  - 3-adımlı full-screen modal: aydınlatma → 4 toggle (opt-in, default kapalı) → açık rıza
+  - Backend: DEFAULT_SETTINGS'e `onboarding_completed=false` eklendi
+  - Yeni: `sadik-app/src/pages/OnboardingPage.tsx`; App.tsx AppShell'de gating
+  - KVKK metni linki placeholder (T2.6'da dolacak)
 - [ ] **T2.6** KVKK aydınlatma metni dosyası (statik)
 
 **Exit criteria:** Tüm toggle'lar çalışır, redaction middleware testte LLM prompt'undan email mask'liyor.
