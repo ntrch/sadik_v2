@@ -249,8 +249,11 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Logic: beklenen mode aktif değil + yetişecek task var + düşük usage → öneri
 
 **Concurrency zone B (frontend):**
-- [ ] **T3.4 WIP [session-B]** Dashboard'da "Profil" kartı (opt-in toggle açıksa)
-  - Haftalık pattern özeti görsel
+- [x] **T3.4 tamam [session-B]** Dashboard'da "Profil" kartı (opt-in toggle açıksa) ✅
+  - Yeni: `sadik-app/src/components/dashboard/WeeklyProfileCard.tsx` — 7×24 heatmap + hover tooltip + legend + summary_tr
+  - Privacy gate: `privacy_behavioral_learning !== 'true'` iken kart hiç render olmuyor
+  - Veri yoksa: "Henüz yeterli veri yok" placeholder
+  - DashboardPage.tsx ActivityChart üstüne wire edildi
 - [ ] **T3.5** Proactive suggestion'da "workspace öner" aksiyonu
   - Accept → ilgili workspace başlar
 

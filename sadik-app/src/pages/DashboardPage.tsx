@@ -11,6 +11,7 @@ import { AnimationEventType } from '../engine/types';
 import { useModeColors } from '../utils/modeColors';
 import { getIconByKey, DEFAULT_PRESET_ICONS } from '../utils/modeIcons';
 import ModeSettingsPopup, { DraftState } from '../components/mode/ModeSettingsPopup';
+import WeeklyProfileCard from '../components/dashboard/WeeklyProfileCard';
 
 const PRESET_MODES = [
   { key: 'working',  label: 'Çalışıyor',   oledText: 'ÇALIŞIYOR' },
@@ -554,6 +555,9 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Weekly behavioral profile — only renders when privacy_behavioral_learning=true */}
+      <WeeklyProfileCard />
 
       {/* Activity chart */}
       <ActivityChart />
