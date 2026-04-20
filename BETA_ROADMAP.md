@@ -176,7 +176,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - "Verimi İndir" → blob download
   - "Tüm Verimi Sil" → 2-adımlı token-confirm modal + 60s countdown + reload
   - Yeni: `sadik-app/src/api/privacy.ts`; SettingsPage.tsx'e Shield section eklendi
-- [ ] **T2.5** Onboarding consent flow (yeni user)
+- [WIP] **T2.5** Onboarding consent flow (yeni user)
   - Aydınlatma metni (TR) + açık rıza
   - Default tüm toggle'lar kapalı, opt-in
 - [ ] **T2.6** KVKK aydınlatma metni dosyası (statik)
