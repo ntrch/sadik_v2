@@ -164,9 +164,9 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Yeni: `sadik-backend/app/services/redaction.py` (`redact`, `redact_messages`)
   - Entegrasyon: chat_service (send_message + stream_voice_response) + voice_tools (run_tool_loop iki create noktası)
   - Test edildi: saat "09:30" bozulmuyor, e-mail/phone/IBAN/API key mask'leniyor
-- [ ] **T2.3** "Veri export" + "veri sil" endpoint'leri
+- [WIP] **T2.3** "Veri export" + "veri sil" endpoint'leri
   - `GET /api/privacy/export` — JSON full data
-  - `DELETE /api/privacy/purge` — confirm token ile
+  - `DELETE /api/privacy/purge` — confirm token ile (Option A: ayarlar dahil her şey silinir, onboarding'den başlar)
 
 **Concurrency zone B (frontend):**
 - [ ] **T2.4** Settings → Gizlilik sekmesi
