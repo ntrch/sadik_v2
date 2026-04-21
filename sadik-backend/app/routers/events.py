@@ -2,7 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _as_utc_iso(dt: Optional[datetime]) -> Optional[str]:
+    """Serialize a naive-UTC datetime as an ISO string with explicit +00:00
+    offset so the browser's `new Date(..)` parses it as UTC rather than local."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 from app.database import get_session
 from app.models.event import Event
@@ -126,8 +136,8 @@ async def unified_events(
                 "id": ev.id,
                 "title": ev.title,
                 "description": ev.description,
-                "starts_at": ev.start_at.isoformat() if ev.start_at else None,
-                "ends_at": ev.end_at.isoformat() if ev.end_at else None,
+                "starts_at": _as_utc_iso(ev.start_at),
+                "ends_at": _as_utc_iso(ev.end_at),
                 "all_day": ev.all_day,
                 "color": "cyan",  # Google Calendar events get cyan tint
                 "html_link": ev.html_link,

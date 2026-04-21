@@ -1,5 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
+
+
+def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Attach UTC tzinfo to a naive-UTC datetime so Pydantic emits +00:00."""
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -67,7 +74,16 @@ async def list_external_events(
         q = q.where(ExternalEvent.start_at <= to)
 
     result = await session.execute(q)
-    return result.scalars().all()
+    rows = result.scalars().all()
+    # External events are stored as naive UTC — re-attach UTC tz so the
+    # ISO serialization carries an explicit offset (otherwise browsers parse
+    # the naive string as local time and events drift by the TZ offset).
+    for row in rows:
+        row.start_at = _as_utc(row.start_at)
+        row.end_at = _as_utc(row.end_at)
+        row.updated_at_source = _as_utc(row.updated_at_source)
+        row.fetched_at = _as_utc(row.fetched_at)
+    return rows
 
 
 @router.delete("/{event_id}")
