@@ -322,9 +322,11 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 **Amaç:** Herkese hitap.
 
 **Concurrency zone A (content):**
-- [ ] **T5.1** Mode preset kataloğu genişletme
-  - Yeni default modes: "Yazarlık" (text-heavy, sessiz), "Öğrenme" (ders alma), "Tasarım" (figma/photoshop), "Okuma", "Oyun"
-  - Her mod: icon, renk, DND default, proactive davranış
+- [x] **T5.1 tamam [session-A]** Mode preset kataloğu genişletme ✅
+  - 5 yeni preset: `writing` (Yazarlık, DND=true), `learning` (Öğrenme, DND=true), `design` (Tasarım, DND=false), `reading` (Okuma, DND=true), `gaming` (Oyun, DND=false)
+  - Renk paletinden çakışmasız seçildi; ikonlar: pencil / graduationcap / palette / bookopen / gamepad2
+  - `modeColors.ts` DEFAULT_PRESET_COLORS + DEFAULT_PRESET_DND, `modeIcons.ts` DEFAULT_PRESET_ICONS, `DashboardPage.tsx` PRESET_MODES + MODE_LABELS + MODE_ICON_MAP, `ActivityChart.tsx` MODE_LABELS, `voice_tools.py` switch_mode description
+  - Dashboard "toplam çalışma" hesabı writing/learning/design/reading'i de dahil eder (gaming hariç — leisure)
 - [ ] **T5.2** Jargon temizliği (global find+replace review)
   - "Pomodoro" kalsın ama alt başlık "Odaklanma seansı"
   - Developer-specific stringleri revize

@@ -1,5 +1,5 @@
 import React, { useState, useContext, useEffect, useRef } from 'react';
-import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Lightbulb, Calendar, ArrowRight, Briefcase, Code, Coffee, Users, Check, X as XIcon, Flag, CalendarClock, ListTodo, BarChart2, Settings } from 'lucide-react';
+import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Lightbulb, Calendar, ArrowRight, Briefcase, Code, Coffee, Users, Check, X as XIcon, Flag, CalendarClock, ListTodo, BarChart2, Settings, Pencil, GraduationCap, Palette, BookOpen, Gamepad2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { modesApi } from '../api/modes';
@@ -14,10 +14,15 @@ import ModeSettingsPopup, { DraftState } from '../components/mode/ModeSettingsPo
 import WeeklyProfileCard from '../components/dashboard/WeeklyProfileCard';
 
 const PRESET_MODES = [
-  { key: 'working',  label: 'Çalışıyor',   oledText: 'ÇALIŞIYOR' },
-  { key: 'coding',   label: 'Kod Yazıyor',  oledText: 'KOD YAZIYOR' },
-  { key: 'break',    label: 'Mola',         oledText: 'MOLA' },
-  { key: 'meeting',  label: 'Toplantı',     oledText: 'TOPLANTI' },
+  { key: 'working',  label: 'Çalışıyor',  oledText: 'ÇALIŞIYOR' },
+  { key: 'coding',   label: 'Kod Yazıyor', oledText: 'KOD YAZIYOR' },
+  { key: 'break',    label: 'Mola',        oledText: 'MOLA' },
+  { key: 'meeting',  label: 'Toplantı',    oledText: 'TOPLANTI' },
+  { key: 'writing',  label: 'Yazarlık',    oledText: 'YAZARLIK' },
+  { key: 'learning', label: 'Öğrenme',     oledText: 'OGRENME' },
+  { key: 'design',   label: 'Tasarım',     oledText: 'TASARIM' },
+  { key: 'reading',  label: 'Okuma',       oledText: 'OKUMA' },
+  { key: 'gaming',   label: 'Oyun',        oledText: 'OYUN' },
 ];
 
 // Maps mode keys to a one-shot intro clip + a looping text clip.
@@ -82,13 +87,19 @@ function beautifyAppName(raw: string): string {
 
 const MODE_LABELS: Record<string, string> = {
   working: 'Çalışıyor', coding: 'Kod Yazıyor', break: 'Mola', meeting: 'Toplantı',
+  writing: 'Yazarlık', learning: 'Öğrenme', design: 'Tasarım', reading: 'Okuma', gaming: 'Oyun',
 };
 
 const MODE_ICON_MAP: Record<string, React.ComponentType<any>> = {
-  working: Briefcase,
-  coding:  Code,
-  break:   Coffee,
-  meeting: Users,
+  working:  Briefcase,
+  coding:   Code,
+  break:    Coffee,
+  meeting:  Users,
+  writing:  Pencil,
+  learning: GraduationCap,
+  design:   Palette,
+  reading:  BookOpen,
+  gaming:   Gamepad2,
 };
 
 /** Appends `aa` (alpha ≈ 0.67) to a hex color for tinted fills. */
@@ -288,7 +299,7 @@ export default function DashboardPage() {
   };
 
   const totalWorkSeconds = modeStats
-    .filter((s) => ['working', 'coding', 'meeting'].includes(s.mode))
+    .filter((s) => ['working', 'coding', 'meeting', 'writing', 'learning', 'design', 'reading'].includes(s.mode))
     .reduce((acc, s) => acc + s.total_seconds, 0);
 
   const doneToday = todayTasks.filter((t) => t.status === 'done').length;

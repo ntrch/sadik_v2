@@ -15,10 +15,15 @@ function localToday(): string {
 type Period = '7' | '14' | '30' | 'today';
 
 const MODE_LABELS: Record<string, string> = {
-  working: 'Çalışıyor',
-  coding: 'Kod Yazıyor',
-  break: 'Mola',
-  meeting: 'Toplantı',
+  working:  'Çalışıyor',
+  coding:   'Kod Yazıyor',
+  break:    'Mola',
+  meeting:  'Toplantı',
+  writing:  'Yazarlık',
+  learning: 'Öğrenme',
+  design:   'Tasarım',
+  reading:  'Okuma',
+  gaming:   'Oyun',
 };
 
 function toHours(seconds: number): number {

@@ -543,7 +543,7 @@ TOOLS: dict[str, Tool] = {
     ),
     "switch_mode": Tool(
         name="switch_mode",
-        description="Çalışma modunu değiştir. mode_name: 'working', 'coding', 'meeting', 'break', veya özel mod adı.",
+        description="Çalışma modunu değiştir. mode_name: 'working', 'coding', 'meeting', 'break', 'writing', 'learning', 'design', 'reading', 'gaming' veya özel mod adı.",
         parameters={
             "type": "object",
             "properties": {

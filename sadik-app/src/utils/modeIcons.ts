@@ -140,10 +140,15 @@ export const ICON_MAP: Record<string, LucideIcon> = (() => {
 
 /** Default icon key per built-in preset mode. */
 export const DEFAULT_PRESET_ICONS: Record<string, string> = {
-  working: 'briefcase',
-  coding:  'code',
-  break:   'coffee',
-  meeting: 'users',
+  working:  'briefcase',
+  coding:   'code',
+  break:    'coffee',
+  meeting:  'users',
+  writing:  'pencil',
+  learning: 'graduationcap',
+  design:   'palette',
+  reading:  'bookopen',
+  gaming:   'gamepad2',
 };
 
 export function getIconByKey(key: string | undefined | null): LucideIcon | null {

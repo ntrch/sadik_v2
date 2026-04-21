@@ -5,17 +5,27 @@ import { DEFAULT_PRESET_ICONS } from './modeIcons';
 export interface CustomModeEntry { name: string; color: string; dnd: boolean; icon?: string; }
 
 export const DEFAULT_PRESET_COLORS: Record<string, string> = {
-  working: '#a78bfa',
-  coding:  '#67e8f9',
-  break:   '#6ee7b7',
-  meeting: '#fcd34d',
+  working:  '#a78bfa',
+  coding:   '#67e8f9',
+  break:    '#6ee7b7',
+  meeting:  '#fcd34d',
+  writing:  '#f472b6',
+  learning: '#60a5fa',
+  design:   '#c084fc',
+  reading:  '#a3e635',
+  gaming:   '#fb923c',
 };
 
 export const DEFAULT_PRESET_DND: Record<string, boolean> = {
-  working: false,
-  coding:  false,
-  break:   false,
-  meeting: false,
+  working:  false,
+  coding:   false,
+  break:    false,
+  meeting:  false,
+  writing:  true,
+  learning: true,
+  design:   false,
+  reading:  true,
+  gaming:   false,
 };
 
 export const CUSTOM_DEFAULT_COLOR = '#fb923c';
