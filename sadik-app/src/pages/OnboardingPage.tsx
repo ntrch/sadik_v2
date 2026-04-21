@@ -22,7 +22,7 @@ const TIERS: { id: TierId; title: string; short: string; bullets: string[] }[] =
   {
     id: 'full',
     title: '🔓 Tam AI',
-    short: 'Maksimum zeka — tüm context + tool\'lar + davranış öğrenme',
+    short: 'Maksimum zeka — tüm veri + araçlar + davranış öğrenme',
     bullets: [
       'Takvim, görev, alışkanlık ve uygulama kullanım verisi Sadık\'ın cevaplarına dahil edilir',
       'Tüm sesli araçlar açık (liste, silme, ajanda, kullanım analizi)',
@@ -45,7 +45,7 @@ const TIERS: { id: TierId; title: string; short: string; bullets: string[] }[] =
     short: 'Sadık sadece sohbet eder; veriye erişmez',
     bullets: [
       'Verilerin (görev, ajanda, alışkanlık) OpenAI\'a hiç gönderilmez',
-      'Sadık tool kullanamaz, "bugün ne yaptım" gibi sorulara cevap veremez',
+      'Sadık araç kullanamaz, "bugün ne yaptım" gibi sorulara cevap veremez',
       'STT + TTS için ses yine OpenAI\'a gider (kaçınılmaz)',
     ],
   },
@@ -133,7 +133,7 @@ export default function OnboardingPage({ onComplete }: Props) {
               Sadık; görev takibi, alışkanlık yönetimi, takvim entegrasyonu ve sesli asistan özellikleriyle sana özel çalışan bir masaüstü yapay zeka asistanıdır.
             </p>
             <p className="text-text-secondary text-sm leading-relaxed">
-              Verilerin (görev, takvim, Notion, ses sohbeti) varsayılan olarak yalnızca yerel cihazında saklanır. Bir sonraki adımda hangi verilerin LLM'e aktarılacağına sen karar vereceksin.
+              Verilerin (görev, takvim, Notion, ses sohbeti) varsayılan olarak yalnızca yerel cihazında saklanır. Bir sonraki adımda hangi verilerin yapay zekaya aktarılacağına sen karar vereceksin.
             </p>
             <p className="text-text-secondary text-sm leading-relaxed">
               KVKK kapsamında verilerini dilediğin zaman silebilir veya indirebilirsin.

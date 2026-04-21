@@ -71,7 +71,7 @@ export default function TaskCard({ task, onClick, onStartPomodoro, onDragStart, 
         <img
           src={notionLogo}
           alt="Notion"
-          title="Notion'dan senkronize"
+          title="Notion'dan eşitlendi"
           className="absolute top-2 right-2 w-3.5 h-3.5 opacity-70 pointer-events-none"
         />
       )}

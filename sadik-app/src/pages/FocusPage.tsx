@@ -22,7 +22,7 @@ export default function FocusPage() {
       await start(selectedTask ?? undefined);
       triggerEvent('confirmation_success');
     } catch {
-      showToast('Timer başlatılamadı', 'error');
+      showToast('Oturum başlatılamadı', 'error');
     }
   };
 

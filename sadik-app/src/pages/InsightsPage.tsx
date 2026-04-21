@@ -258,8 +258,8 @@ export default function InsightsPage() {
                   daha güçlü bir mola önerisi gösterilir.
                 </InfoRow>
                 <InfoRow color="blue">
-                  Sohbet yanıtlarını bağlamsal hale getirmek için günlük kullanım özeti asistan
-                  sistem mesajına eklenir; bağlamı doğal biçimde ve yalnızca gerektiğinde kullanır.
+                  Sadık daha doğru yanıtlar verebilmek için günlük kullanım özetini
+                  göz önünde bulundurur; bu bilgiyi yalnızca gerektiğinde ve doğal biçimde kullanır.
                 </InfoRow>
                 <InfoRow color="yellow">
                   Sessiz saatler, günlük limit ve öneriler arası bekleme süresi Ayarlar

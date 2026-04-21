@@ -121,7 +121,8 @@
 - **Sprint 4 T4.2 tamamlandı ✅ — Google Meet active-conference detection (scope + poll + state + endpoint)**
   - ⚠️ Mevcut Google Calendar kullanıcıları Meet scope için reconnect gerektirir (scope_granted=false dönecek)
 - **Sprint 4 T4.3b + T4.4 tamamlandı ✅ — Meet scope uyarısı + in_meeting synthetic insight handler**
-- **Sprint 4 TAMAMLANDI ✅** — Sıradaki: **Sprint 5 — Persona genişletme + onboarding + jargon** (T5.1 mode preset kataloğu / T5.2 jargon / T5.3 onboarding persona / T5.4 empty states)
+- **Sprint 4 TAMAMLANDI ✅**
+- **Sprint 5 ilerleme:** T5.1 ✅ (preset kataloğu), T5.2 ✅ (jargon temizliği), T5.3 ✅ (onboarding persona) — kalan: **T5.4** empty states + ilk-gün tutorial
   - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
 
 
@@ -327,10 +328,14 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Renk paletinden çakışmasız seçildi; ikonlar: pencil / graduationcap / palette / bookopen / gamepad2
   - `modeColors.ts` DEFAULT_PRESET_COLORS + DEFAULT_PRESET_DND, `modeIcons.ts` DEFAULT_PRESET_ICONS, `DashboardPage.tsx` PRESET_MODES + MODE_LABELS + MODE_ICON_MAP, `ActivityChart.tsx` MODE_LABELS, `voice_tools.py` switch_mode description
   - Dashboard "toplam çalışma" hesabı writing/learning/design/reading'i de dahil eder (gaming hariç — leisure)
-- [ ] **T5.2** Jargon temizliği (global find+replace review)
-  - "Pomodoro" kalsın ama alt başlık "Odaklanma seansı"
-  - Developer-specific stringleri revize
-  - Sonnet'e delege: tüm user-facing TR stringleri tara, raporla
+- [x] **T5.2 tamam [session-A+B]** Jargon temizliği ✅
+  - Senkronize/senkron → eşitle/eşitleme (TaskCard, AgendaPage, SettingsPage GCal + Notion kartları)
+  - API Anahtarı → Erişim Anahtarı (OpenAI/OpenWeatherMap/ElevenLabs)
+  - LLM/tool/context/header/OAuth bekleniyor/onboarding → yapay zeka/araç/bağlam-veri/üst çubuk/Bağlanıyor/kurulum ekranı (OnboardingPage, SettingsPage, InsightsPage)
+  - openWakeWord açıklaması sadeleştirildi ("Yerel ses algılama")
+  - "Timer başlatılamadı" → "Oturum başlatılamadı" (FocusPage)
+  - "DND modunda" → "Rahatsız Etmeyin modunda" (HabitsPage alt metni)
+  - "Pomodoro Ayarları" section'a "Odaklanma seansı süreleri" alt başlığı eklendi (SettingsPage)
 
 **Concurrency zone B (onboarding):**
 - [x] **T5.3 tamam [session-A]** İlk açılış onboarding persona seçimi ✅

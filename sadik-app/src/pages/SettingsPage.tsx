@@ -205,7 +205,7 @@ const [saving, setSaving] = useState(false);
           user_name:      settings.user_name      ?? '',
           greeting_style: settings.greeting_style ?? '',
         };
-        showToast('Kişiselleştirme güncellendi, eski konuşma bağlamı sıfırlandı.', 'success');
+        showToast('Kişiselleştirme güncellendi, konuşma geçmişi sıfırlandı.', 'success');
       } else {
         showToast('Ayarlar kaydedildi', 'success');
       }
@@ -335,15 +335,15 @@ const [saving, setSaving] = useState(false);
           <div className="flex items-start gap-3 bg-accent-yellow/10 border border-accent-yellow/30 rounded-card px-4 py-3 mb-4">
             <AlertTriangle size={15} className="text-accent-yellow flex-shrink-0 mt-0.5" />
             <p className="text-xs text-accent-yellow leading-relaxed">
-              OpenAI API anahtarı ayarlanmamış. Sohbet ve sesli asistan özellikleri çalışmayacak.
-              Lütfen aşağıdan API anahtarınızı girin ve kaydedin.
+              OpenAI erişim anahtarı ayarlanmamış. Sohbet ve sesli asistan özellikleri çalışmayacak.
+              Lütfen aşağıdan erişim anahtarınızı girin ve kaydedin.
             </p>
           </div>
         )}
 
         {/* API Settings */}
         <Section title="API Ayarları" icon={Bot} color="purple" defaultOpen>
-          <Field label="OpenAI API Anahtarı">
+          <Field label="OpenAI Erişim Anahtarı">
             <div className="relative">
               <input
                 type={showApiKey ? 'text' : 'password'}
@@ -394,7 +394,7 @@ const [saving, setSaving] = useState(false);
         <Section title="Hava Durumu" icon={Sun} color="yellow">
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-text-primary">Hava durumunu header'da göster</p>
+              <p className="text-sm font-medium text-text-primary">Hava durumunu üst çubukta göster</p>
               <p className="text-xs text-text-muted leading-relaxed">
                 Açıldığında saat yanındaki ikona küçük bir hava durumu rozeti eklenir; solda derece (°C) yazar.
               </p>
@@ -411,7 +411,7 @@ const [saving, setSaving] = useState(false);
 
           {weatherEnabled && (
             <>
-              <Field label="OpenWeatherMap API anahtarı">
+              <Field label="OpenWeatherMap Erişim Anahtarı">
                 <div className="relative">
                   <input
                     type={showWeatherKey ? 'text' : 'password'}
@@ -478,7 +478,7 @@ const [saving, setSaving] = useState(false);
                   </div>
                 )}
                 <p className="text-[11px] text-text-muted mt-1.5">
-                  OpenWeatherMap üzerinden mahalle/semt seviyesinde arama. API anahtarı gerekir.
+                  OpenWeatherMap üzerinden mahalle/semt seviyesinde arama. Erişim anahtarı gerekir.
                 </p>
               </Field>
               <div className="flex items-center justify-between gap-3 pt-1">
@@ -574,6 +574,7 @@ const [saving, setSaving] = useState(false);
 
         {/* Pomodoro */}
         <Section title="Pomodoro Ayarları" icon={Timer} color="red">
+          <p className="text-xs text-text-muted -mt-1 mb-3">Odaklanma seansı süreleri.</p>
           <div className="grid grid-cols-2 gap-4">
             <Field label="Çalışma Süresi (dk)">
               <input type="number" value={settings.pomodoro_work_minutes}
@@ -648,7 +649,7 @@ const [saving, setSaving] = useState(false);
             )}
           </Field>
           <p className="text-[11px] text-text-muted -mt-1">
-            Ad veya hitap değiştiğinde eski konuşma bağlamı sıfırlanır.
+            Ad veya hitap değiştiğinde konuşma geçmişi sıfırlanır.
           </p>
 
           <Field label="Sadık'ın Konumu">
@@ -673,8 +674,8 @@ const [saving, setSaving] = useState(false);
           <Field label="TTS Sağlayıcısı">
             <div className="flex flex-col gap-2">
               {[
-                { value: 'elevenlabs', label: 'ElevenLabs', sublabel: 'Birincil — klonlanmış ses (API anahtarı gerekli)' },
-                { value: 'openai',     label: 'OpenAI TTS', sublabel: 'Yedek 1 — doğal ses (API anahtarı gerekli)' },
+                { value: 'elevenlabs', label: 'ElevenLabs', sublabel: 'Birincil — klonlanmış ses (erişim anahtarı gerekli)' },
+                { value: 'openai',     label: 'OpenAI TTS', sublabel: 'Yedek 1 — doğal ses (erişim anahtarı gerekli)' },
                 { value: 'edge',       label: 'Edge TTS',   sublabel: 'Yedek 2 — ücretsiz, robotik ses' },
               ].map(({ value, label, sublabel }) => (
                 <label key={value} className="flex items-start gap-2.5 cursor-pointer">
@@ -698,7 +699,7 @@ const [saving, setSaving] = useState(false);
           {/* ElevenLabs fields */}
           {settings.tts_provider === 'elevenlabs' && (
             <>
-              <Field label="ElevenLabs API Anahtarı">
+              <Field label="ElevenLabs Erişim Anahtarı">
                 <div className="relative">
                   <input
                     type={showElevenLabsKey ? 'text' : 'password'}
@@ -776,7 +777,7 @@ const [saving, setSaving] = useState(false);
                 ${wakeWordEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
             <p className="text-[11px] text-text-muted mt-1.5">
-              openWakeWord tabanlı lokal algılama — backend çalışırken aktif olur. Şu an söylenmesi gereken uyandırma kelimesi: <strong>"Hey Jarvis"</strong>
+              Yerel ses algılama — uygulama açıkken aktif olur. Şu an söylenmesi gereken uyandırma kelimesi: <strong>"Hey Jarvis"</strong>
             </p>
           </Field>
 
@@ -1116,7 +1117,7 @@ const [saving, setSaving] = useState(false);
             </p>
             <div className="grid grid-cols-1 gap-2 pt-1">
               {([
-                { id: 'full',   title: '🔓 Tam',       sub: 'Maksimum zeka — tüm context + tool\'lar + öğrenme' },
+                { id: 'full',   title: '🔓 Tam',       sub: 'Maksimum zeka — tüm veri + araçlar + öğrenme' },
                 { id: 'hybrid', title: '⚖️ Dengeli',    sub: 'Okuma/silme araçları, davranış öğrenme kapalı' },
                 { id: 'local',  title: '🔒 Yerel',     sub: 'Sadık sadece sohbet eder; veriye erişmez' },
               ] as const).map(({ id, title, sub }) => {
@@ -1160,8 +1161,8 @@ const [saving, setSaving] = useState(false);
           {(
             [
               { key: 'privacy_behavioral_learning', label: 'Davranış Öğrenme', desc: 'Kullanım alışkanlıklarını öğrenip sana daha iyi öneriler getirsin.' },
-              { key: 'privacy_calendar_push',       label: 'Takvim Bilgisini LLM\'e Aktar', desc: 'Google Calendar etkinlikleri Sadık\'ın sesli cevaplarında kullanılabilsin.' },
-              { key: 'privacy_notion_push',         label: 'Notion İçeriğini LLM\'e Aktar', desc: 'Notion görevlerin Sadık\'ın context\'ine girsin.' },
+              { key: 'privacy_calendar_push',       label: 'Takvim Bilgisini Yapay Zekaya Aktar', desc: 'Google Calendar etkinlikleri Sadık\'ın sesli cevaplarında kullanılabilsin.' },
+              { key: 'privacy_notion_push',         label: 'Notion İçeriğini Yapay Zekaya Aktar', desc: 'Notion görevlerin Sadık\'ın yanıtlarına dahil edilsin.' },
               { key: 'privacy_voice_memory',        label: 'Ses Hafızası', desc: 'Önceki sesli sohbetler hatırlansın.' },
             ] as { key: string; label: string; desc: string }[]
           ).map(({ key, label, desc }) => {
@@ -1237,7 +1238,7 @@ const [saving, setSaving] = useState(false);
                 <p className="text-sm text-accent-red font-semibold mb-1">Bu işlem geri alınamaz.</p>
                 <p className="text-xs text-text-secondary leading-relaxed">
                   Tüm görevlerin, alışkanlıkların, ayarların ve konuşma geçmişin silinecek.
-                  Onboarding'den yeniden başlayacaksın.
+                  Kurulum ekranından yeniden başlayacaksın.
                 </p>
               </div>
               <button
@@ -1426,7 +1427,7 @@ function GoogleCalendarCard({
             setSyncing(true);
             try {
               await integrationsApi.syncNow('google_calendar');
-              showToast('Takvim senkronize edildi', 'success');
+              showToast('Takvim eşitleme tamamlandı', 'success');
               onRefresh();
             } catch { /* best-effort */ } finally { setSyncing(false); }
           }
@@ -1484,7 +1485,7 @@ function GoogleCalendarCard({
 
           {isConnected && status.last_sync_at && (
             <p className="text-[11px] text-text-muted mt-0.5">
-              Son senkron: {relativeTime(status.last_sync_at)}
+              Son eşitleme: {relativeTime(status.last_sync_at)}
             </p>
           )}
           {isError && status.last_error && (
@@ -1519,7 +1520,7 @@ function GoogleCalendarCard({
                 disabled={syncing}
                 className="px-2.5 py-1.5 text-xs rounded-btn bg-bg-input border border-border text-text-secondary hover:text-accent-cyan hover:border-accent-cyan/40 transition-colors disabled:opacity-60"
               >
-                {syncing ? '...' : 'Senkronla'}
+                {syncing ? '...' : 'Eşitle'}
               </button>
               <button
                 onClick={handleDisconnect}
@@ -1696,8 +1697,8 @@ function NotionCard({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-text-primary">Notion</p>
           <p className="text-xs text-text-muted leading-relaxed">
-            Notion sayfaları task olarak senkronlanır (5 dakikada bir).
-            {' '}'Status' veya 'Durum' property'si 'Tamamlandı' ise task tamamlanmış sayılır.
+            Notion sayfaları görev olarak 5 dakikada bir eşitlenir.
+            {' '}'Status' veya 'Durum' alanı 'Tamamlandı' ise görev tamamlanmış sayılır.
           </p>
 
           {/* Status indicator */}
@@ -1710,7 +1711,7 @@ function NotionCard({
                   ? `Bağlı${notionStatus?.workspace_name ? ': ' + notionStatus.workspace_name : ''}`
                   : credsMissing
                   ? 'Notion entegrasyonu yapılandırılmamış'
-                  : connecting ? 'OAuth bekleniyor…' : 'Bağlı değil'}
+                  : connecting ? 'Bağlanıyor…' : 'Bağlı değil'}
               </span>
             </div>
           )}
@@ -1718,7 +1719,7 @@ function NotionCard({
           {/* Selected DB badge */}
           {isConnected && selectedDbName && (
             <p className="text-[11px] text-accent-purple mt-0.5">
-              Senkron: {selectedDbName}
+              Eşitleme: {selectedDbName}
             </p>
           )}
 

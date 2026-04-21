@@ -210,7 +210,7 @@ function HabitModal({ habit, onClose, onSaved }: ModalProps) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-text-primary">Rahatsız Etmeyin aktifse atla</p>
-              <p className="text-xs text-text-muted">DND modunda hatırlatmayı sessizleştir</p>
+              <p className="text-xs text-text-muted">Rahatsız Etmeyin modunda hatırlatmayı sessizleştir</p>
             </div>
             <Toggle checked={respectDnd} onChange={setRespectDnd} />
           </div>

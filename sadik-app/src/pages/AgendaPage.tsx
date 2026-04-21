@@ -368,7 +368,7 @@ export default function AgendaPage() {
                         <img
                           src={gcalLogo}
                           alt="Google Calendar"
-                          title="Google Takvim'den senkronize"
+                          title="Google Takvim'den eşitlendi"
                           className="flex-shrink-0 w-3.5 h-3.5 opacity-80"
                         />
                       )}
