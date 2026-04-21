@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
+    # Notion OAuth public integration credentials.
+    # NOTE: Notion does NOT support PKCE — auth code flow with Basic Auth
+    # (client_id:client_secret) on token exchange. Token does not expire
+    # unless user revokes. Env-overridable: NOTION_CLIENT_ID / NOTION_CLIENT_SECRET.
+    notion_client_id: str = ""
+    notion_client_secret: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

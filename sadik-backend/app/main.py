@@ -6,7 +6,7 @@ from sqlalchemy import select, text
 import logging
 
 from app.database import engine, Base, AsyncSessionLocal
-from app.models import Task, ModeLog, ChatMessage, Setting, AppUsageSession, Workspace, WorkspaceAction, Habit, Event, Integration, ExternalEvent
+from app.models import Task, ModeLog, ChatMessage, Setting, AppUsageSession, Workspace, WorkspaceAction, Habit, Event, Integration, ExternalEvent, NotionSyncedPage
 from app.routers import tasks, modes, stats, pomodoro, device, chat, voice, settings, ws, memory, workspace as workspace_router_mod
 from app.routers import habits as habits_router_mod
 from app.routers import weather as weather_router_mod
@@ -16,6 +16,7 @@ from app.routers import integrations as integrations_router_mod
 from app.routers import external_events as external_events_router_mod
 from app.routers import privacy as privacy_router_mod
 from app.services.providers import google_calendar  # noqa: F401 — self-registers PROVIDERS
+from app.services.providers import notion as _notion_provider  # noqa: F401 — self-registers PROVIDERS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -78,6 +79,14 @@ DEFAULT_SETTINGS = {
     "google_client_id": "",
     "google_client_secret": "",
     "google_oauth_state": "",  # short-lived, cleared after callback
+    # Notion OAuth (set by callback, not user-entered)
+    "notion_oauth_state": "",
+    "notion_access_token": "",
+    "notion_bot_id": "",
+    "notion_workspace_id": "",
+    "notion_workspace_name": "",
+    "notion_selected_database_id": "",
+    "notion_selected_database_name": "",
     "privacy_behavioral_learning": "false",
     "privacy_calendar_push": "false",
     "privacy_notion_push": "false",

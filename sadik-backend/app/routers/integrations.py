@@ -194,7 +194,204 @@ async def disconnect_provider(
 
 
 # ---------------------------------------------------------------------------
-# New endpoints
+# Notion-specific endpoints
+# IMPORTANT: these must be registered BEFORE the parametric /{provider}/...
+# routes below so FastAPI's path matcher prefers the literal "/notion/..." path.
+# ---------------------------------------------------------------------------
+
+
+class NotionDatabaseSelectRequest(BaseModel):
+    database_id: str
+    database_name: str
+
+
+@router.get("/notion/start")
+async def notion_oauth_start(session: AsyncSession = Depends(get_session)):
+    """Generate Notion OAuth authorization URL.
+
+    NOTE: Notion does not support PKCE — only state CSRF token is generated.
+    Token exchange uses HTTP Basic Auth with client_id:client_secret.
+    """
+    cid = app_settings.notion_client_id
+    if not cid or not cid.strip():
+        raise HTTPException(status_code=500, detail="notion_client_id_not_configured")
+
+    state = secrets.token_urlsafe(32)
+    await _set_setting(session, "notion_oauth_state", state)
+
+    from app.services.providers.notion import NotionProvider
+
+    auth_url = NotionProvider.build_auth_url(cid.strip(), state)
+    return {"auth_url": auth_url}
+
+
+@router.get("/notion/callback", response_class=HTMLResponse)
+async def notion_oauth_callback(
+    session: AsyncSession = Depends(get_session),
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    """Landing page after Notion OAuth redirect. Exchanges code for token."""
+    _close_html = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>SADIK</title></head>
+<body style="font-family:system-ui;background:#111;color:#eee;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px">
+{body}
+<script>setTimeout(()=>window.close(),2000)</script>
+</body>
+</html>"""
+
+    if error:
+        return HTMLResponse(
+            _close_html.format(body=f"<h2>Hata ✗</h2><p>{error}</p>"),
+            status_code=400,
+        )
+
+    if not code:
+        return HTMLResponse(
+            _close_html.format(body="<h2>Hata ✗</h2><p>Kod alınamadı.</p>"),
+            status_code=400,
+        )
+
+    stored_state = await _get_setting(session, "notion_oauth_state")
+    if not stored_state or stored_state != state:
+        return HTMLResponse(
+            _close_html.format(body="<h2>Hata ✗</h2><p>Geçersiz state parametresi.</p>"),
+            status_code=400,
+        )
+
+    # Clear state — single-use
+    await _set_setting(session, "notion_oauth_state", "")
+
+    cid = app_settings.notion_client_id
+    csec = app_settings.notion_client_secret
+    if not cid or not csec:
+        return HTMLResponse(
+            _close_html.format(
+                body="<h2>Hata ✗</h2><p>Notion client credentials eksik — .env dosyasını kontrol edin.</p>"
+            ),
+            status_code=500,
+        )
+
+    try:
+        from app.services.providers.notion import NotionProvider
+
+        tokens = await NotionProvider.exchange_code(cid.strip(), csec.strip(), code)
+
+        access_token = tokens.get("access_token")
+        bot_id = tokens.get("bot_id", "")
+        workspace_id = tokens.get("workspace_id", "")
+        workspace_name = tokens.get("workspace_name", "")
+
+        if not access_token:
+            raise ValueError("Notion token yanıtında access_token yok")
+
+        # Persist tokens in both Integration table and Settings for easy lookup
+        await integration_service.upsert_integration(
+            session,
+            "notion",
+            status="connected",
+            access_token=access_token,
+            refresh_token=None,  # Notion has no refresh token
+            expires_at=None,     # Notion tokens never expire
+            scopes="",
+            account_email=workspace_name,
+            connected_at=_utcnow(),
+            last_error=None,
+        )
+
+        # Store extra Notion-specific fields in Settings
+        await _set_setting(session, "notion_access_token", access_token)
+        await _set_setting(session, "notion_bot_id", bot_id)
+        await _set_setting(session, "notion_workspace_id", workspace_id)
+        await _set_setting(session, "notion_workspace_name", workspace_name)
+
+    except Exception as exc:
+        return HTMLResponse(
+            _close_html.format(body=f"<h2>Hata ✗</h2><p>{exc}</p>"),
+            status_code=500,
+        )
+
+    return HTMLResponse(
+        _close_html.format(
+            body=f"<h2>Bağlandı ✓</h2><p>{workspace_name} çalışma alanı bağlandı. Bu sekmeyi kapatabilirsiniz.</p>"
+        )
+    )
+
+
+@router.get("/notion/status")
+async def notion_status(session: AsyncSession = Depends(get_session)):
+    """Return connection status and workspace name."""
+    integration = await integration_service.get_integration(session, "notion")
+    if integration and integration.status == "connected":
+        workspace_name = await _get_setting(session, "notion_workspace_name") or ""
+        return {"connected": True, "workspace_name": workspace_name}
+    return {"connected": False, "workspace_name": None}
+
+
+@router.post("/notion/disconnect")
+async def notion_disconnect(session: AsyncSession = Depends(get_session)):
+    """Disconnect Notion — clear tokens and settings."""
+    await integration_service.disconnect(session, "notion")
+
+    # Clear Notion-specific settings
+    for key in (
+        "notion_access_token",
+        "notion_bot_id",
+        "notion_workspace_id",
+        "notion_workspace_name",
+        "notion_selected_database_id",
+        "notion_selected_database_name",
+        "notion_oauth_state",
+    ):
+        await _set_setting(session, key, "")
+
+    return {"ok": True}
+
+
+@router.get("/notion/databases")
+async def notion_list_databases(session: AsyncSession = Depends(get_session)):
+    """Return databases accessible by the connected integration."""
+    integration = await integration_service.get_integration(session, "notion")
+    if not integration or integration.status != "connected":
+        raise HTTPException(status_code=400, detail="notion_not_connected")
+
+    access_token = integration.access_token
+    if not access_token:
+        raise HTTPException(status_code=400, detail="notion_no_token")
+
+    try:
+        from app.services.providers.notion import NotionProvider
+
+        databases = await NotionProvider.list_accessible_databases(access_token)
+        return {"databases": databases}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/notion/database")
+async def notion_select_database(
+    body: NotionDatabaseSelectRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Save the user's selected Notion database for sync."""
+    integration = await integration_service.get_integration(session, "notion")
+    if not integration or integration.status != "connected":
+        raise HTTPException(status_code=400, detail="notion_not_connected")
+
+    await _set_setting(session, "notion_selected_database_id", body.database_id)
+    await _set_setting(session, "notion_selected_database_name", body.database_name)
+
+    return {
+        "ok": True,
+        "database_id": body.database_id,
+        "database_name": body.database_name,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Google Calendar OAuth (parametric routes — must come AFTER literal /notion/...)
 # ---------------------------------------------------------------------------
 
 
