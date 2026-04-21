@@ -1337,8 +1337,20 @@ Write-Output "OK"
   // ── Window lifecycle diagnostics ──────────────────────────────────────────
   win.once('ready-to-show', () => tlog('[SADIK] Window ready-to-show'));
   win.on('show',        () => tlog('[SADIK] Window show'));
-  win.on('focus',       () => { tlog('[SADIK] Window focus'); win.webContents.send('app-focus-changed', true); });
-  win.on('blur',        () => { tlog('[SADIK] Window blur');  win.webContents.send('app-focus-changed', false); });
+  win.on('focus',       () => {
+    tlog('[SADIK] Window focus');
+    win.webContents.send('app-focus-changed', true);
+    // Restore default throttling only if the window is actually visible
+    // (not tray-hidden — the hide/show handlers manage that case).
+    if (win.isVisible()) win.webContents.setBackgroundThrottling(true);
+  });
+  win.on('blur',        () => {
+    tlog('[SADIK] Window blur');
+    win.webContents.send('app-focus-changed', false);
+    // Keep rAF alive while another app has focus (e.g. Chrome fullscreen /
+    // alt+tab) so OLED preview + frame streaming don't freeze.
+    win.webContents.setBackgroundThrottling(false);
+  });
   win.on('closed',      () => tlog('[SADIK] Window closed'));
   win.on('unresponsive',() => twarn('[SADIK] Window UNRESPONSIVE'));
   win.on('responsive',  () => tlog('[SADIK] Window responsive (was unresponsive)'));

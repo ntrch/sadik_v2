@@ -157,26 +157,38 @@ export function useAnimationEngine(
     };
 
     const electronAPI = (window as any).electronAPI;
+
+    // Always register DOM-level focus/blur/visibility listeners. Even on the
+    // Electron path these act as a redundant signal — BrowserWindow 'blur'
+    // doesn't always fire on Windows when another app goes fullscreen
+    // (e.g. Chrome F11), which would leave focus-look stuck. The DOM events
+    // fire reliably in that case, so combining both sources keeps idle
+    // recovery correct.
+    const onFocus    = () => applyFocus(true);
+    const onBlur     = () => applyFocus(false);
+    const onVisibility = () => {
+      // Only react to becoming hidden — becoming visible doesn't necessarily
+      // mean we regained focus (could just be unminimized behind another app).
+      if (document.visibilityState !== 'visible') applyFocus(false);
+    };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur',  onBlur);
+    document.addEventListener('visibilitychange', onVisibility);
+
     if (electronAPI?.onAppFocusChanged && electronAPI?.getFocusState) {
       // Electron path: subscribe to IPC events + query initial state
       electronAPI.onAppFocusChanged(applyFocus);
       electronAPI.getFocusState().then((focused: boolean) => applyFocus(focused)).catch(() => {});
     } else {
-      // Fallback (web / no Electron preload)
-      const onFocus    = () => applyFocus(true);
-      const onBlur     = () => applyFocus(false);
-      const onVisibility = () => applyFocus(document.visibilityState === 'visible');
-      window.addEventListener('focus', onFocus);
-      window.addEventListener('blur',  onBlur);
-      document.addEventListener('visibilitychange', onVisibility);
-      // Apply initial state
-      applyFocus(!document.hidden);
-      return () => {
-        window.removeEventListener('focus', onFocus);
-        window.removeEventListener('blur',  onBlur);
-        document.removeEventListener('visibilitychange', onVisibility);
-      };
+      // Web / no Electron preload — apply initial state from DOM only
+      applyFocus(document.hasFocus() && !document.hidden);
     }
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur',  onBlur);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
