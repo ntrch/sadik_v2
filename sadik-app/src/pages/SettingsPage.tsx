@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { settingsApi, Settings } from '../api/settings';
 import { privacyApi } from '../api/privacy';
-import { integrationsApi, IntegrationStatus } from '../api/integrations';
+import { integrationsApi, IntegrationStatus, MEET_REQUIRED_SCOPE } from '../api/integrations';
 import { notionApi, NotionStatus, NotionDatabase } from '../api/notion';
 import { deviceApi, SerialPort } from '../api/device';
 import { chatApi } from '../api/chat';
@@ -1364,6 +1364,7 @@ function GoogleCalendarCard({
 
   const isConnected = status.status === 'connected';
   const isError = status.status === 'error';
+  const meetScopeMissing = isConnected && !(status.scopes ?? '').includes(MEET_REQUIRED_SCOPE);
 
   useEffect(() => {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
@@ -1459,6 +1460,22 @@ function GoogleCalendarCard({
             <p className="text-[11px] text-accent-red mt-0.5 truncate" title={status.last_error}>
               {status.last_error}
             </p>
+          )}
+
+          {meetScopeMissing && (
+            <div className="mt-2 flex items-start gap-1.5 text-[11px] text-accent-orange">
+              <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" />
+              <span className="leading-snug">
+                Google Meet toplantı algılama için yeniden bağlan — mevcut oturumda Meet izni yok.
+                <button
+                  onClick={handleConnect}
+                  disabled={connecting}
+                  className="ml-1 underline hover:text-accent-cyan disabled:opacity-50"
+                >
+                  Tekrar bağlan
+                </button>
+              </span>
+            </div>
           )}
         </div>
 

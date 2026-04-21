@@ -36,7 +36,7 @@ export interface AppInsight {
   /** All apps exceeding thresholds */
   insights?: AppInsightItem[];
   /** Source of the insight */
-  source?: 'app_usage' | 'task' | 'habit' | 'behavioral';
+  source?: 'app_usage' | 'task' | 'habit' | 'behavioral' | 'meeting';
   /** Action taken when user accepts this insight. When absent, legacy break behavior applies. */
   action?: InsightAction;
   /** Nested behavioral insight — present when app-usage fired but behavioral also qualifies. */

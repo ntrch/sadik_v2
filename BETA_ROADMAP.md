@@ -120,7 +120,8 @@
 - [DONE: session-A] Sprint 4 ara-iş — Task icon sistemi + Notion/GCal brand logoları (TaskCard + Agenda)
 - **Sprint 4 T4.2 tamamlandı ✅ — Google Meet active-conference detection (scope + poll + state + endpoint)**
   - ⚠️ Mevcut Google Calendar kullanıcıları Meet scope için reconnect gerektirir (scope_granted=false dönecek)
-- **Sıradaki: Sprint 4 T4.3 Meet kartı (Settings Entegrasyonlar) + T4.4 in_meeting toast handler**
+- **Sprint 4 T4.3b + T4.4 tamamlandı ✅ — Meet scope uyarısı + in_meeting synthetic insight handler**
+- **Sprint 4 TAMAMLANDI ✅** — Sıradaki: **Sprint 5 — Persona genişletme + onboarding + jargon** (T5.1 mode preset kataloğu / T5.2 jargon / T5.3 onboarding persona / T5.4 empty states)
   - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
 
 
@@ -310,7 +311,8 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 
 **Concurrency zone B (frontend):**
 - [x] **T4.3 tamam [session-A]** Settings → Entegrasyonlar Notion kartı (Meet scope dışı)
-- [ ] **T4.4** Meeting detect handler — `in_meeting` → mode switch önerisi (toast)
+- [x] **T4.3b tamam [session-A]** Google Calendar kartında Meet scope uyarısı + "Tekrar bağlan" butonu (scope yoksa inline notice)
+- [x] **T4.4 tamam [session-A]** Meeting detect handler — AppContext 60s meet state polling; false→true transition + currentMode≠meeting + meeting_code daha önce önerilmedi → synthetic AppInsight (source='meeting', action={type:'switch_mode', mode:'meeting'}) activeInsight'a yazılır → mevcut proactive UI üzerinden kabul/ret
 
 **Exit criteria:** Notion task sync çalışır, Meet toplantısı başlayınca "Meeting moduna geç?" toast görünür.
 

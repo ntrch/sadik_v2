@@ -271,6 +271,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const activeInsightRef = useRef<AppInsight | null>(null);
   activeInsightRef.current = activeInsight;
 
+  // Mode ref — keeps latest mode available inside setInterval closures
+  const currentModeRef = useRef<string | null>(null);
+  currentModeRef.current = currentMode;
+
   // Proactive suggestion controls state
   const [proactiveSuggestionsEnabled, setProactiveSuggestionsEnabledState] = useState(true);
   const [proactiveQuietHoursStart, setProactiveQuietHoursStartState]       = useState('23:00');
@@ -1432,6 +1436,66 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentional: uses latest-ref pattern — no deps needed
+
+  // ── Google Meet presence → meeting-mode suggestion ────────────────────────
+  // Polls /api/integrations/google_meet/state every 60 s. When the backend
+  // confirms (via participants.list) that the user IS in a live Meet
+  // conference and the app isn't already in "meeting" mode, surface a
+  // proactive switch_mode insight. Once a meeting_code has been suggested
+  // in this session it won't be offered again until full reload.
+  useEffect(() => {
+    const wasInMeetingRef = { current: false };
+    const suggestedCodesRef = new Set<string>();
+
+    const pollMeet = async () => {
+      try {
+        const res = await integrationsApi.getMeetState();
+        if (!res.scope_granted) return;
+
+        const { state } = res;
+        const prev = wasInMeetingRef.current;
+        wasInMeetingRef.current = state.in_meeting;
+
+        // Transition false → true only
+        if (!state.in_meeting || prev) return;
+        if (!state.meeting_code) return;
+        if (suggestedCodesRef.has(state.meeting_code)) return;
+
+        // Respect current mode — user already in meeting mode? skip.
+        if (currentModeRef.current === 'meeting') return;
+
+        // Don't clobber an existing active insight.
+        if (activeInsightRef.current) return;
+
+        suggestedCodesRef.add(state.meeting_code);
+
+        const titleLine = state.event_title
+          ? `"${state.event_title}" toplantısına katıldın.`
+          : 'Bir toplantıya katıldın.';
+
+        const syntheticInsight: AppInsight = {
+          has_insight: true,
+          source: 'meeting',
+          level: 'strong',
+          message: `${titleLine} Meeting moduna geçelim mi?`,
+          action: { type: 'switch_mode', mode: 'meeting' },
+        };
+
+        setActiveInsight(syntheticInsight);
+      } catch {
+        // Backend down / not connected — silent
+      }
+    };
+
+    // First poll after 15 s (let calendar sync run once), then every 60 s.
+    const initial = setTimeout(pollMeet, 15_000);
+    const interval = setInterval(pollMeet, 60_000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // uses refs + closure-captured setters — no deps needed
 
   // ── Proactive accept / deny ────────────────────────────────────────────────
 

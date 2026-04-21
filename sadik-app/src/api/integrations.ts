@@ -26,6 +26,22 @@ export interface SyncNowResult {
   event_count: number;
 }
 
+export interface GoogleMeetState {
+  in_meeting: boolean;
+  event_id: number | null;
+  event_title: string | null;
+  meeting_code: string | null;
+  meeting_url: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  detected_at: string;
+}
+
+export interface GoogleMeetStateResponse {
+  scope_granted: boolean;
+  state: GoogleMeetState;
+}
+
 // ── API client ─────────────────────────────────────────────────────────────────
 
 export const integrationsApi = {
@@ -39,4 +55,8 @@ export const integrationsApi = {
     http.get<{ auth_url: string }>(`/api/integrations/${provider}/connect`).then((r) => r.data),
   syncNow: (provider: string) =>
     http.post<SyncNowResult>(`/api/integrations/${provider}/sync-now`).then((r) => r.data),
+  getMeetState: () =>
+    http.get<GoogleMeetStateResponse>('/api/integrations/google_meet/state').then((r) => r.data),
 };
+
+export const MEET_REQUIRED_SCOPE = 'meetings.space.readonly';
