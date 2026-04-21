@@ -78,24 +78,34 @@ export function useAnimationEngine(
           await new Promise((r) => setTimeout(r, 30));
           continue;
         }
-        latestPendingBuffer.current = null;
         frameCount++;
         if (frameCount <= 5 || frameCount % 60 === 0) {
           console.log(`[FrameStream] sending frame #${frameCount}`);
         }
+        let delivered = false;
         try {
           const res = await deviceApi.sendFrame(buf);
-          if (res.success) {
-            // Screen preview now mirrors the OLED's true refresh cadence.
-            bufferRef.current = buf;
-            setFrameVersion((v) => v + 1);
-          } else {
-            console.warn('[FrameStream] drop');
-            engine.markBufferDirty();
-          }
+          delivered = !!res.success;
+          if (!delivered) console.warn('[FrameStream] drop');
         } catch (e) {
           console.warn('[FrameStream] send failed:', e);
-          engine.markBufferDirty();
+        }
+        // Update preview regardless of device ACK — decouples UI from
+        // intermittent serial ACK timeouts. Without this, a single drop on
+        // a non-looping clip's last frame (e.g. 'confirming' freeze) leaves
+        // the preview stuck forever because the engine won't emit another
+        // frame until something triggers state change.
+        bufferRef.current = buf;
+        setFrameVersion((v) => v + 1);
+        if (delivered) {
+          // Only clear the staged buffer if no newer frame arrived during the
+          // send — that way new frames always take priority, but the held
+          // last-frame of a non-looping clip gets through on retry.
+          if (latestPendingBuffer.current === buf) latestPendingBuffer.current = null;
+        } else {
+          // Keep buf staged so next tick retries (unless a newer frame has
+          // already overwritten it). Brief backoff to avoid hot-looping.
+          await new Promise((r) => setTimeout(r, 100));
         }
       }
     };
