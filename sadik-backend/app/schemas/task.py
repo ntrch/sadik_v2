@@ -10,6 +10,8 @@ class TaskCreate(BaseModel):
     notes: Optional[str] = None
     due_date: Optional[datetime] = None
     priority: int = 0
+    icon: Optional[str] = None
+    icon_image: Optional[str] = None
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -18,6 +20,8 @@ class TaskUpdate(BaseModel):
     due_date: Optional[datetime] = None
     priority: Optional[int] = None
     status: Optional[str] = None
+    icon: Optional[str] = None
+    icon_image: Optional[str] = None
 
 class TaskStatusUpdate(BaseModel):
     status: str
@@ -33,6 +37,9 @@ class TaskResponse(BaseModel):
     updated_at: datetime
     due_date: Optional[datetime]
     pomodoro_count: int
+    notion_page_id: Optional[str] = None
+    icon: Optional[str] = None
+    icon_image: Optional[str] = None
 
     class Config:
         from_attributes = True

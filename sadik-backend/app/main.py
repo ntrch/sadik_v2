@@ -103,6 +103,21 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created")
 
+    # Idempotent ALTER TABLE migrations — add columns that may be missing from
+    # older DB files. Pattern: check PRAGMA table_info, add only if absent.
+    async with engine.begin() as conn:
+        result = await conn.execute(text("PRAGMA table_info(tasks)"))
+        existing_cols = {row[1] for row in result.fetchall()}
+        if "notion_page_id" not in existing_cols:
+            await conn.execute(text("ALTER TABLE tasks ADD COLUMN notion_page_id VARCHAR"))
+            logger.info("tasks: added notion_page_id column")
+        if "icon" not in existing_cols:
+            await conn.execute(text("ALTER TABLE tasks ADD COLUMN icon VARCHAR"))
+            logger.info("tasks: added icon column")
+        if "icon_image" not in existing_cols:
+            await conn.execute(text("ALTER TABLE tasks ADD COLUMN icon_image TEXT"))
+            logger.info("tasks: added icon_image column")
+
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM workspace_actions WHERE workspace_id NOT IN (SELECT id FROM workspaces)"))
     print("[startup] orphan action cleanup done")

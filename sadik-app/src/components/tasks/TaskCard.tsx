@@ -1,6 +1,8 @@
 import React from 'react';
 import { Calendar, Clock, Timer, Flame, GripVertical } from 'lucide-react';
 import { Task } from '../../api/tasks';
+import { getIconByKey } from '../../utils/modeIcons';
+import notionLogo from '../../assets/brand/Notion_Symbol_0.svg';
 
 const priorityLabels: Record<number, { label: string; color: string }> = {
   0: { label: 'Düşük', color: 'text-text-muted' },
@@ -20,6 +22,7 @@ interface Props {
 
 export default function TaskCard({ task, onClick, onStartPomodoro, onDragStart, onDragEnd, isDragging }: Props) {
   const prio = priorityLabels[task.priority] || priorityLabels[0];
+  const LucideTaskIcon = task.icon ? getIconByKey(task.icon) : null;
 
   const formatDue = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -44,12 +47,35 @@ export default function TaskCard({ task, onClick, onStartPomodoro, onDragStart, 
       }}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      className={`rounded-[14px] p-3 cursor-grab transition-all group animate-fade-in backdrop-blur-sm border ${
+      className={`relative rounded-[14px] p-3 cursor-grab transition-all group animate-fade-in backdrop-blur-sm border ${
         task.status === 'in_progress'
           ? 'bg-accent-orange/10 border-accent-orange/40 hover:border-accent-orange/60'
           : 'bg-bg-card border-border hover:border-accent-purple/40 hover:bg-bg-hover'
       } ${isDragging ? 'opacity-40 scale-95' : ''}`}
     >
+      {/* Left-top: custom icon/image */}
+      {task.icon_image ? (
+        <img
+          src={task.icon_image}
+          alt=""
+          className="absolute top-2 left-2 w-4 h-4 rounded-sm object-cover pointer-events-none"
+        />
+      ) : LucideTaskIcon ? (
+        <span className="absolute top-2 left-2 w-4 h-4 flex items-center justify-center pointer-events-none">
+          <LucideTaskIcon size={14} className="text-text-muted" />
+        </span>
+      ) : null}
+
+      {/* Right-top: Notion logo if synced from Notion */}
+      {task.notion_page_id && (
+        <img
+          src={notionLogo}
+          alt="Notion"
+          title="Notion'dan senkronize"
+          className="absolute top-2 right-2 w-3.5 h-3.5 opacity-70 pointer-events-none"
+        />
+      )}
+
       <div className="flex items-start gap-2">
         <GripVertical size={14} className="text-text-muted mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity cursor-grab" />
         <div className="flex-1 min-w-0">

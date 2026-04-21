@@ -11,6 +11,9 @@ export interface Task {
   updated_at: string;
   due_date: string | null;
   pomodoro_count: number;
+  notion_page_id: string | null;
+  icon: string | null;
+  icon_image: string | null;
 }
 
 export interface TaskCreate {
@@ -19,6 +22,8 @@ export interface TaskCreate {
   notes?: string;
   due_date?: string;
   priority?: number;
+  icon?: string | null;
+  icon_image?: string | null;
 }
 
 export interface TaskUpdate {
@@ -28,6 +33,8 @@ export interface TaskUpdate {
   due_date?: string | null;
   priority?: number;
   status?: string;
+  icon?: string | null;
+  icon_image?: string | null;
 }
 
 export const tasksApi = {

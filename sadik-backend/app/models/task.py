@@ -25,6 +25,12 @@ class Task(Base):
         String, nullable=True, index=True, unique=True
     )
 
+    # Icon fields — optional visual customization.
+    # icon: Lucide icon key (e.g. "target", "rocket") for preset icons.
+    # icon_image: base64 data URL or external URL for custom images (e.g. Notion page icon).
+    icon: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    icon_image: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
     __table_args__ = (
         Index("ix_tasks_notion_page_id", "notion_page_id"),
     )

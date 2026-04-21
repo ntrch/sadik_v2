@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { X, Trash2, Bold, Italic, List, ListOrdered, CheckSquare, Code, Quote, Image as ImageIcon, Heading1, Heading2, Heading3 } from 'lucide-react';
+import { X, Trash2, Bold, Italic, List, ListOrdered, CheckSquare, Code, Quote, Image as ImageIcon, Heading1, Heading2, Heading3, Smile, Upload } from 'lucide-react';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -9,6 +9,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 
 import { Task, TaskUpdate, tasksApi } from '../../api/tasks';
 import { AppContext } from '../../context/AppContext';
+import { ICON_CATEGORIES, getIconByKey } from '../../utils/modeIcons';
 
 const STATUS_OPTIONS = [
   { value: 'todo', label: 'Yapılacak' },
@@ -158,6 +159,15 @@ export default function TaskDetailDrawer({ task, onClose, onSaved }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Icon picker state
+  type IconTab = 'none' | 'preset' | 'custom';
+  const [iconTab, setIconTab] = useState<IconTab>('none');
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [taskIcon, setTaskIcon] = useState<string | null>(task.icon ?? null);
+  const [taskIconImage, setTaskIconImage] = useState<string | null>(task.icon_image ?? null);
+  const [iconSearch, setIconSearch] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const saveTimerRef = useRef<number | null>(null);
   const latestRef = useRef<TaskUpdate>({});
   const taskIdRef = useRef(task.id);
@@ -245,6 +255,48 @@ export default function TaskDetailDrawer({ task, onClose, onSaved }: Props) {
     setDeleting(false);
   };
 
+  // ── Icon handlers ─────────────────────────────────────────────────────────
+  const handleSelectPresetIcon = (key: string) => {
+    setTaskIcon(key);
+    setTaskIconImage(null);
+    scheduleSave({ icon: key, icon_image: null });
+    setIconPickerOpen(false);
+  };
+
+  const handleClearIcon = () => {
+    setTaskIcon(null);
+    setTaskIconImage(null);
+    scheduleSave({ icon: null, icon_image: null });
+    setIconPickerOpen(false);
+  };
+
+  const handleCustomImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const MAX = 256 * 1024; // 256 KB
+    if (file.size > MAX) {
+      alert('Görsel 256KB\'dan büyük olamaz.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setTaskIcon(null);
+      setTaskIconImage(dataUrl);
+      scheduleSave({ icon: null, icon_image: dataUrl });
+      setIconPickerOpen(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const filteredIconCategories = iconSearch.trim()
+    ? ICON_CATEGORIES.map((c) => ({
+        ...c,
+        icons: c.icons.filter(({ key }) => key.includes(iconSearch.toLowerCase())),
+      })).filter((c) => c.icons.length > 0)
+    : ICON_CATEGORIES;
+
   // ── Lifecycle: flush pending save on close / unmount ──────────────────────
   useEffect(() => {
     return () => {
@@ -316,14 +368,143 @@ export default function TaskDetailDrawer({ task, onClose, onSaved }: Props) {
 
         {/* Title */}
         <div className="px-8 pt-6 pb-2">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={handleTitleBlur}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-            placeholder="Başlıksız görev"
-            className="w-full bg-transparent text-2xl font-bold text-text-primary outline-none placeholder-text-muted"
-          />
+          <div className="flex items-center gap-3 mb-2">
+            {/* Icon preview + toggle button */}
+            <button
+              type="button"
+              onClick={() => setIconPickerOpen((v) => !v)}
+              title="İkon seç"
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-border bg-bg-hover hover:bg-bg-card transition-colors flex-shrink-0"
+            >
+              {taskIconImage ? (
+                <img src={taskIconImage} alt="" className="w-5 h-5 rounded-sm object-cover" />
+              ) : taskIcon && getIconByKey(taskIcon) ? (
+                (() => { const IC = getIconByKey(taskIcon)!; return <IC size={16} className="text-text-secondary" />; })()
+              ) : (
+                <Smile size={15} className="text-text-muted" />
+              )}
+            </button>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={handleTitleBlur}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+              placeholder="Başlıksız görev"
+              className="flex-1 bg-transparent text-2xl font-bold text-text-primary outline-none placeholder-text-muted"
+            />
+          </div>
+
+          {/* Icon picker panel */}
+          {iconPickerOpen && (
+            <div className="mb-3 border border-border rounded-xl bg-bg-card shadow-card overflow-hidden">
+              {/* Tabs */}
+              <div className="flex border-b border-border">
+                {([['none', 'İkonsuz'], ['preset', 'Hazır İkonlar'], ['custom', 'Özel Görsel']] as [IconTab, string][]).map(([tab, label]) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setIconTab(tab)}
+                    className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                      iconTab === tab
+                        ? 'text-accent-purple border-b-2 border-accent-purple bg-accent-purple/5'
+                        : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab content */}
+              <div className="p-3">
+                {iconTab === 'none' && (
+                  <div className="text-center py-3">
+                    <p className="text-xs text-text-muted mb-3">Bu görev için ikon kullanma.</p>
+                    <button
+                      type="button"
+                      onClick={handleClearIcon}
+                      className="px-4 py-1.5 text-xs rounded-btn bg-bg-hover border border-border text-text-primary hover:bg-bg-card transition-colors"
+                    >
+                      İkonu Temizle
+                    </button>
+                  </div>
+                )}
+
+                {iconTab === 'preset' && (
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="İkon ara…"
+                      value={iconSearch}
+                      onChange={(e) => setIconSearch(e.target.value)}
+                      className="w-full mb-2 px-2 py-1.5 text-xs rounded-md bg-bg-hover border border-border text-text-primary outline-none placeholder-text-muted focus:border-border-focus"
+                    />
+                    <div className="max-h-52 overflow-y-auto">
+                      {filteredIconCategories.map((cat) => (
+                        <div key={cat.name} className="mb-2">
+                          <div className="text-[9px] uppercase tracking-wider text-text-muted mb-1">{cat.name}</div>
+                          <div className="grid grid-cols-8 gap-0.5">
+                            {cat.icons.map(({ key, Icon }) => {
+                              const selected = key === taskIcon;
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  title={key}
+                                  onClick={() => handleSelectPresetIcon(key)}
+                                  className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors border ${
+                                    selected
+                                      ? 'bg-accent-purple/20 border-accent-purple text-accent-purple'
+                                      : 'border-transparent text-text-muted hover:bg-bg-hover hover:text-text-primary'
+                                  }`}
+                                >
+                                  <Icon size={14} />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {iconTab === 'custom' && (
+                  <div className="text-center py-2">
+                    {taskIconImage && (
+                      <div className="mb-3 flex justify-center">
+                        <img src={taskIconImage} alt="" className="w-12 h-12 rounded-lg object-cover border border-border" />
+                      </div>
+                    )}
+                    <p className="text-xs text-text-muted mb-3">Görseli yükle (maks. 256 KB).</p>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1.5 px-4 py-1.5 text-xs rounded-btn bg-bg-hover border border-border text-text-primary hover:bg-bg-card transition-colors mx-auto"
+                    >
+                      <Upload size={12} /> Görsel Seç
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleCustomImageFile}
+                    />
+                    {taskIconImage && (
+                      <button
+                        type="button"
+                        onClick={handleClearIcon}
+                        className="mt-2 text-xs text-text-muted hover:text-accent-red transition-colors"
+                      >
+                        Kaldır
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Meta row */}

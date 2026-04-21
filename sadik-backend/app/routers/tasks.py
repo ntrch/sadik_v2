@@ -21,6 +21,9 @@ def task_to_dict(task: Task) -> dict:
         "updated_at": (task.updated_at.isoformat() + 'Z') if task.updated_at else None,
         "due_date": task.due_date.isoformat() if task.due_date else None,
         "pomodoro_count": task.pomodoro_count,
+        "notion_page_id": task.notion_page_id,
+        "icon": task.icon,
+        "icon_image": task.icon_image,
     }
 
 @router.get("", response_model=list[TaskResponse])
@@ -43,6 +46,8 @@ async def create_task(body: TaskCreate, session: AsyncSession = Depends(get_sess
         status="todo",
         created_at=now,
         updated_at=now,
+        icon=body.icon,
+        icon_image=body.icon_image,
     )
     session.add(task)
     await session.commit()
@@ -78,6 +83,11 @@ async def update_task(task_id: int, body: TaskUpdate, session: AsyncSession = De
         if body.status not in ALLOWED_STATUSES:
             raise HTTPException(status_code=422, detail=f"Invalid status. Allowed: {ALLOWED_STATUSES}")
         task.status = body.status
+    # icon and icon_image support explicit null (to clear) or a value
+    if "icon" in body.model_fields_set:
+        task.icon = body.icon
+    if "icon_image" in body.model_fields_set:
+        task.icon_image = body.icon_image
     task.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await session.commit()
     await session.refresh(task)

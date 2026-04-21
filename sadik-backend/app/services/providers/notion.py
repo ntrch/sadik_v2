@@ -234,6 +234,27 @@ class NotionProvider(BaseProvider):
     # ------------------------------------------------------------------ property helpers
 
     @classmethod
+    def _extract_icon_image(cls, page: dict) -> Optional[str]:
+        """Extract a usable image URL from a Notion page icon.
+
+        Decision: emoji icons are skipped (they are not images and look out
+        of place alongside custom visuals). Only file/external icons — which
+        are real image URLs — are returned.
+
+        Returns the URL string, or None if there is no icon or it is an emoji.
+        """
+        icon = page.get("icon")
+        if not icon:
+            return None
+        icon_type = icon.get("type")
+        if icon_type == "file":
+            return icon.get("file", {}).get("url")
+        if icon_type == "external":
+            return icon.get("external", {}).get("url")
+        # emoji → skip
+        return None
+
+    @classmethod
     def _extract_title(cls, page: dict) -> str:
         """Extract the page title from Notion properties."""
         properties = page.get("properties", {})
@@ -307,6 +328,7 @@ class NotionProvider(BaseProvider):
                 title = self._extract_title(page)
                 status_val = self._extract_status(page)
                 due_date = self._extract_due_date(page)
+                icon_image = self._extract_icon_image(page)
                 last_edited_str = page.get("last_edited_time")
                 last_edited = _parse_notion_datetime(last_edited_str)
                 is_done = status_val and status_val.lower() in _DONE_STATUSES
@@ -326,6 +348,7 @@ class NotionProvider(BaseProvider):
                         status="done" if is_done else "todo",
                         due_date=due_date,
                         notion_page_id=page_id,
+                        icon_image=icon_image,
                     )
                     session.add(task)
                     await session.flush()  # get task.id
@@ -366,6 +389,7 @@ class NotionProvider(BaseProvider):
                         if task:
                             task.title = title
                             task.due_date = due_date
+                            task.icon_image = icon_image
                             if is_done:
                                 task.status = "done"
                             changed = True

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, ListTodo, Repeat, CalendarDays, Plus, X, Trash2 } from 'lucide-react';
+import gcalLogo from '../assets/brand/icons8-google-calendar.svg';
 import { tasksApi, Task } from '../api/tasks';
 import { habitsApi, Habit } from '../api/habits';
 import { eventsApi, CalendarEvent, EventColor } from '../api/events';
@@ -321,7 +322,7 @@ export default function AgendaPage() {
                           )}
                           <span className="truncate">{ev.title}</span>
                           {ev.kind === 'external' && ev.externalSource === 'google_calendar' && (
-                            <CalendarDays size={8} className="flex-shrink-0 opacity-70" />
+                            <img src={gcalLogo} alt="GCal" className="flex-shrink-0 w-2.5 h-2.5 opacity-80" />
                           )}
                         </div>
                       );
@@ -364,9 +365,12 @@ export default function AgendaPage() {
                     <div className="flex items-center gap-1.5">
                       <div className="text-sm font-medium text-text-primary truncate">{ev.title}</div>
                       {isExternal && ev.externalSource === 'google_calendar' && (
-                        <span className="flex-shrink-0 text-[9px] px-1 py-0.5 rounded bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/20 uppercase tracking-wide">
-                          GCal
-                        </span>
+                        <img
+                          src={gcalLogo}
+                          alt="Google Calendar"
+                          title="Google Takvim'den senkronize"
+                          className="flex-shrink-0 w-3.5 h-3.5 opacity-80"
+                        />
                       )}
                     </div>
                     <div className="text-[11px] text-text-muted">

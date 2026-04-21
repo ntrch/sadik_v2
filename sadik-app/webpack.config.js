@@ -33,6 +33,14 @@ module.exports = (env, argv) => {
             'postcss-loader',
           ],
         },
+        {
+          // SVG files — emitted as static assets, import returns a URL string.
+          test: /\.svg$/i,
+          type: 'asset/resource',
+          generator: {
+            filename: 'assets/[name].[hash:8][ext]',
+          },
+        },
       ],
     },
     plugins: [
