@@ -286,7 +286,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 **Önkoşul:** T6.1 OAuth Desktop+PKCE refactor tamamlanmış olmalı — Meet yeni auth sisteminin üstüne kurulur.
 
 **Concurrency zone A (backend):**
-- [ ] **T4.1** Notion provider (Faz 3)
+- [WIP: session-A] **T4.1** Notion provider (Faz 3)
   - Google Calendar pattern'inin birebir üstüne
   - `providers/notion.py` — OAuth, database select, page → task sync
   - Sync job (her 5 dk)
