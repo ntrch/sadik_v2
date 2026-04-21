@@ -7,6 +7,7 @@ import {
 import { settingsApi, Settings } from '../api/settings';
 import { privacyApi } from '../api/privacy';
 import { integrationsApi, IntegrationStatus } from '../api/integrations';
+import { notionApi, NotionStatus, NotionDatabase } from '../api/notion';
 import { deviceApi, SerialPort } from '../api/device';
 import { chatApi } from '../api/chat';
 import { wakeApi, WakeModel } from '../api/wake';
@@ -1496,6 +1497,232 @@ function GoogleCalendarCard({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Notion card (full OAuth flow + database selector)
+// ---------------------------------------------------------------------------
+
+function NotionCard({
+  onRefresh,
+  showToast,
+}: {
+  onRefresh: () => void;
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+}) {
+  const [notionStatus, setNotionStatus] = useState<NotionStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [credsMissing, setCredsMissing] = useState(false);
+  const [databases, setDatabases] = useState<NotionDatabase[]>([]);
+  const [dbsLoading, setDbsLoading] = useState(false);
+  const [selectedDbId, setSelectedDbId] = useState<string>('');
+  const [selectedDbName, setSelectedDbName] = useState<string>('');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Load status on mount
+  useEffect(() => {
+    loadStatus();
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  // Load databases when connected
+  useEffect(() => {
+    if (notionStatus?.connected) {
+      loadDatabases();
+    } else {
+      setDatabases([]);
+      setSelectedDbId('');
+      setSelectedDbName('');
+    }
+  }, [notionStatus?.connected]);
+
+  const loadStatus = async () => {
+    setLoading(true);
+    try {
+      const s = await notionApi.getStatus();
+      setNotionStatus(s);
+      setCredsMissing(false);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail ?? '';
+      if (err?.response?.status === 500 || detail === 'notion_client_id_not_configured') {
+        setCredsMissing(true);
+      }
+      setNotionStatus({ connected: false, workspace_name: null });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadDatabases = async () => {
+    setDbsLoading(true);
+    try {
+      const { databases: dbs } = await notionApi.listDatabases();
+      setDatabases(dbs);
+    } catch {
+      setDatabases([]);
+    } finally {
+      setDbsLoading(false);
+    }
+  };
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    setCredsMissing(false);
+    try {
+      const { auth_url } = await notionApi.startOAuth();
+      if ((window as any).electronAPI?.shellOpenExternal) {
+        await (window as any).electronAPI.shellOpenExternal(auth_url);
+      } else {
+        window.open(auth_url, '_blank');
+      }
+      // Poll every 3 s for up to 2 min
+      let elapsed = 0;
+      pollRef.current = setInterval(async () => {
+        elapsed += 3000;
+        try {
+          const s = await notionApi.getStatus();
+          if (s.connected) {
+            clearInterval(pollRef.current!);
+            pollRef.current = null;
+            setConnecting(false);
+            setNotionStatus(s);
+            onRefresh();
+            showToast('Notion bağlandı', 'success');
+          }
+        } catch { /* ignore */ }
+        if (elapsed >= 120000) {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setConnecting(false);
+        }
+      }, 3000);
+    } catch (err: any) {
+      setConnecting(false);
+      const detail = err?.response?.data?.detail ?? '';
+      if (err?.response?.status === 500 || detail === 'notion_client_id_not_configured') {
+        setCredsMissing(true);
+      }
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!window.confirm('Notion bağlantısını kesmek istediğinize emin misiniz?')) return;
+    setDisconnecting(true);
+    try {
+      await notionApi.disconnect();
+      setNotionStatus({ connected: false, workspace_name: null });
+      setDatabases([]);
+      setSelectedDbId('');
+      setSelectedDbName('');
+      onRefresh();
+      showToast('Notion bağlantısı kesildi', 'info');
+    } catch { /* ignore */ } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  const handleDatabaseChange = async (dbId: string) => {
+    const db = databases.find((d) => d.id === dbId);
+    if (!db) return;
+    setSelectedDbId(db.id);
+    setSelectedDbName(db.title);
+    try {
+      await notionApi.selectDatabase(db.id, db.title);
+      showToast(`Veritabanı seçildi: ${db.title}`, 'success');
+    } catch {
+      showToast('Veritabanı seçilemedi', 'error');
+    }
+  };
+
+  const isConnected = notionStatus?.connected ?? false;
+
+  return (
+    <div className="bg-bg-card border border-border rounded-card px-4 py-3">
+      <div className="flex items-start gap-3">
+        {/* Icon */}
+        <span className="flex-shrink-0 mt-0.5 text-accent-purple">
+          <StickyNote size={20} />
+        </span>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-text-primary">Notion</p>
+          <p className="text-xs text-text-muted leading-relaxed">
+            Notion sayfaları task olarak senkronlanır (5 dakikada bir).
+            {' '}'Status' veya 'Durum' property'si 'Tamamlandı' ise task tamamlanmış sayılır.
+          </p>
+
+          {/* Status indicator */}
+          {!loading && (
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0
+                ${isConnected ? 'bg-accent-green' : credsMissing ? 'bg-accent-red' : 'bg-text-muted/40'}`} />
+              <span className={`text-xs ${isConnected ? 'text-accent-green' : credsMissing ? 'text-accent-red' : 'text-text-muted'}`}>
+                {isConnected
+                  ? `Bağlı${notionStatus?.workspace_name ? ': ' + notionStatus.workspace_name : ''}`
+                  : credsMissing
+                  ? 'Notion entegrasyonu yapılandırılmamış'
+                  : connecting ? 'OAuth bekleniyor…' : 'Bağlı değil'}
+              </span>
+            </div>
+          )}
+
+          {/* Selected DB badge */}
+          {isConnected && selectedDbName && (
+            <p className="text-[11px] text-accent-purple mt-0.5">
+              Senkron: {selectedDbName}
+            </p>
+          )}
+
+          {/* Database selector */}
+          {isConnected && (
+            <div className="mt-2">
+              {dbsLoading ? (
+                <p className="text-xs text-text-muted">Veritabanları yükleniyor…</p>
+              ) : databases.length > 0 ? (
+                <select
+                  value={selectedDbId}
+                  onChange={(e) => handleDatabaseChange(e.target.value)}
+                  className="text-xs bg-bg-input border border-border rounded-btn px-2 py-1 text-text-primary w-full max-w-xs focus:outline-none focus:border-accent-purple/50"
+                >
+                  <option value="">— Veritabanı seç —</option>
+                  {databases.map((db) => (
+                    <option key={db.id} value={db.id}>{db.title}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs text-text-muted">Erişilebilir veritabanı bulunamadı.</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex-shrink-0 ml-2 mt-0.5 flex items-center gap-1.5">
+          {isConnected ? (
+            <button
+              onClick={handleDisconnect}
+              disabled={disconnecting}
+              className="px-2.5 py-1.5 text-xs rounded-btn bg-bg-input border border-border text-text-secondary hover:text-accent-red hover:border-accent-red/40 transition-colors disabled:opacity-60"
+            >
+              {disconnecting ? '...' : 'Bağlantıyı Kes'}
+            </button>
+          ) : (
+            <button
+              onClick={handleConnect}
+              disabled={connecting || credsMissing || loading}
+              title={credsMissing ? 'Notion entegrasyonu yapılandırılmamış' : 'Notion ile bağlan'}
+              className="px-3 py-1.5 text-xs rounded-btn bg-accent-purple/15 border border-accent-purple/30 text-accent-purple hover:bg-accent-purple/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {connecting ? 'Bekleniyor…' : 'Bağlan'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function IntegrationsPanel({
   integrations,
   onDisconnect,
@@ -1516,12 +1743,15 @@ function IntegrationsPanel({
     account_email: null, last_sync_at: null, last_error: null, scopes: null, connected_at: null,
   };
 
-  const otherProviders = KNOWN_PROVIDERS.filter((id) => id !== 'google_calendar');
+  const otherProviders = KNOWN_PROVIDERS.filter((id) => id !== 'google_calendar' && id !== 'notion');
 
   return (
     <div className="space-y-3">
       {/* Google Calendar — full OAuth flow */}
       <GoogleCalendarCard status={gcStatus} onRefresh={onRefresh} showToast={showToast} />
+
+      {/* Notion — full OAuth flow + database selector */}
+      <NotionCard onRefresh={onRefresh} showToast={showToast} />
 
       {/* Other providers — disabled for now */}
       {otherProviders.map((id) => {

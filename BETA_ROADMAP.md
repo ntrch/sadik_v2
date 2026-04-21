@@ -300,7 +300,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 - [ ] ~~Zoom Presence API~~ **[DEFERRED]** — Meet ile başlıyoruz, Zoom talep gelirse sonra
 
 **Concurrency zone B (frontend):**
-- [WIP: session-A] **T4.3** Settings → Entegrasyonlar Notion + Meet card'ları
+- [x] **T4.3 tamam [session-A]** Settings → Entegrasyonlar Notion kartı (Meet scope dışı)
 - [ ] **T4.4** Meeting detect handler — `in_meeting` → mode switch önerisi (toast)
 
 **Exit criteria:** Notion task sync çalışır, Meet toplantısı başlayınca "Meeting moduna geç?" toast görünür.
