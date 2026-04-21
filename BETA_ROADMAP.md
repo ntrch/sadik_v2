@@ -118,7 +118,9 @@
   - ⚠️ Notion public integration credential gerekiyor: `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` env. Env boşsa `/notion/start` 500 döner — T4.3'te card disabled göstermeli.
 - **Sprint 4 T4.3 (Notion kısmı) tamamlandı ✅ — SettingsPage Entegrasyonlar'da Notion kartı (bağlan/DB seç/disconnect)**
 - [DONE: session-A] Sprint 4 ara-iş — Task icon sistemi + Notion/GCal brand logoları (TaskCard + Agenda)
-- **Sıradaki: Sprint 4 T4.2 — Google Meet meeting detection** (sonra T4.3'ün Meet kısmı + T4.4)
+- **Sprint 4 T4.2 tamamlandı ✅ — Google Meet active-conference detection (scope + poll + state + endpoint)**
+  - ⚠️ Mevcut Google Calendar kullanıcıları Meet scope için reconnect gerektirir (scope_granted=false dönecek)
+- **Sıradaki: Sprint 4 T4.3 Meet kartı (Settings Entegrasyonlar) + T4.4 in_meeting toast handler**
   - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
 
 
@@ -294,11 +296,14 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Google Calendar pattern'inin birebir üstüne
   - `providers/notion.py` — OAuth, database select, page → task sync
   - Sync job (integration_service scheduler, 60s interval, PROVIDERS registry)
-- [ ] **T4.2** Google Meet meeting detection (Zoom yerine)
-  - `providers/google_meet.py` — `meetings.space.readonly` scope
-  - Poll `spaces.get` her 60s; `activeConference` varsa "in meeting"
-  - Calendar event + `conferenceData.conferenceId` eşleştirmesi
-  - State → proactive meeting mode suggestion
+- [x] **T4.2 tamam [session-A]** Google Meet meeting detection (Zoom yerine) ✅
+  - `google_calendar.py` SCOPES → `meetings.space.readonly` eklendi (mevcut kullanıcı reconnect gerektirir)
+  - Yeni: `services/providers/google_meet.py` — `poll_active_meeting()` her 60s calendar sync sonunda çağrılıyor
+  - ExternalEvent'ten `meeting_url` dolu + [now-5m, now+15m] penceresindeki event'ler için `GET meet.googleapis.com/v2/spaces/{code}` — `activeConference` varsa state JSON'a yazılır
+  - State Setting key: `google_meet_state` (in_meeting, event_id, event_title, meeting_code, meeting_url, starts_at, ends_at, detected_at)
+  - Router: `GET /api/integrations/google_meet/state` → `{scope_granted, state}`
+  - Privacy gate: `privacy_calendar_push=false` iken poll skip
+  - Graceful: scope yok/reconnect gerek → sessizce skip, calendar sync bozulmaz
 - [ ] ~~Zoom Presence API~~ **[DEFERRED]** — Meet ile başlıyoruz, Zoom talep gelirse sonra
 
 **Concurrency zone B (frontend):**

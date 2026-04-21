@@ -24,7 +24,11 @@ AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
-SCOPES = "openid email https://www.googleapis.com/auth/calendar.readonly"
+SCOPES = (
+    "openid email "
+    "https://www.googleapis.com/auth/calendar.readonly "
+    "https://www.googleapis.com/auth/meetings.space.readonly"
+)
 REDIRECT_URI = "http://localhost:8000/api/integrations/google_calendar/callback"
 
 _HTTP_TIMEOUT = 10.0  # seconds
@@ -223,6 +227,15 @@ class GoogleCalendarProvider(BaseProvider):
         logger.info(
             "[google_calendar] Sync complete — %d events fetched", len(fetched_ids)
         )
+
+        # ---- poll Google Meet active-conference state ----------------------
+        try:
+            from app.services.providers.google_meet import poll_active_meeting
+
+            await poll_active_meeting(session, integration, access_token)
+        except Exception as exc:
+            # Meet polling must never break calendar sync
+            logger.warning("[google_meet] poll failed: %s", exc)
 
     async def _upsert_event(self, session: AsyncSession, ev: dict) -> None:
         """Map a Google Calendar event dict → ExternalEvent row (upsert)."""

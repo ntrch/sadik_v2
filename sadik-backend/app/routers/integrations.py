@@ -391,6 +391,39 @@ async def notion_select_database(
 
 
 # ---------------------------------------------------------------------------
+# Google Meet — active-conference state (read-only; piggybacks on google_calendar)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/google_meet/state")
+async def google_meet_state(session: AsyncSession = Depends(get_session)):
+    """Return the last polled Google Meet active-conference state.
+
+    The state is refreshed every 60s by the calendar sync scheduler. Returns
+    an empty/off state when Meet scope is not granted or no meeting is live.
+    """
+    from app.services.providers.google_meet import (
+        REQUIRED_SCOPE,
+        get_meet_state,
+    )
+
+    integration = await integration_service.get_integration(session, "google_calendar")
+    state = await get_meet_state(session)
+
+    scope_granted = bool(
+        integration
+        and integration.status == "connected"
+        and integration.scopes
+        and REQUIRED_SCOPE in integration.scopes
+    )
+
+    return {
+        "scope_granted": scope_granted,
+        "state": state,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Google Calendar OAuth (parametric routes — must come AFTER literal /notion/...)
 # ---------------------------------------------------------------------------
 
