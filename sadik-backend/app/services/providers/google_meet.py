@@ -42,8 +42,10 @@ from app.services.privacy_flags import get_privacy_flags
 logger = logging.getLogger(__name__)
 
 MEET_API = "https://meet.googleapis.com/v2"
+USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 REQUIRED_SCOPE = "meetings.space.readonly"
 STATE_SETTING_KEY = "google_meet_state"
+ACCOUNT_SUB_SETTING_KEY = "google_account_sub"
 
 # Event is considered "current" if its window overlaps [now-5m, now+15m]
 _LOOKBACK = timedelta(minutes=5)
@@ -98,6 +100,88 @@ def _empty_state(detected_at: datetime) -> dict:
 
 async def _write_state(session: AsyncSession, state: dict) -> None:
     await _set_setting(session, STATE_SETTING_KEY, json.dumps(state))
+
+
+async def _get_account_sub(
+    session: AsyncSession, access_token: str
+) -> Optional[str]:
+    """Return the connected user's Google account `sub` (unique ID).
+
+    Cached under `google_account_sub` Setting. If missing, fetched once from
+    the userinfo endpoint using the current access_token and persisted.
+    """
+    cached = await _get_setting(session, ACCOUNT_SUB_SETTING_KEY)
+    if cached:
+        return cached
+
+    try:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+            resp = await client.get(
+                USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            resp.raise_for_status()
+            sub = (resp.json() or {}).get("sub")
+    except Exception as exc:
+        logger.warning("[google_meet] userinfo fetch failed: %s", exc)
+        return None
+
+    if sub:
+        await _set_setting(session, ACCOUNT_SUB_SETTING_KEY, sub)
+    return sub
+
+
+async def _user_in_conference(
+    client: httpx.AsyncClient,
+    access_token: str,
+    conference_record: str,
+    user_sub: str,
+) -> bool:
+    """Return True iff `user_sub` appears in the participants list of
+    `conference_record` with no `latestEndTime` (i.e. still in the call).
+    """
+    headers = {"Authorization": f"Bearer {access_token}"}
+    page_token: Optional[str] = None
+
+    while True:
+        params: dict = {"pageSize": 100}
+        if page_token:
+            params["pageToken"] = page_token
+
+        try:
+            resp = await client.get(
+                f"{MEET_API}/{conference_record}/participants",
+                headers=headers,
+                params=params,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[google_meet] participants.list network error: %s", exc
+            )
+            return False
+
+        if resp.status_code >= 400:
+            logger.warning(
+                "[google_meet] participants.list %s → %s",
+                conference_record,
+                resp.status_code,
+            )
+            return False
+
+        data = resp.json() or {}
+        for p in data.get("participants", []):
+            signed = p.get("signedinUser") or {}
+            if signed.get("user") != user_sub:
+                continue
+            # Still in the call if no latestEndTime recorded yet
+            if not p.get("latestEndTime"):
+                return True
+
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+
+    return False
 
 
 async def get_meet_state(session: AsyncSession) -> dict:
@@ -161,6 +245,14 @@ async def poll_active_meeting(
         await _write_state(session, _empty_state(now))
         return
 
+    # User's Google unique ID — required to verify THEY are in the meeting
+    # (not just "the meeting is live with some attendees").
+    user_sub = await _get_account_sub(session, access_token)
+    if not user_sub:
+        logger.debug("[google_meet] skipped — account sub unavailable")
+        await _write_state(session, _empty_state(now))
+        return
+
     headers = {"Authorization": f"Bearer {access_token}"}
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         for event in events:
@@ -193,25 +285,40 @@ async def poll_active_meeting(
                 continue
 
             data = resp.json() or {}
-            active = data.get("activeConference")
-            if active:
-                state = {
-                    "in_meeting": True,
-                    "event_id": event.id,
-                    "event_title": event.title,
-                    "meeting_code": code,
-                    "meeting_url": event.meeting_url,
-                    "starts_at": event.start_at.isoformat() if event.start_at else None,
-                    "ends_at": event.end_at.isoformat() if event.end_at else None,
-                    "detected_at": now.isoformat(),
-                }
-                await _write_state(session, state)
-                logger.info(
-                    "[google_meet] active conference detected for '%s' (%s)",
-                    event.title,
-                    code,
-                )
-                return
+            active = data.get("activeConference") or {}
+            conference_record = active.get("conferenceRecord")
+            if not conference_record:
+                # Meeting room is not live at all
+                continue
 
-    # No event had an active conference
+            # Meeting is live — but is THE USER actually in it?
+            user_present = await _user_in_conference(
+                client, access_token, conference_record, user_sub
+            )
+            if not user_present:
+                logger.debug(
+                    "[google_meet] '%s' live but user not joined (skip)",
+                    event.title,
+                )
+                continue
+
+            state = {
+                "in_meeting": True,
+                "event_id": event.id,
+                "event_title": event.title,
+                "meeting_code": code,
+                "meeting_url": event.meeting_url,
+                "starts_at": event.start_at.isoformat() if event.start_at else None,
+                "ends_at": event.end_at.isoformat() if event.end_at else None,
+                "detected_at": now.isoformat(),
+            }
+            await _write_state(session, state)
+            logger.info(
+                "[google_meet] user IS in conference for '%s' (%s)",
+                event.title,
+                code,
+            )
+            return
+
+    # No live conference had the user as a participant
     await _write_state(session, _empty_state(now))

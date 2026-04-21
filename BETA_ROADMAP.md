@@ -299,11 +299,13 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 - [x] **T4.2 tamam [session-A]** Google Meet meeting detection (Zoom yerine) ✅
   - `google_calendar.py` SCOPES → `meetings.space.readonly` eklendi (mevcut kullanıcı reconnect gerektirir)
   - Yeni: `services/providers/google_meet.py` — `poll_active_meeting()` her 60s calendar sync sonunda çağrılıyor
-  - ExternalEvent'ten `meeting_url` dolu + [now-5m, now+15m] penceresindeki event'ler için `GET meet.googleapis.com/v2/spaces/{code}` — `activeConference` varsa state JSON'a yazılır
+  - ExternalEvent'ten `meeting_url` dolu + [now-5m, now+15m] penceresindeki event'ler için `GET meet.googleapis.com/v2/spaces/{code}` → `activeConference` varsa o conference'ın `participants.list`'ine sorulur
+  - **Kullanıcı doğrulaması:** OAuth callback'te yakalanan `google_account_sub` (userinfo.sub), participant `signedinUser.user` ile eşleşiyor + `latestEndTime` boş ise "kullanıcı içeride". Takvimde event olması tek başına tetiklemez. Sub yoksa lazy userinfo fetch.
   - State Setting key: `google_meet_state` (in_meeting, event_id, event_title, meeting_code, meeting_url, starts_at, ends_at, detected_at)
   - Router: `GET /api/integrations/google_meet/state` → `{scope_granted, state}`
   - Privacy gate: `privacy_calendar_push=false` iken poll skip
   - Graceful: scope yok/reconnect gerek → sessizce skip, calendar sync bozulmaz
+  - Disconnect'te `google_account_sub` + `google_meet_state` temizlenir
 - [ ] ~~Zoom Presence API~~ **[DEFERRED]** — Meet ile başlıyoruz, Zoom talep gelirse sonra
 
 **Concurrency zone B (frontend):**

@@ -190,6 +190,10 @@ async def disconnect_provider(
         )
         await session.commit()
 
+        # Clear Meet-related settings too — they're tied to this Google account
+        for key in ("google_account_sub", "google_meet_state"):
+            await _set_setting(session, key, "")
+
     return {"ok": True, "provider": provider}
 
 
@@ -526,6 +530,11 @@ async def oauth_callback(
 
         userinfo = await GoogleCalendarProvider.fetch_userinfo(access_token)
         account_email = userinfo.get("email", "")
+        account_sub = userinfo.get("sub", "")
+        if account_sub:
+            # Used by google_meet provider to identify the user among
+            # conference participants (participant list returns `sub`, not email).
+            await _set_setting(session, "google_account_sub", account_sub)
 
         await integration_service.upsert_integration(
             session,
