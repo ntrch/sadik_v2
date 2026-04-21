@@ -615,10 +615,14 @@ function createWindow() {
     webPreferences: {
       nodeIntegration:        false,
       contextIsolation:       true,
-      // backgroundThrottling is left at the default (true) to avoid burning CPU
-      // when the window is visible and active.  We selectively disable it only
-      // while the window is hidden to tray so the rAF animation loop keeps ticking
-      // (see win.on('hide') / win.on('show') handlers below).
+      // Disable Chromium's background throttling globally. When another app
+      // (Chrome fullscreen, alt+tab target) occludes or takes focus, Chromium
+      // would otherwise throttle rAF to ~1 fps, freezing the OLED frame pump
+      // mid-clip (e.g. 'confirming' clip got stuck on device).  Runtime
+      // setBackgroundThrottling(false) isn't always applied in time — setting
+      // it here at creation is the reliable path. CPU cost is small for the
+      // 12 fps canvas + 1 KiB frame pipeline.
+      backgroundThrottling:   false,
       preload: path.join(__dirname, 'preload.js'),
     },
     titleBarStyle:    process.platform === 'darwin' ? 'hidden' : 'default',
@@ -627,28 +631,8 @@ function createWindow() {
 
   mainWindow = win;
 
-  // ── Tray-hide throttling: disable background throttling ONLY while hidden ──
-  //
-  // With backgroundThrottling=true (default), Chromium throttles rAF to 1 fps
-  // when the window is hidden, freezing the animation loop.  But keeping it
-  // disabled globally burns CPU even while the user is actively looking at the
-  // window (all JS / CSS animations also bypass throttling).
-  //
-  // Solution: re-enable throttling normally, and flip it off only when the window
-  // goes to tray.  This keeps the OLED animation alive while hidden without
-  // wasting CPU when the window is visible.
-  win.on('hide', () => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.setBackgroundThrottling(false);
-      tlog('[SADIK] Window hidden → background throttling disabled (keeps rAF alive)');
-    }
-  });
-  win.on('show', () => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.setBackgroundThrottling(true);
-      tlog('[SADIK] Window shown → background throttling restored');
-    }
-  });
+  // Background throttling is disabled in webPreferences above, so the animation
+  // loop keeps ticking when the window is hidden to tray, blurred, or occluded.
 
   // ── Shell open external URL ─────────────────────────────────────────────
   ipcMain.handle('shell:openExternal', async (_e, url) => {
@@ -1337,20 +1321,8 @@ Write-Output "OK"
   // ── Window lifecycle diagnostics ──────────────────────────────────────────
   win.once('ready-to-show', () => tlog('[SADIK] Window ready-to-show'));
   win.on('show',        () => tlog('[SADIK] Window show'));
-  win.on('focus',       () => {
-    tlog('[SADIK] Window focus');
-    win.webContents.send('app-focus-changed', true);
-    // Restore default throttling only if the window is actually visible
-    // (not tray-hidden — the hide/show handlers manage that case).
-    if (win.isVisible()) win.webContents.setBackgroundThrottling(true);
-  });
-  win.on('blur',        () => {
-    tlog('[SADIK] Window blur');
-    win.webContents.send('app-focus-changed', false);
-    // Keep rAF alive while another app has focus (e.g. Chrome fullscreen /
-    // alt+tab) so OLED preview + frame streaming don't freeze.
-    win.webContents.setBackgroundThrottling(false);
-  });
+  win.on('focus',       () => { tlog('[SADIK] Window focus'); win.webContents.send('app-focus-changed', true); });
+  win.on('blur',        () => { tlog('[SADIK] Window blur');  win.webContents.send('app-focus-changed', false); });
   win.on('closed',      () => tlog('[SADIK] Window closed'));
   win.on('unresponsive',() => twarn('[SADIK] Window UNRESPONSIVE'));
   win.on('responsive',  () => tlog('[SADIK] Window responsive (was unresponsive)'));
