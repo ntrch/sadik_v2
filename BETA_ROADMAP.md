@@ -333,9 +333,11 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Sonnet'e delege: tüm user-facing TR stringleri tara, raporla
 
 **Concurrency zone B (onboarding):**
-- [ ] **T5.3** İlk açılış onboarding flow
-  - 4 adım: welcome → persona seçimi (yazar/öğrenci/tasarımcı/geliştirici/diğer) → consent → device pair
-  - Persona seçimine göre default mod presetleri yükle
+- [x] **T5.3 tamam [session-A]** İlk açılış onboarding persona seçimi ✅
+  - Onboarding 4 adıma çıktı: KVKK → **Persona** → Tier → Consent (PERSONAS: developer/writer/student/designer/general)
+  - Backend: `user_persona` setting + `_PERSONA_HINTS` + `_get_user_persona()` helper, `_build_messages(persona=...)` ile system prompt'a "KULLANICI ROLÜ" bloğu enjekte
+  - `send_message` + `stream_voice_response` her iki path'te de persona threadli
+  - SettingsPage "Rol" section — sonradan değiştirilebilir
 - [ ] **T5.4** Empty state'ler + ilk-gün tutorial
 
 **Exit criteria:** Fresh install → onboarding akışı tamam → kullanıcı ilk task'ını voice ile sorabiliyor.

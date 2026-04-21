@@ -8,6 +8,15 @@ interface Props {
 }
 
 type TierId = 'full' | 'hybrid' | 'local';
+type PersonaId = 'developer' | 'writer' | 'student' | 'designer' | 'general';
+
+const PERSONAS: { id: PersonaId; title: string; short: string }[] = [
+  { id: 'developer', title: '💻 Geliştirici', short: 'Yazılımcı / mühendis — teknik jargon serbest' },
+  { id: 'writer', title: '✍️ Yazar', short: 'Metin üretimi odaklı — kod jargonundan kaçınılır' },
+  { id: 'student', title: '🎓 Öğrenci', short: 'Ders çalışma, okuma, not alma odaklı' },
+  { id: 'designer', title: '🎨 Tasarımcı', short: 'Figma / Photoshop / görsel iş akışı' },
+  { id: 'general', title: '🌐 Genel', short: 'Belirli bir rol yok — nötr ton' },
+];
 
 const TIERS: { id: TierId; title: string; short: string; bullets: string[] }[] = [
   {
@@ -46,6 +55,7 @@ export default function OnboardingPage({ onComplete }: Props) {
   const [step, setStep] = useState(1);
   const [readChecked, setReadChecked] = useState(false);
   const [selectedTier, setSelectedTier] = useState<TierId>('hybrid');
+  const [selectedPersona, setSelectedPersona] = useState<PersonaId>('general');
   const [consentChecked, setConsentChecked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showKvkkModal, setShowKvkkModal] = useState(false);
@@ -57,7 +67,7 @@ export default function OnboardingPage({ onComplete }: Props) {
     setSaving(true);
     try {
       await privacyApi.setTier(selectedTier);
-      await settingsApi.update({ onboarding_completed: 'true' });
+      await settingsApi.update({ onboarding_completed: 'true', user_persona: selectedPersona });
       onComplete();
     } catch {
       setSaving(false);
@@ -96,7 +106,7 @@ export default function OnboardingPage({ onComplete }: Props) {
 
       <div className="bg-bg-card border border-border rounded-card max-w-lg w-full flex flex-col gap-6 p-6">
         <div className="flex items-center justify-center gap-3">
-          {[1, 2, 3].map((n) => (
+          {[1, 2, 3, 4].map((n) => (
             <React.Fragment key={n}>
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold border transition-colors ${
@@ -109,7 +119,7 @@ export default function OnboardingPage({ onComplete }: Props) {
               >
                 {n}
               </div>
-              {n < 3 && (
+              {n < 4 && (
                 <div className={`flex-1 h-px max-w-[40px] ${step > n ? 'bg-accent-purple/40' : 'bg-border'}`} />
               )}
             </React.Fragment>
@@ -155,6 +165,48 @@ export default function OnboardingPage({ onComplete }: Props) {
 
         {step === 2 && (
           <div className="flex flex-col gap-4">
+            <h2 className="text-text-primary text-lg font-bold">Seni Nasıl Tanıyalım?</h2>
+            <p className="text-text-secondary text-sm leading-relaxed">
+              Rolüne göre Sadık'ın dili ve önerileri ayarlanır. İstediğin zaman Ayarlar'dan değiştirebilirsin.
+            </p>
+            <div className="flex flex-col gap-2">
+              {PERSONAS.map((p) => {
+                const active = selectedPersona === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedPersona(p.id)}
+                    className={`text-left p-3 rounded-card border transition-colors ${
+                      active
+                        ? 'bg-accent-purple/10 border-accent-purple'
+                        : 'bg-bg-main border-border hover:border-accent-purple/40'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-text-primary">{p.title}</p>
+                    <p className="text-xs text-text-secondary mt-0.5">{p.short}</p>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setStep(1)}
+                className="flex-1 py-2.5 rounded-card text-sm font-semibold transition-colors bg-bg-main border border-border text-text-secondary hover:text-text-primary"
+              >
+                Geri
+              </button>
+              <button
+                onClick={() => setStep(3)}
+                className="flex-1 py-2.5 rounded-card text-sm font-semibold transition-colors bg-accent-purple text-white hover:bg-accent-purple/90"
+              >
+                Devam Et
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="flex flex-col gap-4">
             <h2 className="text-text-primary text-lg font-bold">AI Deneyim Modu</h2>
             <p className="text-text-secondary text-sm leading-relaxed">
               Sadık'ın verilerinle ne kadar etkileşeceğini sen belirlersin. İstediğin zaman Ayarlar'dan değiştirebilirsin.
@@ -187,13 +239,13 @@ export default function OnboardingPage({ onComplete }: Props) {
             </div>
             <div className="flex gap-3">
               <button
-                onClick={() => setStep(1)}
+                onClick={() => setStep(2)}
                 className="flex-1 py-2.5 rounded-card text-sm font-semibold transition-colors bg-bg-main border border-border text-text-secondary hover:text-text-primary"
               >
                 Geri
               </button>
               <button
-                onClick={() => setStep(3)}
+                onClick={() => setStep(4)}
                 className="flex-1 py-2.5 rounded-card text-sm font-semibold transition-colors bg-accent-purple text-white hover:bg-accent-purple/90"
               >
                 Devam Et
@@ -202,9 +254,14 @@ export default function OnboardingPage({ onComplete }: Props) {
           </div>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <div className="flex flex-col gap-4">
             <h2 className="text-text-primary text-lg font-bold">Açık Rıza Onayı</h2>
+            <div className="bg-bg-main border border-border rounded-card p-3 flex flex-col gap-1">
+              <span className="text-text-secondary text-xs font-semibold uppercase tracking-wide">Seçilen Rol</span>
+              <span className="text-text-primary text-sm font-semibold">{PERSONAS.find((p) => p.id === selectedPersona)!.title}</span>
+              <span className="text-text-secondary text-xs">{PERSONAS.find((p) => p.id === selectedPersona)!.short}</span>
+            </div>
             <div className="bg-bg-main border border-border rounded-card p-3 flex flex-col gap-1">
               <span className="text-text-secondary text-xs font-semibold uppercase tracking-wide">Seçilen Mod</span>
               <span className="text-text-primary text-sm font-semibold">{selectedMeta.title}</span>
@@ -223,7 +280,7 @@ export default function OnboardingPage({ onComplete }: Props) {
             </label>
             <div className="flex gap-3">
               <button
-                onClick={() => setStep(2)}
+                onClick={() => setStep(3)}
                 className="flex-1 py-2.5 rounded-card text-sm font-semibold transition-colors bg-bg-main border border-border text-text-secondary hover:text-text-primary"
               >
                 Geri

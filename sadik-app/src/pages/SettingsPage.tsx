@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
   Eye, EyeOff, RefreshCw, AlertTriangle, ChevronDown,
   Bot, Sun, Radio, Timer, Sparkles, Mic, Headphones, Monitor, Bell,
-  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, X, Shield,
+  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, X, Shield, User,
 } from 'lucide-react';
 import { settingsApi, Settings } from '../api/settings';
 import { privacyApi } from '../api/privacy';
@@ -1073,6 +1073,37 @@ const [saving, setSaving] = useState(false);
               </div>
             </>
           )}
+        </Section>
+
+        {/* Persona / Rol */}
+        <Section title="Rol" icon={User} color="purple">
+          <p className="text-xs text-text-muted leading-relaxed">
+            Rolüne göre Sadık'ın dili ve önerileri ayarlanır.
+          </p>
+          <div className="grid grid-cols-1 gap-2 pt-1">
+            {([
+              { id: 'developer', title: '💻 Geliştirici', sub: 'Yazılımcı / mühendis — teknik jargon serbest' },
+              { id: 'writer',    title: '✍️ Yazar',       sub: 'Metin üretimi odaklı — kod jargonundan kaçınılır' },
+              { id: 'student',   title: '🎓 Öğrenci',     sub: 'Ders çalışma, okuma, not alma odaklı' },
+              { id: 'designer',  title: '🎨 Tasarımcı',   sub: 'Figma / Photoshop / görsel iş akışı' },
+              { id: 'general',   title: '🌐 Genel',       sub: 'Belirli bir rol yok — nötr ton' },
+            ] as const).map(({ id, title, sub }) => {
+              const active = (settings.user_persona || 'general') === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => { set('user_persona', id); settingsApi.update({ user_persona: id }).catch(() => {}); }}
+                  className={`text-left p-3 rounded-btn border transition-colors
+                    ${active
+                      ? 'bg-accent-purple/10 border-accent-purple'
+                      : 'bg-bg-input border-border hover:border-accent-purple/40'}`}
+                >
+                  <p className="text-sm font-semibold text-text-primary">{title}</p>
+                  <p className="text-xs text-text-muted mt-0.5">{sub}</p>
+                </button>
+              );
+            })}
+          </div>
         </Section>
 
         {/* Privacy */}

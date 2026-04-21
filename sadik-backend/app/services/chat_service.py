@@ -72,6 +72,44 @@ def _fmt_duration_tr(total_seconds: int) -> str:
     return f"{max(m, 1)} dakika"
 
 
+# ── User persona injection (Sprint 5 T5.3) ────────────────────────────────────
+
+_PERSONA_HINTS = {
+    "developer": (
+        "Kullanıcı geliştirici/yazılımcı. Teknik jargon rahat kullanılabilir. "
+        "Odak kod yazma + toplantı + molalar. Debug/CI/git gibi konular bağlamda olabilir."
+    ),
+    "writer": (
+        "Kullanıcı yazar (metin üretimi odaklı). Kod/dev jargonundan kaçın, "
+        "derin odak ve sessizlik önemli. Yazma akışını bozacak sık kesme yapma."
+    ),
+    "student": (
+        "Kullanıcı öğrenci. Ders çalışma, okuma, not alma odaklı. "
+        "Pomodoro+teker teker konu önerileri iyi çalışır; akademik dilden kaçınma."
+    ),
+    "designer": (
+        "Kullanıcı tasarımcı. Figma/Photoshop/sketch gibi araçlar bağlamda olur. "
+        "Görsel örnek/referans önerileri işine yarar."
+    ),
+    "general": "",  # no hint
+}
+
+
+async def _get_user_persona(session: Optional[AsyncSession]) -> str:
+    """Return the `user_persona` setting value or 'general' on any error."""
+    if session is None:
+        return "general"
+    try:
+        from app.models.setting import Setting
+        from sqlalchemy import select
+        row = await session.execute(select(Setting).where(Setting.key == "user_persona"))
+        setting = row.scalar_one_or_none()
+        val = (setting.value or "").strip().lower() if setting else ""
+        return val if val in _PERSONA_HINTS else "general"
+    except Exception:
+        return "general"
+
+
 # ── Behavioral profile injection (Sprint 3 T3.2) ──────────────────────────────
 
 async def _get_behavioral_summary(
@@ -237,6 +275,7 @@ class ChatService:
         greeting_style: str,
         local_ctx: str = "",
         behavioral_summary: str = "",
+        persona: str = "general",
     ) -> list[dict]:
         """Construct the messages array for a chat completion request."""
         recent = history[-20:] if len(history) > 20 else history
@@ -271,6 +310,14 @@ class ChatService:
 
         if local_ctx:
             system = system + "\n\n" + local_ctx
+
+        persona_hint = _PERSONA_HINTS.get(persona, "")
+        if persona_hint:
+            system = system + (
+                "\n\n--- KULLANICI ROLÜ ---\n"
+                f"{persona_hint}\n"
+                "--- ROL SONU ---"
+            )
 
         if behavioral_summary:
             system = system + (
@@ -318,10 +365,12 @@ class ChatService:
                     logger.warning(f"[ChatService] Local context build failed: {ctx_err}")
 
             behavioral_summary = await _get_behavioral_summary(session, privacy_flags)
+            persona = await _get_user_persona(session)
 
             messages = self._build_messages(
                 user_content, history, voice_mode, user_name, greeting_style, local_ctx,
                 behavioral_summary=behavioral_summary,
+                persona=persona,
             )
 
             client = AsyncOpenAI(api_key=api_key)
@@ -396,10 +445,12 @@ class ChatService:
                 logger.warning(f"[ChatService] Local context build failed: {ctx_err}")
 
         behavioral_summary = await _get_behavioral_summary(session, privacy_flags)
+        persona = await _get_user_persona(session)
 
         messages = self._build_messages(
             user_content, history, True, user_name, greeting_style, local_ctx,
             behavioral_summary=behavioral_summary,
+            persona=persona,
         )
 
         client = AsyncOpenAI(api_key=api_key)

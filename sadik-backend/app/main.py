@@ -94,6 +94,7 @@ DEFAULT_SETTINGS = {
     "privacy_tier": "hybrid",
     "onboarding_completed": "false",
     "user_profile_patterns": "",
+    "user_persona": "general",
 }
 
 @asynccontextmanager
