@@ -117,6 +117,7 @@
 - **Sprint 4 T4.1 tamamlandı ✅ — Notion provider (OAuth + DB select + page→task sync, 5dk scheduler)**
   - ⚠️ Notion public integration credential gerekiyor: `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` env. Env boşsa `/notion/start` 500 döner — T4.3'te card disabled göstermeli.
 - **Sprint 4 T4.3 (Notion kısmı) tamamlandı ✅ — SettingsPage Entegrasyonlar'da Notion kartı (bağlan/DB seç/disconnect)**
+- [WIP: session-A] Sprint 4 ara-iş — Task icon sistemi + Notion/GCal brand logoları (TaskCard + Agenda)
 - **Sıradaki: Sprint 4 T4.2 — Google Meet meeting detection** (sonra T4.3'ün Meet kısmı + T4.4)
   - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
 
