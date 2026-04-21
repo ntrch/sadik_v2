@@ -20,11 +20,6 @@ export interface ProviderMeta {
   color: string;
 }
 
-export interface ProviderConfig {
-  client_id_set: boolean;
-  client_secret_set: boolean;
-}
-
 export interface SyncNowResult {
   ok: boolean;
   last_sync_at: string | null;
@@ -42,10 +37,6 @@ export const integrationsApi = {
     http.post<{ ok: boolean; provider: string }>(`/api/integrations/${provider}/disconnect`).then((r) => r.data),
   getConnectUrl: (provider: string) =>
     http.get<{ auth_url: string }>(`/api/integrations/${provider}/connect`).then((r) => r.data),
-  getConfig: (provider: string) =>
-    http.get<ProviderConfig>(`/api/integrations/${provider}/config`).then((r) => r.data),
-  setConfig: (provider: string, client_id: string, client_secret: string) =>
-    http.put<{ ok: boolean }>(`/api/integrations/${provider}/config`, { client_id, client_secret }).then((r) => r.data),
   syncNow: (provider: string) =>
     http.post<SyncNowResult>(`/api/integrations/${provider}/sync-now`).then((r) => r.data),
 };

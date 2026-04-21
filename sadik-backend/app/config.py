@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    google_client_id: str = (
+        "61778071617-gj3h4rp6bpdp6lq8cc3o9rqfehuo0k17.apps.googleusercontent.com"
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

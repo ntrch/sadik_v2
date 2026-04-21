@@ -57,10 +57,12 @@ def _parse_iso(s: Optional[str]) -> Optional[datetime]:
 class GoogleCalendarProvider(BaseProvider):
     provider_name = "google_calendar"
 
-    # ------------------------------------------------------------------ auth
+    # ------------------------------------------------------------------ auth (PKCE)
 
     @classmethod
-    async def build_auth_url(cls, client_id: str, state: str) -> str:
+    async def build_auth_url(
+        cls, client_id: str, state: str, code_challenge: str
+    ) -> str:
         params = {
             "client_id": client_id,
             "redirect_uri": REDIRECT_URI,
@@ -69,12 +71,14 @@ class GoogleCalendarProvider(BaseProvider):
             "access_type": "offline",
             "prompt": "consent",
             "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
         }
         return f"{AUTH_URL}?{urlencode(params)}"
 
     @classmethod
     async def exchange_code(
-        cls, client_id: str, client_secret: str, code: str
+        cls, client_id: str, code: str, code_verifier: str
     ) -> dict:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
             resp = await client.post(
@@ -82,9 +86,9 @@ class GoogleCalendarProvider(BaseProvider):
                 data={
                     "code": code,
                     "client_id": client_id,
-                    "client_secret": client_secret,
                     "redirect_uri": REDIRECT_URI,
                     "grant_type": "authorization_code",
+                    "code_verifier": code_verifier,
                 },
             )
             resp.raise_for_status()
@@ -105,25 +109,14 @@ class GoogleCalendarProvider(BaseProvider):
     async def refresh_token(self, integration: Integration) -> None:
         """Refresh the access_token using the stored refresh_token.
 
-        Reads client credentials from the Setting table.  Updates `integration`
-        in-place — the caller is responsible for committing.
+        Uses the embedded Desktop OAuth client_id — no secret required with
+        PKCE/Desktop flow. Updates `integration` in-place; caller commits.
         """
-        from app.database import AsyncSessionLocal
-        from app.models.setting import Setting
+        from app.config import settings
 
-        async with AsyncSessionLocal() as session:
-            cid_row = await session.execute(
-                select(Setting).where(Setting.key == "google_client_id")
-            )
-            cid = (cid_row.scalar_one_or_none() or type("", (), {"value": ""})()).value
-
-            csec_row = await session.execute(
-                select(Setting).where(Setting.key == "google_client_secret")
-            )
-            csec = (csec_row.scalar_one_or_none() or type("", (), {"value": ""})()).value
-
-        if not cid or not csec:
-            raise RuntimeError("google_client_id / google_client_secret not configured")
+        cid = settings.google_client_id
+        if not cid:
+            raise RuntimeError("google_client_id not configured")
 
         if not integration.refresh_token:
             raise RuntimeError("No refresh_token stored for google_calendar integration")
@@ -133,7 +126,6 @@ class GoogleCalendarProvider(BaseProvider):
                 TOKEN_URL,
                 data={
                     "client_id": cid,
-                    "client_secret": csec,
                     "refresh_token": integration.refresh_token,
                     "grant_type": "refresh_token",
                 },

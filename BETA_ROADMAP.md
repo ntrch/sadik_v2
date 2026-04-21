@@ -111,12 +111,9 @@
   - Ara fix: Text input focus (VoiceAssistant wakeWordPending/Escape handler'lara `isInputFocused()` guard)
 - **Sprint 2.5 tamamlandı ✅**
 - **Sprint 2.7 tamamlandı ✅ — 3-tier privacy preset (Full/Hybrid/Local) + advanced override**
-- **Sprint 2.8 WIP — Notion-benzeri TaskDetailDrawer (rich-text `notes`, TipTap, sağdan slide)**
-  - ✅ TipTap deps (`@tiptap/react`, `starter-kit`, `image`, `task-list/item`, `placeholder`)
-  - ✅ `TaskDetailDrawer.tsx` (max-w 560px, sağdan slide, meta (status/priority/due) + rich editor + autosave 500ms)
-  - ✅ TaskBoard kart tıklaması drawer açıyor; "Yeni Görev" modal hızlı-ekleme için aynen kalıyor
-  - ✅ `notes` alanı JSON-aware — legacy plaintext paragraph olarak sarmalanıyor, veri kaybı yok
-  - ⏭️ Verify: eski görevler drawer'da açıldığında plaintext kaybolmuyor; görsel 2MB'a kadar base64 ekleniyor
+- **Sprint 2.8 tamamlandı ✅ — Notion-benzeri TaskDetailDrawer (rich-text `notes`, TipTap, sağdan slide)**
+- **Sprint 3 tamamlandı ✅**
+- **Aktif: Sprint 6 T6.1 — OAuth Desktop+PKCE refactor (ship-blocker, Sprint 4 önkoşulu)**
   - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
 
 
@@ -285,20 +282,25 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 ### Sprint 4: Integrations tamamlama
 **Amaç:** Notion + meeting detect.
 
+**Önkoşul:** T6.1 OAuth Desktop+PKCE refactor tamamlanmış olmalı — Meet yeni auth sisteminin üstüne kurulur.
+
 **Concurrency zone A (backend):**
 - [ ] **T4.1** Notion provider (Faz 3)
   - Google Calendar pattern'inin birebir üstüne
   - `providers/notion.py` — OAuth, database select, page → task sync
   - Sync job (her 5 dk)
-- [ ] **T4.2** Zoom Presence API (Faz 2 başlangıç)
-  - `providers/zoom.py` — OAuth + `/users/me/presence` polling (60s)
-  - `In_Meeting` state → proactive meeting mode suggestion
+- [ ] **T4.2** Google Meet meeting detection (Zoom yerine)
+  - `providers/google_meet.py` — `meetings.space.readonly` scope
+  - Poll `spaces.get` her 60s; `activeConference` varsa "in meeting"
+  - Calendar event + `conferenceData.conferenceId` eşleştirmesi
+  - State → proactive meeting mode suggestion
+- [ ] ~~Zoom Presence API~~ **[DEFERRED]** — Meet ile başlıyoruz, Zoom talep gelirse sonra
 
 **Concurrency zone B (frontend):**
-- [ ] **T4.3** Settings → Entegrasyonlar Notion + Zoom card'ları
-- [ ] **T4.4** Meeting detect handler — Zoom `In_Meeting` → mode switch önerisi (toast)
+- [ ] **T4.3** Settings → Entegrasyonlar Notion + Meet card'ları
+- [ ] **T4.4** Meeting detect handler — `in_meeting` → mode switch önerisi (toast)
 
-**Exit criteria:** Notion task sync çalışır, Zoom meeting başlayınca "Meeting moduna geç?" toast görünür.
+**Exit criteria:** Notion task sync çalışır, Meet toplantısı başlayınca "Meeting moduna geç?" toast görünür.
 
 ---
 
@@ -328,8 +330,12 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 **Amaç:** Imzalı, auto-updating, dağıtılabilir binary.
 
 **Concurrency zone A (OAuth refactor - ship-blocker):**
-- [ ] **T6.1** OAuth Desktop+PKCE refactor (Faz 0.5)
-  - `memory/project_oauth_ship_refactor.md` oku, uygula
+- [WIP] **T6.1** OAuth Desktop+PKCE refactor (Faz 0.5) [session-A]
+  - ✅ `config.py` — `google_client_id` embedded Desktop client_id (env override destekli)
+  - ✅ `google_calendar.py` — PKCE auth (`code_challenge/verifier`), `refresh_token` client_secret kaldırıldı
+  - ✅ `integrations.py` — `_pkce_pair()` helper, `start_oauth` PKCE üretir, callback verifier kullanır, `/config` GET+PUT endpoint'leri kaldırıldı
+  - ✅ Frontend `integrations.ts` + `SettingsPage.tsx` — `ProviderConfig`/`getConfig`/`setConfig`, client_id+secret formu ve "Yapılandır" gear'ı kaldırıldı → direkt "Bağlan" butonu
+  - ⏭️ Verify: Google Cloud Console'da Desktop client scope'u doğrula → backend restart → "Bağlan" akışı uçtan uca test et
   - `providers/google_calendar.py` + Zoom + Notion PKCE'ye geçir
   - Kullanıcı OAuth client create etmek zorunda kalmasın
 

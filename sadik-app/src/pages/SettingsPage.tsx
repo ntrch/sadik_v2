@@ -2,11 +2,11 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
   Eye, EyeOff, RefreshCw, AlertTriangle, ChevronDown,
   Bot, Sun, Radio, Timer, Sparkles, Mic, Headphones, Monitor, Bell,
-  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, Settings2, X, Shield,
+  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, X, Shield,
 } from 'lucide-react';
 import { settingsApi, Settings } from '../api/settings';
 import { privacyApi } from '../api/privacy';
-import { integrationsApi, IntegrationStatus, ProviderConfig } from '../api/integrations';
+import { integrationsApi, IntegrationStatus } from '../api/integrations';
 import { deviceApi, SerialPort } from '../api/device';
 import { chatApi } from '../api/chat';
 import { wakeApi, WakeModel } from '../api/wake';
@@ -1356,11 +1356,6 @@ function GoogleCalendarCard({
   onRefresh: () => void;
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }) {
-  const [config, setConfig] = useState<ProviderConfig | null>(null);
-  const [showConfig, setShowConfig] = useState(false);
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const [savingConfig, setSavingConfig] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -1370,24 +1365,8 @@ function GoogleCalendarCard({
   const isError = status.status === 'error';
 
   useEffect(() => {
-    integrationsApi.getConfig('google_calendar').then(setConfig).catch(() => {});
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
-
-  const handleSaveConfig = async () => {
-    if (!clientId.trim() || !clientSecret.trim()) return;
-    setSavingConfig(true);
-    try {
-      await integrationsApi.setConfig('google_calendar', clientId.trim(), clientSecret.trim());
-      const cfg = await integrationsApi.getConfig('google_calendar');
-      setConfig(cfg);
-      setShowConfig(false);
-      setClientId('');
-      setClientSecret('');
-    } catch {
-      // ignore
-    } finally { setSavingConfig(false); }
-  };
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -1446,8 +1425,6 @@ function GoogleCalendarCard({
     } catch { /* ignore */ } finally { setDisconnecting(false); }
   };
 
-  const credentialsReady = config?.client_id_set && config?.client_secret_set;
-
   return (
     <div className="bg-bg-card border border-border rounded-card px-4 py-3">
       <div className="flex items-start gap-3">
@@ -1486,15 +1463,6 @@ function GoogleCalendarCard({
 
         {/* Actions */}
         <div className="flex-shrink-0 ml-2 mt-0.5 flex items-center gap-1.5">
-          {/* Gear / config button always visible */}
-          <button
-            onClick={() => setShowConfig((v) => !v)}
-            title="Yapılandır"
-            className="p-1.5 rounded-btn bg-bg-input border border-border text-text-muted hover:text-text-primary transition-colors"
-          >
-            <Settings2 size={14} />
-          </button>
-
           {isConnected ? (
             <>
               <button
@@ -1515,8 +1483,8 @@ function GoogleCalendarCard({
           ) : (
             <button
               onClick={handleConnect}
-              disabled={connecting || !credentialsReady}
-              title={credentialsReady ? 'Google ile bağlan' : 'Önce yapılandırın'}
+              disabled={connecting}
+              title="Google ile bağlan"
               className="px-3 py-1.5 text-xs rounded-btn bg-accent-cyan/15 border border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {connecting ? 'Bekleniyor…' : 'Bağlan'}
@@ -1524,49 +1492,6 @@ function GoogleCalendarCard({
           )}
         </div>
       </div>
-
-      {/* Inline config panel */}
-      {showConfig && (
-        <div className="mt-3 pt-3 border-t border-border space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">OAuth Yapılandırması</p>
-            <button onClick={() => setShowConfig(false)} className="text-text-muted hover:text-text-primary"><X size={14} /></button>
-          </div>
-          <p className="text-[11px] text-text-muted leading-relaxed">
-            Google Cloud Console → API ve Hizmetler → Kimlik bilgileri → OAuth 2.0 İstemci Kimliği oluşturun
-            (tür: <strong>Web uygulaması</strong> — Desktop tipi sabit redirect URI kabul etmiyor). Yetkili yönlendirme URI olarak{' '}
-            <code className="bg-bg-input px-1 rounded text-accent-cyan">http://localhost:8000/api/integrations/google_calendar/callback</code>{' '}
-            ekleyin.
-          </p>
-          <div>
-            <label className="text-[11px] font-medium text-text-muted block mb-1">Client ID</label>
-            <input
-              type="password"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder={config?.client_id_set ? '••••••• (kayıtlı)' : 'xxxx.apps.googleusercontent.com'}
-              className="input-field w-full text-xs"
-            />
-          </div>
-          <div>
-            <label className="text-[11px] font-medium text-text-muted block mb-1">Client Secret</label>
-            <input
-              type="password"
-              value={clientSecret}
-              onChange={(e) => setClientSecret(e.target.value)}
-              placeholder={config?.client_secret_set ? '••••••• (kayıtlı)' : 'GOCSPX-...'}
-              className="input-field w-full text-xs"
-            />
-          </div>
-          <button
-            onClick={handleSaveConfig}
-            disabled={savingConfig || (!clientId.trim() && !clientSecret.trim())}
-            className="w-full py-2 text-xs rounded-btn bg-accent-cyan/15 border border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/25 transition-colors disabled:opacity-50"
-          >
-            {savingConfig ? 'Kaydediliyor…' : 'Kaydet'}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

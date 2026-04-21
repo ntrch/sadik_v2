@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import secrets
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -8,9 +10,18 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings as app_settings
 from app.database import get_session
 from app.models.setting import Setting
 from app.services import integration_service
+
+
+def _pkce_pair() -> tuple[str, str]:
+    """Return (code_verifier, code_challenge_S256) for a fresh OAuth attempt."""
+    verifier = secrets.token_urlsafe(64)[:128]
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return verifier, challenge
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -75,16 +86,6 @@ class ProviderMetaResponse(BaseModel):
     description: str
     icon_key: str
     color: str
-
-
-class ProviderConfigRequest(BaseModel):
-    client_id: str
-    client_secret: str
-
-
-class ProviderConfigResponse(BaseModel):
-    client_id_set: bool
-    client_secret_set: bool
 
 
 class SyncNowResponse(BaseModel):
@@ -197,53 +198,28 @@ async def disconnect_provider(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{provider}/config", response_model=ProviderConfigResponse)
-async def get_provider_config(
-    provider: str, session: AsyncSession = Depends(get_session)
-):
-    """Return whether client credentials are set — never returns actual values."""
-    if provider != "google_calendar":
-        raise HTTPException(status_code=404, detail="config_not_supported")
-
-    cid = await _get_setting(session, "google_client_id")
-    csec = await _get_setting(session, "google_client_secret")
-    return ProviderConfigResponse(
-        client_id_set=bool(cid and cid.strip()),
-        client_secret_set=bool(csec and csec.strip()),
-    )
-
-
-@router.put("/{provider}/config")
-async def set_provider_config(
-    provider: str,
-    body: ProviderConfigRequest,
-    session: AsyncSession = Depends(get_session),
-):
-    """Store client credentials.  Values are NEVER logged."""
-    if provider != "google_calendar":
-        raise HTTPException(status_code=404, detail="config_not_supported")
-
-    await _set_setting(session, "google_client_id", body.client_id)
-    await _set_setting(session, "google_client_secret", body.client_secret)
-    return {"ok": True}
-
-
 @router.get("/{provider}/connect")
 async def start_oauth(provider: str, session: AsyncSession = Depends(get_session)):
-    """Generate an OAuth authorization URL and return it for the frontend to open."""
+    """Generate an OAuth authorization URL (Desktop + PKCE flow).
+
+    No client credentials are requested from the user — the embedded Desktop
+    client_id is used; PKCE code_challenge protects the token exchange.
+    """
     if provider != "google_calendar":
         raise HTTPException(status_code=404, detail="oauth_not_supported")
 
-    cid = await _get_setting(session, "google_client_id")
+    cid = app_settings.google_client_id
     if not cid or not cid.strip():
-        raise HTTPException(status_code=400, detail="missing_client_id")
+        raise HTTPException(status_code=500, detail="embedded_client_id_missing")
 
     state = secrets.token_urlsafe(16)
+    verifier, challenge = _pkce_pair()
     await _set_setting(session, "google_oauth_state", state)
+    await _set_setting(session, "google_oauth_code_verifier", verifier)
 
     from app.services.providers.google_calendar import GoogleCalendarProvider
 
-    auth_url = await GoogleCalendarProvider.build_auth_url(cid.strip(), state)
+    auth_url = await GoogleCalendarProvider.build_auth_url(cid.strip(), state, challenge)
     return {"auth_url": auth_url}
 
 
@@ -291,11 +267,16 @@ async def oauth_callback(
     # Clear state immediately (single-use)
     await _set_setting(session, "google_oauth_state", "")
 
-    cid = await _get_setting(session, "google_client_id")
-    csec = await _get_setting(session, "google_client_secret")
-    if not cid or not csec:
+    cid = app_settings.google_client_id
+    verifier = await _get_setting(session, "google_oauth_code_verifier")
+    # Clear verifier — single-use
+    await _set_setting(session, "google_oauth_code_verifier", "")
+
+    if not cid or not verifier:
         return HTMLResponse(
-            _close_html.format(body="<h2>Hata ✗</h2><p>İstemci kimlik bilgileri eksik.</p>"),
+            _close_html.format(
+                body="<h2>Hata ✗</h2><p>OAuth oturumu bulunamadı — tekrar deneyin.</p>"
+            ),
             status_code=400,
         )
 
@@ -303,7 +284,7 @@ async def oauth_callback(
         from app.services.providers.google_calendar import GoogleCalendarProvider
         from datetime import timedelta
 
-        tokens = await GoogleCalendarProvider.exchange_code(cid.strip(), csec.strip(), code)
+        tokens = await GoogleCalendarProvider.exchange_code(cid.strip(), code, verifier)
         access_token = tokens["access_token"]
         refresh_token_val = tokens.get("refresh_token")
         expires_in = int(tokens.get("expires_in", 3600))
