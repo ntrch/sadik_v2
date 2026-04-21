@@ -268,11 +268,12 @@ async def oauth_callback(
     await _set_setting(session, "google_oauth_state", "")
 
     cid = app_settings.google_client_id
+    csec = app_settings.google_client_secret
     verifier = await _get_setting(session, "google_oauth_code_verifier")
     # Clear verifier — single-use
     await _set_setting(session, "google_oauth_code_verifier", "")
 
-    if not cid or not verifier:
+    if not cid or not csec or not verifier:
         return HTMLResponse(
             _close_html.format(
                 body="<h2>Hata ✗</h2><p>OAuth oturumu bulunamadı — tekrar deneyin.</p>"
@@ -284,7 +285,9 @@ async def oauth_callback(
         from app.services.providers.google_calendar import GoogleCalendarProvider
         from datetime import timedelta
 
-        tokens = await GoogleCalendarProvider.exchange_code(cid.strip(), code, verifier)
+        tokens = await GoogleCalendarProvider.exchange_code(
+            cid.strip(), csec.strip(), code, verifier
+        )
         access_token = tokens["access_token"]
         refresh_token_val = tokens.get("refresh_token")
         expires_in = int(tokens.get("expires_in", 3600))

@@ -113,7 +113,8 @@
 - **Sprint 2.7 tamamlandı ✅ — 3-tier privacy preset (Full/Hybrid/Local) + advanced override**
 - **Sprint 2.8 tamamlandı ✅ — Notion-benzeri TaskDetailDrawer (rich-text `notes`, TipTap, sağdan slide)**
 - **Sprint 3 tamamlandı ✅**
-- **Aktif: Sprint 6 T6.1 — OAuth Desktop+PKCE refactor (ship-blocker, Sprint 4 önkoşulu)**
+- **Sprint 6 T6.1 tamamlandı ✅ — OAuth Desktop+PKCE refactor (e2e test geçti)**
+- **Sıradaki: Sprint 4 (Notion + Google Meet meeting detect) — artık Desktop+PKCE altyapısı üstüne kurulur**
   - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
 
 
@@ -330,12 +331,18 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 **Amaç:** Imzalı, auto-updating, dağıtılabilir binary.
 
 **Concurrency zone A (OAuth refactor - ship-blocker):**
-- [WIP] **T6.1** OAuth Desktop+PKCE refactor (Faz 0.5) [session-A]
-  - ✅ `config.py` — `google_client_id` embedded Desktop client_id (env override destekli)
-  - ✅ `google_calendar.py` — PKCE auth (`code_challenge/verifier`), `refresh_token` client_secret kaldırıldı
-  - ✅ `integrations.py` — `_pkce_pair()` helper, `start_oauth` PKCE üretir, callback verifier kullanır, `/config` GET+PUT endpoint'leri kaldırıldı
-  - ✅ Frontend `integrations.ts` + `SettingsPage.tsx` — `ProviderConfig`/`getConfig`/`setConfig`, client_id+secret formu ve "Yapılandır" gear'ı kaldırıldı → direkt "Bağlan" butonu
-  - ⏭️ Verify: Google Cloud Console'da Desktop client scope'u doğrula → backend restart → "Bağlan" akışı uçtan uca test et
+- [x] **T6.1 tamam [session-A]** OAuth Desktop+PKCE refactor (Faz 0.5) ✅
+  - `config.py` — `google_client_id` + `google_client_secret` embedded (Desktop app, env-overridable)
+  - `google_calendar.py` — PKCE (`code_challenge/verifier`) + embedded secret; refresh aynı kimlikle
+  - `integrations.py` — `_pkce_pair()`, `start_oauth` PKCE üretir, callback verifier+secret ile exchange; `/config` GET+PUT kaldırıldı
+  - Frontend: client_id/secret formu + gear kaldırıldı → direkt "Bağlan"
+  - E2E verified: "Bağlan" → tarayıcı onayı → "Bağlandı ✓" → event'ler Ajanda'ya düştü
+  - **Not:** Google Desktop OAuth client_secret'ı hâlâ token exchange için zorunlu tutar (native app için "confidential değil" kabul edilir, embed edilebilir). PKCE defense-in-depth olarak çalışır.
+
+- [ ] **T6.1b** OAuth consent screen — beta tester gating
+  - Google Cloud Console → OAuth consent screen → **Testing** modunda bırak
+  - Beta tester email'lerini "Test users" listesine ekle (max 100)
+  - Ship öncesi (T6.x) Google verification submit — privacy policy URL + demo video gerekir
   - `providers/google_calendar.py` + Zoom + Notion PKCE'ye geçir
   - Kullanıcı OAuth client create etmek zorunda kalmasın
 

@@ -8,9 +8,11 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
-    google_client_id: str = (
-        "61778071617-gj3h4rp6bpdp6lq8cc3o9rqfehuo0k17.apps.googleusercontent.com"
-    )
+    # Desktop OAuth client credentials — loaded from .env (gitignored).
+    # Google's Desktop+PKCE flow embeds these in the distributed app binary;
+    # they are not user-secret. See .env.example for the expected variables.
+    google_client_id: str = ""
+    google_client_secret: str = ""
 
     class Config:
         env_file = ".env"

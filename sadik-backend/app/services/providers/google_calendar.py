@@ -78,7 +78,7 @@ class GoogleCalendarProvider(BaseProvider):
 
     @classmethod
     async def exchange_code(
-        cls, client_id: str, code: str, code_verifier: str
+        cls, client_id: str, client_secret: str, code: str, code_verifier: str
     ) -> dict:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
             resp = await client.post(
@@ -86,6 +86,7 @@ class GoogleCalendarProvider(BaseProvider):
                 data={
                     "code": code,
                     "client_id": client_id,
+                    "client_secret": client_secret,
                     "redirect_uri": REDIRECT_URI,
                     "grant_type": "authorization_code",
                     "code_verifier": code_verifier,
@@ -109,14 +110,16 @@ class GoogleCalendarProvider(BaseProvider):
     async def refresh_token(self, integration: Integration) -> None:
         """Refresh the access_token using the stored refresh_token.
 
-        Uses the embedded Desktop OAuth client_id — no secret required with
-        PKCE/Desktop flow. Updates `integration` in-place; caller commits.
+        Uses embedded Desktop OAuth credentials. Google's Desktop+PKCE flow
+        still requires client_secret for the token endpoint even though it
+        is not treated as confidential. Updates `integration` in-place.
         """
         from app.config import settings
 
         cid = settings.google_client_id
-        if not cid:
-            raise RuntimeError("google_client_id not configured")
+        csec = settings.google_client_secret
+        if not cid or not csec:
+            raise RuntimeError("google_client_id / google_client_secret not configured")
 
         if not integration.refresh_token:
             raise RuntimeError("No refresh_token stored for google_calendar integration")
@@ -126,6 +129,7 @@ class GoogleCalendarProvider(BaseProvider):
                 TOKEN_URL,
                 data={
                     "client_id": cid,
+                    "client_secret": csec,
                     "refresh_token": integration.refresh_token,
                     "grant_type": "refresh_token",
                 },
