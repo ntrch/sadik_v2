@@ -114,7 +114,9 @@
 - **Sprint 2.8 tamamlandı ✅ — Notion-benzeri TaskDetailDrawer (rich-text `notes`, TipTap, sağdan slide)**
 - **Sprint 3 tamamlandı ✅**
 - **Sprint 6 T6.1 tamamlandı ✅ — OAuth Desktop+PKCE refactor (e2e test geçti)**
-- **Sıradaki: Sprint 4 (Notion + Google Meet meeting detect) — artık Desktop+PKCE altyapısı üstüne kurulur**
+- **Sprint 4 T4.1 tamamlandı ✅ — Notion provider (OAuth + DB select + page→task sync, 5dk scheduler)**
+  - ⚠️ Notion public integration credential gerekiyor: `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` env. Env boşsa `/notion/start` 500 döner — T4.3'te card disabled göstermeli.
+- **Sıradaki: Sprint 4 T4.2 — Google Meet meeting detection**
   - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
 
 
