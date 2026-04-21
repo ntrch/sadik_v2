@@ -90,23 +90,20 @@ export function useAnimationEngine(
         } catch (e) {
           console.warn('[FrameStream] send failed:', e);
         }
-        // Update preview regardless of device ACK — decouples UI from
-        // intermittent serial ACK timeouts. Without this, a single drop on
-        // a non-looping clip's last frame (e.g. 'confirming' freeze) leaves
-        // the preview stuck forever because the engine won't emit another
-        // frame until something triggers state change.
-        bufferRef.current = buf;
-        setFrameVersion((v) => v + 1);
         if (delivered) {
-          // Only clear the staged buffer if no newer frame arrived during the
-          // send — that way new frames always take priority, but the held
-          // last-frame of a non-looping clip gets through on retry.
+          // Preview mirrors OLED refresh cadence — only bump on successful ACK.
+          bufferRef.current = buf;
+          setFrameVersion((v) => v + 1);
+          // Clear staged buffer only if no newer frame arrived during the send.
           if (latestPendingBuffer.current === buf) latestPendingBuffer.current = null;
-        } else {
-          // Keep buf staged so next tick retries (unless a newer frame has
-          // already overwritten it). Brief backoff to avoid hot-looping.
-          await new Promise((r) => setTimeout(r, 100));
         }
+        // On drop: leave buf staged so next pump iteration retries the same
+        // frame. This rescues the held last-frame of non-looping clips (e.g.
+        // 'confirming' freeze) — the engine stops emitting new frames in that
+        // state, so if we cleared the buffer a drop would freeze both sides.
+        // Newer frames from onFrameReady naturally overwrite during retry.
+        // No sleep — device_manager's 250 ms serial ACK timeout is the natural
+        // rate limit, and retries must be tight to keep OLED/preview in sync.
       }
     };
     pump();
