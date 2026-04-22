@@ -34,7 +34,7 @@ DEFAULT_SETTINGS = {
     "openai_api_key": "",
     "connection_method": "serial",
     "serial_port": "auto",
-    "serial_baudrate": "115200",
+    "serial_baudrate": "460800",
     "wifi_device_ip": "",
     "pomodoro_work_minutes": "25",
     "pomodoro_break_minutes": "5",

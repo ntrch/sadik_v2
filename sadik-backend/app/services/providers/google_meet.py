@@ -169,9 +169,18 @@ async def _user_in_conference(
             return False
 
         data = resp.json() or {}
-        for p in data.get("participants", []):
+        participants = data.get("participants", [])
+        logger.info(
+            "[google_meet] participants page: %d entries; looking for user_sub=%s",
+            len(participants), user_sub,
+        )
+        for p in participants:
             signed = p.get("signedinUser") or {}
-            if signed.get("user") != user_sub:
+            # Meet API returns "users/<sub>", userinfo returns bare "<sub>".
+            # Normalize by stripping the optional prefix before comparing.
+            raw_user = signed.get("user") or ""
+            participant_sub = raw_user.split("/")[-1] if raw_user else ""
+            if participant_sub != user_sub:
                 continue
             # Still in the call if no latestEndTime recorded yet
             if not p.get("latestEndTime"):
