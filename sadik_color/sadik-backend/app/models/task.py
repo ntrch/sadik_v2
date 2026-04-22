@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, DateTime, Index, func
+from sqlalchemy import Integer, String, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 from datetime import datetime
@@ -30,7 +30,3 @@ class Task(Base):
     # icon_image: base64 data URL or external URL for custom images (e.g. Notion page icon).
     icon: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     icon_image: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-
-    __table_args__ = (
-        Index("ix_tasks_notion_page_id", "notion_page_id"),
-    )

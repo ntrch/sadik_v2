@@ -6,7 +6,18 @@
 #define TFT_RST  22
 #define TFT_MOSI 23   // VSPI MOSI
 #define TFT_SCK  18   // VSPI CLK
-// BLK/LED is wired to 3.3V permanently — no software control needed.
+#define TFT_BLK  16   // Backlight PWM (boot-strap-free GPIO)
+
+// ── Backlight PWM (ESP32 LEDC) ────────────────────────────────────────────────
+#define TFT_PWM_CHANNEL     0
+#define TFT_PWM_FREQ        5000   // Hz — above audible, below PWM resolution limit
+#define TFT_PWM_RESOLUTION  8      // bits → duty range 0..255
+
+// Default brightness 0..255. Lower = darker blacks (less backlight bleed),
+// but overall screen dimmer. 100 is a good starting point.
+#ifndef TFT_DEFAULT_BRIGHTNESS
+#define TFT_DEFAULT_BRIGHTNESS 100
+#endif
 
 // ── ST7735S init tab variant ──────────────────────────────────────────────────
 // INITR_BLACKTAB is correct for most 160×128 modules.
@@ -15,6 +26,14 @@
 // in build_flags.
 #ifndef TFT_INIT_TAB
 #define TFT_INIT_TAB INITR_BLACKTAB
+#endif
+
+// ── SPI clock speed ──────────────────────────────────────────────────────────
+// Adafruit_ST7735 default is ~8–15 MHz. ST7735S safely runs 27 MHz,
+// often 40 MHz on short wiring. Higher = faster blit = less tearing.
+// Override with -DTFT_SPI_HZ=20000000 in build_flags if you see glitches.
+#ifndef TFT_SPI_HZ
+#define TFT_SPI_HZ 40000000UL
 #endif
 
 // ── Physical TFT resolution (landscape) ──────────────────────────────────────
@@ -56,5 +75,5 @@
 #define VARIATION_MAX_INTERVAL_MS  480000UL
 
 // ── Animation ─────────────────────────────────────────────────────────────────
-#define DEFAULT_FPS   12
+#define DEFAULT_FPS   24
 #define FRAME_BYTES  1024   // 128 * 64 / 8

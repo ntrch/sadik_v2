@@ -30,8 +30,8 @@
 class DisplayManager {
 public:
     DisplayManager()
-        : _tft(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCK, TFT_RST),
-          _currentBrightness(127),
+        : _tft(TFT_CS, TFT_DC, TFT_RST),   // 3-arg = hardware SPI (VSPI)
+          _currentBrightness(TFT_DEFAULT_BRIGHTNESS),
           _sleeping(false),
           _fbDirty(false)
     {
@@ -42,12 +42,21 @@ public:
 
     // Initialise SPI bus and TFT controller.
     void begin() {
+        // Backlight PWM setup BEFORE TFT init so the panel never flashes at full
+        // brightness during boot.
+        ledcSetup(TFT_PWM_CHANNEL, TFT_PWM_FREQ, TFT_PWM_RESOLUTION);
+        ledcAttachPin(TFT_BLK, TFT_PWM_CHANNEL);
+        ledcWrite(TFT_PWM_CHANNEL, _currentBrightness);
+
         _tft.initR(TFT_INIT_TAB);
+        _tft.setSPISpeed(TFT_SPI_HZ);
         _tft.setRotation(1);          // landscape: 160 wide × 128 tall
         _tft.fillScreen(DM_BLACK);
 
-        // Report to serial so the user can confirm the tab variant
-        Serial.println("BOOT:OK display=ST7735S 160x128 tab=BLACK");
+        Serial.print("BOOT:OK display=ST7735S 160x128 tab=BLACK spi=");
+        Serial.print(TFT_SPI_HZ);
+        Serial.print(" brightness=");
+        Serial.println(_currentBrightness);
     }
 
     // ── Buffer operations ─────────────────────────────────────────────────────
@@ -91,7 +100,22 @@ public:
         if (_sleeping || !_fbDirty) return;
         _fbDirty = false;
 
-        static uint16_t _lineBuf[LEGACY_FB_WIDTH];
+        // Full 128×64 RGB565 framebuffer (16 KB, static BSS — one-time alloc)
+        static uint16_t _rgbFrame[LEGACY_FB_WIDTH * LEGACY_FB_HEIGHT];
+
+        // Expand 1-bit → 16-bit in RAM first (tight CPU loop, ~100 µs on ESP32)
+        uint16_t* out = _rgbFrame;
+        for (uint16_t row = 0; row < LEGACY_FB_HEIGHT; row++) {
+            const uint8_t* rowPtr = _fb + row * 16;
+            for (uint16_t col = 0; col < LEGACY_FB_WIDTH; col++) {
+                uint8_t bitIndex = 7 - (col & 0x07);
+                *out++ = ((rowPtr[col >> 3] >> bitIndex) & 1) ? DM_WHITE : DM_BLACK;
+            }
+        }
+
+        // Single big SPI burst — one setAddrWindow, one writePixels, no gaps
+        static bool _blitTimingLogged = false;
+        uint32_t t0 = _blitTimingLogged ? 0 : micros();
 
         _tft.startWrite();
         _tft.setAddrWindow(
@@ -100,49 +124,49 @@ public:
             LEGACY_FB_WIDTH,
             LEGACY_FB_HEIGHT
         );
-
-        for (uint8_t row = 0; row < LEGACY_FB_HEIGHT; row++) {
-            const uint8_t* rowPtr = _fb + (uint16_t)row * 16;
-            for (uint8_t col = 0; col < LEGACY_FB_WIDTH; col++) {
-                uint8_t bitIndex = 7 - (col & 0x07);
-                _lineBuf[col] = ((rowPtr[col >> 3] >> bitIndex) & 1) ? DM_WHITE : DM_BLACK;
-            }
-            _tft.writePixels(_lineBuf, LEGACY_FB_WIDTH);
-        }
-
+        _tft.writePixels(_rgbFrame, LEGACY_FB_WIDTH * LEGACY_FB_HEIGHT);
         _tft.endWrite();
+
+        if (!_blitTimingLogged) {
+            uint32_t elapsed = micros() - t0;
+            Serial.print("DIAG:BLIT us=");
+            Serial.println(elapsed);
+            _blitTimingLogged = true;
+        }
     }
 
     // ── Brightness / power ────────────────────────────────────────────────────
 
-    // Brightness is stored for STATUS reporting. The ST7735S has no software
-    // contrast register accessible via Adafruit_ST7735, so this is a no-op on
-    // hardware (BLK pin is wired to 3.3V permanently).
+    // Backlight brightness 0..255 via PWM on TFT_BLK pin.
+    // 0   = backlight off (panel dark)
+    // 255 = max brightness (may wash out blacks)
+    // Recommended range: 60..140 for good black levels.
     void setBrightness(uint8_t value) {
         _currentBrightness = value;
+        if (!_sleeping) {
+            ledcWrite(TFT_PWM_CHANNEL, value);
+        }
     }
 
     uint8_t getBrightness() const {
         return _currentBrightness;
     }
 
-    // Sleep: blank the TFT and set the sleeping flag.
-    // The ST7735S does not have a hardware display-off command in the
-    // Adafruit library, so we blank to black to visually darken the panel.
+    // Sleep: fade backlight to zero and blank the panel.
+    // This is a true "screen off" — with PWM at 0 the panel goes fully dark.
     void sleepDisplay() {
         if (_sleeping) return;
         _sleeping = true;
         _tft.fillScreen(DM_BLACK);
+        ledcWrite(TFT_PWM_CHANNEL, 0);
     }
 
-    // Wake: restore a blank frame; the next sendBuffer() will repaint.
+    // Wake: restore backlight to user-set brightness; next sendBuffer() repaints.
     void wakeDisplay() {
         if (!_sleeping) return;
         _sleeping = false;
         _tft.fillScreen(DM_BLACK);
-        // Repaint the borders (the 16-px left/right and 32-px top/bottom bars)
-        // that frame the legacy FB area — they are always black, so fillScreen
-        // already handles this.
+        ledcWrite(TFT_PWM_CHANNEL, _currentBrightness);
     }
 
     bool isSleeping() const {
@@ -274,6 +298,9 @@ public:
     void showRawFrame(const uint8_t* data) {
         if (_sleeping) return;
 
+        static uint16_t _lineBuf[LEGACY_FB_WIDTH];
+
+        _tft.startWrite();
         _tft.setAddrWindow(
             LEGACY_FB_OFFSET_X,
             LEGACY_FB_OFFSET_Y,
@@ -282,13 +309,15 @@ public:
         );
 
         for (uint8_t row = 0; row < LEGACY_FB_HEIGHT; row++) {
+            const uint8_t* rowPtr = data + (uint16_t)row * 16;
             for (uint8_t col = 0; col < LEGACY_FB_WIDTH; col++) {
-                uint16_t byteIndex = (uint16_t)row * 16 + col / 8;
-                uint8_t  bitIndex  = 7 - (col & 0x07);
-                uint16_t colour = ((data[byteIndex] >> bitIndex) & 1) ? DM_WHITE : DM_BLACK;
-                _tft.pushColor(colour);
+                uint8_t bitIndex = 7 - (col & 0x07);
+                _lineBuf[col] = ((rowPtr[col >> 3] >> bitIndex) & 1) ? DM_WHITE : DM_BLACK;
             }
+            _tft.writePixels(_lineBuf, LEGACY_FB_WIDTH);
         }
+
+        _tft.endWrite();
     }
 
 private:
