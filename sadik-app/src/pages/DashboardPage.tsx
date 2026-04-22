@@ -732,6 +732,7 @@ function InsightCard({ insight, onAccept, onDeny }: { insight: AppInsight | null
 
   const level   = insight.level ?? 'gentle';
   const colors  = LEVEL_COLORS[level] ?? LEVEL_COLORS.gentle;
+  const isMeeting = insight.source === 'meeting';
   const label   = (insight.source && SOURCE_LABEL[insight.source]) ?? LEVEL_LABEL[level] ?? 'Öneri';
 
   return (
@@ -739,11 +740,13 @@ function InsightCard({ insight, onAccept, onDeny }: { insight: AppInsight | null
       <div className="flex items-start gap-3">
         <Lightbulb size={18} className={`flex-shrink-0 mt-0.5 ${colors.icon}`} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colors.badge}`}>
-              {label}
-            </span>
-          </div>
+          {!isMeeting && (
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colors.badge}`}>
+                {label}
+              </span>
+            </div>
+          )}
           <p className={`text-sm leading-relaxed font-medium ${colors.text}`}>{insight.message}</p>
           <div className="flex items-center gap-2 mt-3">
             {insight.source === 'task' || insight.source === 'habit' ? (
@@ -753,6 +756,21 @@ function InsightCard({ insight, onAccept, onDeny }: { insight: AppInsight | null
               >
                 <Check size={12} /> Tamam
               </button>
+            ) : isMeeting ? (
+              <>
+                <button
+                  onClick={onAccept}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-btn bg-accent-green/15 text-accent-green border border-accent-green/30 hover:bg-accent-green/25 transition-colors"
+                >
+                  <Check size={12} /> Kabul Et
+                </button>
+                <button
+                  onClick={onDeny}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-btn bg-bg-input text-text-muted border border-border hover:text-text-primary hover:bg-bg-hover transition-colors"
+                >
+                  <XIcon size={12} /> Reddet
+                </button>
+              </>
             ) : (
               <>
                 <button

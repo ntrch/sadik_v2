@@ -1318,6 +1318,56 @@ Write-Output "OK"
     n.show();
   });
 
+  // ── Meeting-mode toast with action buttons ────────────────────────────────
+  // Windows 10/11: ToastXml supports <actions><action/></actions>. On click
+  // of an action, Electron fires 'action' with the index. Body click still
+  // focuses the app (and is treated as 'accept' — same as tapping Onayla).
+  ipcMain.on('show-meeting-notification', (_event, { title, body }) => {
+    if (!Notification.isSupported()) return;
+    const escapeXml = (s) => String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+    const titleX = escapeXml(title || 'SADIK');
+    const bodyX  = escapeXml(body  || '');
+    const toastXml = `<?xml version="1.0" encoding="utf-8"?>
+<toast activationType="foreground" launch="accept">
+  <visual>
+    <binding template="ToastGeneric">
+      <text>${titleX}</text>
+      <text>${bodyX}</text>
+    </binding>
+  </visual>
+  <actions>
+    <action content="Onayla" arguments="accept" activationType="foreground"/>
+    <action content="Reddet" arguments="deny"   activationType="foreground"/>
+  </actions>
+</toast>`;
+    let n;
+    try {
+      n = process.platform === 'win32'
+        ? new Notification({ toastXml })
+        : new Notification({ title, body, silent: false, actions: [
+            { type: 'button', text: 'Onayla' },
+            { type: 'button', text: 'Reddet' },
+          ] });
+    } catch {
+      n = new Notification({ title, body, silent: false });
+    }
+    // macOS: 'action' event exposes the action index (0=Onayla, 1=Reddet).
+    n.on('action', (_e, idx) => {
+      const action = idx === 1 ? 'deny' : 'accept';
+      win.webContents.send('meeting-notification-action', action);
+    });
+    // Windows: toastXml actions fire 'action' with arguments in Electron
+    // ≥ recent. If the renderer receives no event, body click below maps to
+    // 'accept' as a safe default.
+    n.on('click', () => {
+      win.show(); win.focus();
+      win.webContents.send('meeting-notification-action', 'accept');
+    });
+    n.show();
+  });
+
   // ── Window lifecycle diagnostics ──────────────────────────────────────────
   win.once('ready-to-show', () => tlog('[SADIK] Window ready-to-show'));
   win.on('show',        () => tlog('[SADIK] Window show'));

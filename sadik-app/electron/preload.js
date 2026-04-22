@@ -45,6 +45,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restoreWindowPosition: (args) => ipcRenderer.invoke('restore-window-position', args),
   // Kill processes by PID (tree kill). args: { pids: number[] }
   killPids: (args) => ipcRenderer.invoke('kill-pids', args),
+  // Toplantı modu önerisi için native OS bildirimi tetikler. Windows'ta
+  // ToastXml action'ları ile Onayla/Reddet butonları gösterilir.
+  showMeetingNotification: ({ title, body }) =>
+    ipcRenderer.send('show-meeting-notification', { title, body }),
+  // Native toast butonlarından dönen yanıt ('accept' | 'deny').
+  // Returns unsubscribe fn.
+  onMeetingNotificationAction: (cb) => {
+    const l = (_e, action) => cb(action);
+    ipcRenderer.on('meeting-notification-action', l);
+    return () => ipcRenderer.removeListener('meeting-notification-action', l);
+  },
   // Subscribe to snap-captured events emitted during a workspace run.
   // Returns an unsubscribe function.
   onWorkspaceSnapCaptured: (cb) => {

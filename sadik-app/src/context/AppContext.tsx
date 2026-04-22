@@ -1477,11 +1477,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
           has_insight: true,
           source: 'meeting',
           level: 'strong',
-          message: `${titleLine} Meeting moduna geçelim mi?`,
+          message: `${titleLine} Toplantı moduna geçelim mi?`,
           action: { type: 'switch_mode', mode: 'meeting' },
         };
 
         setActiveInsight(syntheticInsight);
+
+        // Native OS bildirimi — butonlardan gelen yanıt IPC üzerinden
+        // AppContext içindeki accept/deny'i tetikler.
+        try {
+          (window as any).electronAPI?.showMeetingNotification?.({
+            title: 'SADIK — Toplantı',
+            body: `${titleLine} Toplantı moduna geçelim mi?`,
+          });
+        } catch { /* notification optional — ignore */ }
       } catch {
         // Backend down / not connected — silent
       }
@@ -1496,6 +1505,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // uses refs + closure-captured setters — no deps needed
+
+  // Native meeting toast butonları → accept/deny'e yönlendir.
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (!api?.onMeetingNotificationAction) return;
+    const unsub = api.onMeetingNotificationAction((action: 'accept' | 'deny') => {
+      if (action === 'accept') acceptInsightRef.current();
+      else denyInsightRef.current();
+    });
+    return () => { try { unsub?.(); } catch { /* noop */ } };
+  }, []);
 
   // ── Proactive accept / deny ────────────────────────────────────────────────
 
