@@ -1,0 +1,192 @@
+[
+  {
+    "name": "blink",
+    "category": "ambient",
+    "source": "idle_variations/blink.json",
+    "frameCount": 7,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "idle",
+    "category": "ambient",
+    "source": "idle_variations/idle.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": true
+  },
+  {
+    "name": "idle_alt_look_down",
+    "category": "ambient",
+    "source": "idle_variations/idle_alt_look_down.json",
+    "frameCount": 12,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "idle_alt_look_left",
+    "category": "ambient",
+    "source": "idle_variations/idle_alt_look_left.json",
+    "frameCount": 12,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "idle_alt_look_right",
+    "category": "ambient",
+    "source": "idle_variations/idle_alt_look_right.json",
+    "frameCount": 12,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "confirming",
+    "category": "core",
+    "source": "core_character/confirming.json",
+    "frameCount": 12,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "confused",
+    "category": "core",
+    "source": "core_character/confused.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "didnt_hear",
+    "category": "core",
+    "source": "core_character/didnt_hear.json",
+    "frameCount": 12,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "error_soft",
+    "category": "core",
+    "source": "core_character/error_soft.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "goodbye_to_idle",
+    "category": "core",
+    "source": "core_character/goodbye_to_idle.json",
+    "frameCount": 12,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "listening",
+    "category": "core",
+    "source": "core_character/listening.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "talking",
+    "category": "core",
+    "source": "core_character/talking.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "thinking",
+    "category": "core",
+    "source": "core_character/thinking.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "understanding",
+    "category": "core",
+    "source": "core_character/understanding.json",
+    "frameCount": 12,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "waking",
+    "category": "core",
+    "source": "core_character/waking.json",
+    "frameCount": 12,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "mod_break",
+    "category": "core",
+    "source": "mods/break.json",
+    "frameCount": 46,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "mod_break_text",
+    "category": "core",
+    "source": "mods/break_text.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": true
+  },
+  {
+    "name": "mod_working",
+    "category": "core",
+    "source": "mods/working.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "mod_working_text",
+    "category": "core",
+    "source": "mods/working_text.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": true
+  }
+]

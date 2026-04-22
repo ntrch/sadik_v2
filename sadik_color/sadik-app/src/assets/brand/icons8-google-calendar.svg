@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<!-- Generator: Adobe Illustrator 24.1.2, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+	 viewBox="0 0 48 48" style="enable-background:new 0 0 48 48;" xml:space="preserve">
+<g id="Layer_10" style="display:none;">
+	<g style="display:inline;opacity:0.05;">
+		<circle style="fill:#FFFFFF;" cx="24" cy="24" r="19.5"/>
+		<path d="M24,5c10.477,0,19,8.523,19,19s-8.523,19-19,19S5,34.477,5,24S13.523,5,24,5 M24,4C12.954,4,4,12.954,4,24s8.954,20,20,20
+			s20-8.954,20-20S35.046,4,24,4L24,4z"/>
+	</g>
+	<g style="display:inline;opacity:0.05;">
+		<rect x="6.5" y="6.5" style="fill:#FFFFFF;" width="35" height="35"/>
+		<path d="M41,7v34H7V7H41 M42,6H6v36h36V6L42,6z"/>
+	</g>
+</g>
+<g id="filled">
+</g>
+<g id="outlined">
+</g>
+<g id="rounded">
+</g>
+<g id="two_x5F_tone">
+</g>
+<g id="sharp">
+</g>
+<g id="win10">
+</g>
+<g id="ios_x5F_out">
+</g>
+<g id="ios_x5F_filled">
+</g>
+<g id="color">
+	<rect x="13" y="13" style="fill:#FFFFFF;" width="22" height="22"/>
+	<polygon style="fill:#1E88E5;" points="25.68,20.92 26.688,22.36 28.272,21.208 28.272,29.56 30,29.56 30,18.616 28.56,18.616 	"/>
+	<path style="fill:#1E88E5;" d="M22.943,23.745c0.625-0.574,1.013-1.37,1.013-2.249c0-1.747-1.533-3.168-3.417-3.168
+		c-1.602,0-2.972,1.009-3.33,2.453l1.657,0.421c0.165-0.664,0.868-1.146,1.673-1.146c0.942,0,1.709,0.646,1.709,1.44
+		c0,0.794-0.767,1.44-1.709,1.44h-0.997v1.728h0.997c1.081,0,1.993,0.751,1.993,1.64c0,0.904-0.866,1.64-1.931,1.64
+		c-0.962,0-1.784-0.61-1.914-1.418L17,26.802c0.262,1.636,1.81,2.87,3.6,2.87c2.007,0,3.64-1.511,3.64-3.368
+		C24.24,25.281,23.736,24.363,22.943,23.745z"/>
+	<polygon style="fill:#FBC02D;" points="34,42 14,42 13,38 14,34 34,34 35,38 	"/>
+	<polygon style="fill:#4CAF50;" points="38,35 42,34 42,14 38,13 34,14 34,34 	"/>
+	<path style="fill:#1E88E5;" d="M34,14l1-4l-1-4H9C7.343,6,6,7.343,6,9v25l4,1l4-1V14H34z"/>
+	<polygon style="fill:#E53935;" points="34,34 34,42 42,34 	"/>
+	<path style="fill:#1565C0;" d="M39,6h-5v8h8V9C42,7.343,40.657,6,39,6z"/>
+	<path style="fill:#1565C0;" d="M9,42h5v-8H6v5C6,40.657,7.343,42,9,42z"/>
+</g>
+<g id="fluent">
+</g>
+</svg>

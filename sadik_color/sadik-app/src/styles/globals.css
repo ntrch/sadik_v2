@@ -1,0 +1,254 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #121212;
+  color: #e4e4e7;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+  height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Scrollbar — thin, minimal ─────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #505050;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+/* ── Animations ────────────────────────────────────────────────────────────── */
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+@keyframes typing-dot {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-6px); }
+}
+
+.typing-dot:nth-child(1) { animation: typing-dot 1.2s infinite 0s; }
+.typing-dot:nth-child(2) { animation: typing-dot 1.2s infinite 0.2s; }
+.typing-dot:nth-child(3) { animation: typing-dot 1.2s infinite 0.4s; }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+.page-transition {
+  animation: fade-in 0.15s ease-out;
+}
+
+/* ── Glass effect utility ──────────────────────────────────────────────────── */
+
+.glass {
+  background: rgba(45, 45, 45, 0.55);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+}
+
+.glass-heavy {
+  background: rgba(30, 30, 30, 0.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* ── Glass for explicitly glass-styled buttons only ───────────────────────── */
+/* Removed the generic `button` selector — applying backdrop-filter to all
+   buttons inside .glass containers triggered a Chromium compositing bug where
+   nested backdrop-filter layers failed to paint their children on first render,
+   making card content invisible until hover forced a repaint. */
+.glass-btn {
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+}
+
+/* ── iOS 26 glass card — applied to all bg-bg-card elements ──────────────── */
+
+.bg-bg-card {
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ── OLED preview glow ─────────────────────────────────────────────────────── */
+
+.oled-glow {
+  box-shadow:
+    0 0 1px rgba(167, 139, 250, 0.3),
+    0 0 8px rgba(167, 139, 250, 0.08);
+}
+
+/* ── Nav icon active indicator ─────────────────────────────────────────────── */
+
+.nav-indicator {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #a78bfa;
+  box-shadow: 0 0 6px rgba(167, 139, 250, 0.6);
+}
+
+/* ── Input field utility ───────────────────────────────────────────────────── */
+
+.input-field {
+  @apply w-full bg-bg-input border border-border rounded-btn px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors;
+}
+
+/* ── Smooth transitions on all interactive elements ────────────────────────── */
+
+button, a, input, select {
+  transition: all 0.15s ease;
+}
+
+/* ── TipTap / ProseMirror editor styles ───────────────────────────────────── */
+
+.tiptap-editor .ProseMirror {
+  outline: none;
+  min-height: 100%;
+  color: #e4e4e7;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.tiptap-editor .ProseMirror > * + * {
+  margin-top: 0.6em;
+}
+
+.tiptap-editor .ProseMirror h1 { font-size: 1.8em; font-weight: 700; margin-top: 0.9em; }
+.tiptap-editor .ProseMirror h2 { font-size: 1.45em; font-weight: 700; margin-top: 0.8em; }
+.tiptap-editor .ProseMirror h3 { font-size: 1.2em; font-weight: 600; margin-top: 0.7em; }
+
+.tiptap-editor .ProseMirror ul,
+.tiptap-editor .ProseMirror ol {
+  padding-left: 1.2rem;
+}
+
+.tiptap-editor .ProseMirror ul { list-style-type: disc; }
+.tiptap-editor .ProseMirror ol { list-style-type: decimal; }
+
+.tiptap-editor .ProseMirror code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+.tiptap-editor .ProseMirror pre {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.9em;
+  overflow-x: auto;
+}
+.tiptap-editor .ProseMirror pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.tiptap-editor .ProseMirror blockquote {
+  border-left: 3px solid rgba(167, 139, 250, 0.5);
+  padding-left: 0.9rem;
+  color: #a1a1aa;
+  font-style: italic;
+}
+
+.tiptap-editor .ProseMirror img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 0.5rem 0;
+}
+
+.tiptap-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 1rem 0;
+}
+
+.tiptap-editor .ProseMirror ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+.tiptap-editor .ProseMirror ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.tiptap-editor .ProseMirror ul[data-type='taskList'] li > label {
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+}
+.tiptap-editor .ProseMirror ul[data-type='taskList'] li > div {
+  flex: 1;
+}
+.tiptap-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox'] {
+  accent-color: #a78bfa;
+  cursor: pointer;
+}
+.tiptap-editor .ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div > p {
+  color: #71717a;
+  text-decoration: line-through;
+}
+
+.tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #52525b;
+  pointer-events: none;
+  height: 0;
+  float: left;
+}
+
+/* ── Drawer slide-in ───────────────────────────────────────────────────────── */
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
