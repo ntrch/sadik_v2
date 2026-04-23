@@ -33,9 +33,20 @@
 
 ### Faz 2 — Asset üretimi (Eren paralel) — AKTİF
 
-- [ ] **F2.1** Animator tarafı — 17 mevcut klibin renkli mp4 versiyonları + yeni klipler
-- [ ] **F2.2** Naming convention `clips-manifest.json` ile uyumlu olsun
-- [ ] **F2.3** Çözünürlük 160×128 native, FPS 24 hedef
+- [x] **F2.1** Animator tarafı — mevcut klibin renkli mp4 versiyonları (22 klip `assets/mp4/`'de)
+- [x] **F2.2** Naming convention `clips-manifest.json` ile uyumlu (Sprint-1 migration)
+- [ ] **F2.3** Çözünürlük 160×128 native, FPS 24 hedef (wire budget hâlâ ~2 fps, Faz 3 codec ile çözülecek)
+
+### Sprint-1 — mp4 pipeline bring-up ✅ (commit 618f47f, 2026-04-23)
+- [x] App-side mp4 decode (HTMLVideoElement + OffscreenCanvas → RGB565 LE 40960B/frame)
+- [x] Manifest .json → mp4 source migration (21 clip); yeni: `done`, `mood_gaming`, `mood_gaming_text`
+- [x] Mode map: `gaming` preset eklendi; `mod_*` → `mood_*` rename
+- [x] Event: `confirmation_done` + task→done drag-drop trigger
+- [x] Wire protocol: `/api/device/frame` binary body (40960B); FRAME: binary parser; baud 921600
+- [x] Firmware: `pushFrameRgb565` full 160×128 writePixels (mono shim drop)
+- [x] Preview: RGB565 decode, 160×128 canvas
+- [ ] **HW test**: gerçek ekranda renk + endian + serial throughput doğrulama (Eren'de)
+- [ ] Not: `mood_working.mp4` intro asset yok — geçici olarak `mood_working_text.mp4` intro olarak kullanılıyor; animator verince manifest'te değiştir
 
 **Exit criteria**: Tüm hedef klipler `.mp4` formatında hazır, manifest'e mapping yapılmış.
 
