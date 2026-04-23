@@ -7,9 +7,10 @@ import {
   AnimationEventType,
 } from './types';
 import { EVENT_TO_CLIP, LOOPING_EVENT_CLIPS, AUTO_RETURN_CLIPS, EVENT_DISPLAY_TEXT } from './eventMapping';
-import { renderTextToBuffer } from './bitmapFont';
 
-const BUFFER_SIZE = 1024; // 128 * 64 / 8
+const FRAME_W = 160;
+const FRAME_H = 128;
+const FRAME_BYTES = FRAME_W * FRAME_H * 2; // 40960 bytes RGB565 LE
 
 interface PlaybackState {
   clip: ClipData | null;
@@ -20,9 +21,130 @@ interface PlaybackState {
   isPlaying: boolean;
 }
 
+/** Decode an mp4 URL into an array of RGB565 LE frames (each FRAME_BYTES bytes).
+ *  Uses a hidden <video> element + OffscreenCanvas stepped via currentTime. */
+async function decodeMp4ToRgb565Frames(
+  url: string,
+  w: number,
+  h: number,
+  fps: number,
+): Promise<Uint8Array[]> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.src = url;
+    video.muted = true;
+    video.preload = 'auto';
+    video.style.display = 'none';
+    document.body.appendChild(video);
+
+    const cleanup = () => {
+      document.body.removeChild(video);
+      URL.revokeObjectURL(url);
+    };
+
+    video.addEventListener('error', () => {
+      cleanup();
+      reject(new Error(`Video load error: ${url}`));
+    });
+
+    video.addEventListener('loadedmetadata', () => {
+      const duration = video.duration;
+      if (!isFinite(duration) || duration <= 0) {
+        cleanup();
+        reject(new Error(`Bad video duration: ${duration}`));
+        return;
+      }
+
+      const canvas = new OffscreenCanvas(w, h);
+      const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D;
+      const frameInterval = 1 / fps;
+      const frameCount = Math.max(1, Math.round(duration * fps));
+      const frames: Uint8Array[] = [];
+      let frameIdx = 0;
+
+      const seekNext = () => {
+        if (frameIdx >= frameCount) {
+          cleanup();
+          resolve(frames);
+          return;
+        }
+        const t = frameIdx * frameInterval;
+        video.currentTime = Math.min(t, duration - 0.001);
+      };
+
+      const onSeeked = () => {
+        ctx.drawImage(video, 0, 0, w, h);
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const rgba = imgData.data;
+        const rgb565 = new Uint8Array(FRAME_BYTES);
+        for (let i = 0; i < w * h; i++) {
+          const r = rgba[i * 4];
+          const g = rgba[i * 4 + 1];
+          const b = rgba[i * 4 + 2];
+          // RGB565 LE: low byte first
+          const pixel = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+          rgb565[i * 2]     = pixel & 0xFF;
+          rgb565[i * 2 + 1] = (pixel >> 8) & 0xFF;
+        }
+        frames.push(rgb565);
+        frameIdx++;
+        seekNext();
+      };
+
+      video.addEventListener('seeked', onSeeked);
+      seekNext();
+    });
+  });
+}
+
+/** Render text onto a 160×128 RGB565 LE buffer (white on black). */
+function renderTextToRgb565(text: string): Uint8Array {
+  const canvas = new OffscreenCanvas(FRAME_W, FRAME_H);
+  const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D;
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, FRAME_W, FRAME_H);
+  ctx.fillStyle = '#ffffff';
+
+  const lines = text.split('\n');
+  // Auto-size: find largest font that fits all lines
+  let fontSize = 32;
+  for (let s = 48; s >= 8; s -= 2) {
+    ctx.font = `bold ${s}px monospace`;
+    const maxW = Math.max(...lines.map((l) => ctx.measureText(l).width));
+    const totalH = lines.length * s * 1.2;
+    if (maxW <= FRAME_W - 8 && totalH <= FRAME_H - 8) {
+      fontSize = s;
+      break;
+    }
+  }
+  ctx.font = `bold ${fontSize}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const lineH = fontSize * 1.2;
+  const totalH = lines.length * lineH;
+  const startY = (FRAME_H - totalH) / 2 + lineH / 2;
+  lines.forEach((line, i) => {
+    ctx.fillText(line, FRAME_W / 2, startY + i * lineH);
+  });
+
+  const imgData = ctx.getImageData(0, 0, FRAME_W, FRAME_H);
+  const rgba = imgData.data;
+  const rgb565 = new Uint8Array(FRAME_BYTES);
+  for (let i = 0; i < FRAME_W * FRAME_H; i++) {
+    const r = rgba[i * 4];
+    const g = rgba[i * 4 + 1];
+    const b = rgba[i * 4 + 2];
+    const pixel = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+    rgb565[i * 2]     = pixel & 0xFF;
+    rgb565[i * 2 + 1] = (pixel >> 8) & 0xFF;
+  }
+  return rgb565;
+}
+
 export class AnimationEngine {
   private clips: Map<string, ClipData> = new Map();
-  private frameBuffer: Uint8Array = new Uint8Array(BUFFER_SIZE);
+  private frameBuffer: Uint8Array = new Uint8Array(FRAME_BYTES);
   private bufferDirty = true;
   private lastTextEmitTime = 0;
 
@@ -39,30 +161,27 @@ export class AnimationEngine {
     isPlaying: false,
   };
 
-  // Idle orchestration — two independent timers
   private idleInitialized = false;
   private blinkTimeout: ReturnType<typeof setTimeout> | null = null;
   private variationTimeout: ReturnType<typeof setTimeout> | null = null;
   private lastVariationDirection: 'left' | 'right' | null = null;
-  private variationPending = false; // variation fired while blink was playing
+  private variationPending = false;
 
   private deviceCommandCallback: ((cmd: string) => void) | null = null;
   private stateChangeCallback: ((state: EngineState) => void) | null = null;
   private frameReadyCallback: ((buffer: Uint8Array) => void) | null = null;
 
-  // Command debounce
   private lastCommandTime = 0;
   private pendingCommand: string | null = null;
   private commandTimeout: ReturnType<typeof setTimeout> | null = null;
 
   private streamingEnabled = true;
 
-  // ─── Focus-look state ────────────────────────────────────────────────────────
   private focusActive: boolean = false;
   private focusDirection: 'left' | 'right' | 'down' | null = null;
 
   constructor() {
-    this.clearBuffer();
+    this.frameBuffer.fill(0);
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────────
@@ -102,13 +221,20 @@ export class AnimationEngine {
         try {
           const r = await fetch(`${base}/${entry.source}`);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const data = await r.json();
+          const blob = await r.blob();
+          const url = URL.createObjectURL(blob);
+          const frames = await decodeMp4ToRgb565Frames(
+            url,
+            entry.width ?? FRAME_W,
+            entry.height ?? FRAME_H,
+            entry.fps ?? 12,
+          );
           const clip: ClipData = {
             name: entry.name,
-            width: data.width ?? 128,
-            height: data.height ?? 64,
-            frameCount: data.frameCount ?? (data.frames?.length ?? 0),
-            frames: data.frames ?? [],
+            width: entry.width ?? FRAME_W,
+            height: entry.height ?? FRAME_H,
+            frameCount: frames.length,
+            frames,
             fps: entry.fps ?? 12,
             loop: entry.loop ?? false,
           };
@@ -155,7 +281,6 @@ export class AnimationEngine {
       return;
     }
 
-    // Leaving idle — stop both independent timers before taking over playback
     this.cancelIdleTimers();
 
     const clipName = EVENT_TO_CLIP[event];
@@ -179,27 +304,19 @@ export class AnimationEngine {
           : undefined,
       });
     } else {
-      // Clip not loaded — fall back to text
       const displayText = EVENT_DISPLAY_TEXT[event] ?? event.toUpperCase();
       this.enterTextMode(displayText);
     }
     this.emitState();
   }
 
-  /** Call this method on every requestAnimationFrame. Returns frame buffer. */
   update(timestamp: number): Uint8Array {
     if (this.playbackMode === 'text') {
       if (this.bufferDirty) {
-        this.clearBuffer();
-        renderTextToBuffer(this.frameBuffer, this.textContent, { centered: true });
+        this.frameBuffer = renderTextToRgb565(this.textContent);
         this.bufferDirty = false;
-        // Force an immediate emit on any content change.
         this.lastTextEmitTime = 0;
       }
-      // Re-emit at 4 Hz while showing text.  Static content doesn't need
-      // animation, but periodic re-emission guarantees that a single lost
-      // frame (ACK timeout, in-flight drop) self-heals within 250 ms instead
-      // of leaving the OLED permanently behind the preview.
       if (this.streamingEnabled && timestamp - this.lastTextEmitTime >= 250) {
         this.lastTextEmitTime = timestamp;
         this.frameReadyCallback?.(this.frameBuffer);
@@ -229,7 +346,7 @@ export class AnimationEngine {
           }
         }
 
-        this.copyFrameToBuffer(this.pb.clip.frames[this.pb.frameIndex]);
+        this.frameBuffer = this.pb.clip.frames[this.pb.frameIndex];
         if (this.streamingEnabled) this.frameReadyCallback?.(this.frameBuffer);
         this.emitState();
       }
@@ -242,9 +359,6 @@ export class AnimationEngine {
     return this.frameBuffer;
   }
 
-  /** Force a re-emit of the current frame on the next update() tick. Used by
-   *  the transport layer when a send failed (ACK timeout / back-pressure
-   *  drop) and the OLED needs to be resynchronised with the preview. */
   markBufferDirty(): void {
     this.bufferDirty = true;
   }
@@ -284,8 +398,6 @@ export class AnimationEngine {
     this.emitState();
   }
 
-  /** Play a mod animation clip that loops indefinitely until returnToIdle.
-   *  When the clip ends it holds the last frame (loop handled by re-starting). */
   playModClip(name: string): void {
     if (!this.clips.has(name)) {
       console.warn(`[AnimationEngine] Mod clip not found: ${name}`);
@@ -297,25 +409,10 @@ export class AnimationEngine {
     this.emitState();
   }
 
-  /** Play an intro clip once, then transition into a looping clip.
-   *  Used by modes that have a one-shot entry animation followed by a
-   *  steady-state text/idle loop (e.g. mod_working → mod_working_text). */
   playModSequence(intro: string, loop: string): void {
     this.playModSequenceWithCallback(intro, loop);
   }
 
-  /**
-   * Play an intro clip once, call onIntroFinish when the intro completes,
-   * THEN start looping the loop clip.
-   * This allows the caller (e.g. acceptInsight) to start a backend timer
-   * precisely when the intro ends rather than in parallel.
-   */
-  /**
-   * Play an intro clip once and invoke onFinish when the last frame renders.
-   * The engine stays on that last frame until the next showText / event / clip
-   * call takes over. Used by voice-accepted break: intro plays, timer starts,
-   * then timer_tick's showText seamlessly replaces the held frame with MM:SS.
-   */
   playModIntroOnce(intro: string, onFinish?: () => void): void {
     if (!this.clips.has(intro)) {
       console.warn(`[AnimationEngine] Intro clip not found: ${intro}`);
@@ -364,18 +461,9 @@ export class AnimationEngine {
     this.emitState();
   }
 
-  /**
-   * Engage or disengage focus-look based on whether the app window is focused.
-   * direction: mapped clip direction (left/right/down), or null to disengage.
-   *
-   * Safety: if engine is in explicit_clip or text mode, just stores the state
-   * without interrupting. Focus-look re-applies on the next idle re-entry via
-   * startIdleOrchestration().
-   */
   setFocusLook(direction: 'left' | 'right' | 'down' | null): void {
     if (direction === null) {
       this.focusActive = false;
-      // Only resume idle timers if we are actually in focus_look sub-state
       if (this.playbackMode === 'idle' && this.idleSubState === 'focus_look') {
         this.startIdleOrchestration();
       }
@@ -385,7 +473,6 @@ export class AnimationEngine {
     this.focusActive = true;
     this.focusDirection = direction;
 
-    // Only act immediately when in idle mode; otherwise wait for return_to_idle
     if (this.playbackMode === 'idle') {
       this.enterFocusLook();
     }
@@ -393,7 +480,6 @@ export class AnimationEngine {
 
   // ─── Private helpers ─────────────────────────────────────────────────────────
 
-  /** Cancel idle timers and play the focus-look clip once; on finish, freeze on last frame. */
   private enterFocusLook(): void {
     if (!this.focusDirection) return;
     const clipName = `idle_alt_look_${this.focusDirection}`;
@@ -406,8 +492,6 @@ export class AnimationEngine {
     this.playClip(clipName, {
       loop: false,
       onFinish: () => {
-        // Hold last frame — do not reschedule timers; idleSubState stays 'focus_look'
-        // pb.isPlaying is already false at this point (set by update() logic)
         this.idleSubState = 'focus_look';
         this.emitState();
       },
@@ -436,7 +520,7 @@ export class AnimationEngine {
     this.pb.isPlaying = true;
 
     if (clip.frames.length > 0) {
-      this.copyFrameToBuffer(clip.frames[0]);
+      this.frameBuffer = clip.frames[0];
     }
   }
 
@@ -446,14 +530,6 @@ export class AnimationEngine {
     this.pb.onFinish = null;
   }
 
-  // ─── Idle orchestration — two independent timers ─────────────────────────────
-  //
-  // Timer 1 (blink):     fires every 12–30 s, plays 'blink' once, returns to idle.
-  // Timer 2 (variation): fires every 5–8 min, plays a look clip, returns to idle.
-  // Both timers are true setTimeout one-shots; each reschedules itself when done.
-  // They never poll inside update() — updateIdleOrchestration only keeps the
-  // looping idle clip alive.
-
   private startIdleOrchestration(): void {
     this.cancelIdleTimers();
     this.playbackMode = 'idle';
@@ -462,7 +538,6 @@ export class AnimationEngine {
     this.lastVariationDirection = null;
     this.variationPending = false;
 
-    // If focus-look is active, play the look clip and freeze — skip normal timers
     if (this.focusActive && this.focusDirection) {
       this.enterFocusLook();
       return;
@@ -484,7 +559,6 @@ export class AnimationEngine {
     this.variationPending = false;
   }
 
-  /** Keep the looping idle clip running — called every frame while in idle mode. */
   private updateIdleOrchestration(_timestamp: number): void {
     if (this.idleSubState === 'idle_loop') {
       if (!this.idleInitialized || !this.pb.isPlaying || this.pb.clip?.name !== 'idle') {
@@ -492,14 +566,9 @@ export class AnimationEngine {
         this.idleInitialized = true;
       }
     }
-    // 'focus_look': last frame held, pb.isPlaying=false — do not reinitialise idle loop
-    // 'blink' and 'variation' sub-states are driven entirely by onFinish callbacks
   }
 
-  // ── Blink timer ───────────────────────────────────────────────────────────────
-
   private scheduleBlink(): void {
-    // Fresh random interval each cycle: 12–30 seconds
     const interval = 12000 + Math.random() * 18000;
     this.blinkTimeout = setTimeout(() => this.fireBlink(), interval);
   }
@@ -507,8 +576,6 @@ export class AnimationEngine {
   private fireBlink(): void {
     this.blinkTimeout = null;
 
-    // Collision: variation is playing — don't interrupt, skip this blink entirely
-    // and let the next scheduled blink handle it.
     if (this.idleSubState === 'variation') {
       this.scheduleBlink();
       return;
@@ -527,7 +594,6 @@ export class AnimationEngine {
         this.idleInitialized = false;
         this.scheduleBlink();
 
-        // Collision: variation was deferred while this blink played — fire it now
         if (this.variationPending) {
           this.variationPending = false;
           this.fireVariation();
@@ -536,10 +602,7 @@ export class AnimationEngine {
     });
   }
 
-  // ── Variation timer ───────────────────────────────────────────────────────────
-
   private scheduleVariation(): void {
-    // Fresh random interval each cycle: 5–8 minutes (300 000–480 000 ms)
     const interval = 300000 + Math.random() * 180000;
     this.variationTimeout = setTimeout(() => this.fireVariation(), interval);
   }
@@ -547,13 +610,11 @@ export class AnimationEngine {
   private fireVariation(): void {
     this.variationTimeout = null;
 
-    // Collision: blink is playing — defer until blink's onFinish runs
     if (this.idleSubState === 'blink') {
       this.variationPending = true;
       return;
     }
 
-    // Pick a direction; never repeat the same direction consecutively
     let dir: 'left' | 'right' = Math.random() < 0.5 ? 'left' : 'right';
     if (dir === this.lastVariationDirection) {
       dir = dir === 'left' ? 'right' : 'left';
@@ -562,7 +623,6 @@ export class AnimationEngine {
     const clipName = dir === 'left' ? 'idle_alt_look_left' : 'idle_alt_look_right';
 
     if (!this.clips.has(clipName)) {
-      // Clip not loaded — skip silently and reschedule
       this.scheduleVariation();
       return;
     }
@@ -578,20 +638,6 @@ export class AnimationEngine {
       },
     });
   }
-
-  // ─── Buffer helpers ───────────────────────────────────────────────────────────
-
-  private clearBuffer(): void {
-    this.frameBuffer.fill(0);
-  }
-
-  private copyFrameToBuffer(frame: number[]): void {
-    const len = Math.min(frame.length, BUFFER_SIZE);
-    for (let i = 0; i < len; i++) this.frameBuffer[i] = frame[i];
-    if (len < BUFFER_SIZE) this.frameBuffer.fill(0, len);
-  }
-
-  // ─── Device command ───────────────────────────────────────────────────────────
 
   private sendCommand(cmd: string): void {
     const now = performance.now();
@@ -617,7 +663,6 @@ export class AnimationEngine {
   }
 }
 
-// Module-level singleton
 let _instance: AnimationEngine | null = null;
 export function getAnimationEngine(): AnimationEngine {
   if (!_instance) _instance = new AnimationEngine();

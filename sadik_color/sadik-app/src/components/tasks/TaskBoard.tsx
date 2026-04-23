@@ -28,7 +28,7 @@ export default function TaskBoard({ highlightTaskId }: TaskBoardProps) {
   const [draggedTaskId, setDraggedTaskId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { showToast } = React.useContext(AppContext);
+  const { showToast, triggerEvent } = React.useContext(AppContext);
   const highlightHandledRef = useRef(false);
 
   const loadTasks = useCallback(async () => {
@@ -99,6 +99,10 @@ export default function TaskBoard({ highlightTaskId }: TaskBoardProps) {
     try {
       await tasksApi.updateStatus(draggedTaskId, targetStatus);
       showToast(`Görev taşındı`, 'success');
+      // Fire done animation only when moving TO done from a non-done status
+      if (targetStatus === 'done' && task.status !== 'done') {
+        triggerEvent('confirmation_done');
+      }
     } catch {
       showToast('Görev taşınamadı', 'error');
       loadTasks(); // revert

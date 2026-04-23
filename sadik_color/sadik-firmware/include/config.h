@@ -58,8 +58,8 @@
 #define SCREEN_HEIGHT  LEGACY_FB_HEIGHT
 
 // ── Serial ────────────────────────────────────────────────────────────────────
-#define SERIAL_BAUD         460800
-#define SERIAL_BUFFER_SIZE  2112   // must hold FRAME: + 2048 hex chars
+#define SERIAL_BAUD         921600
+#define SERIAL_BUFFER_SIZE  65536  // must hold FRAME: + 40960 binary bytes + \n
 
 // ── WiFi (reserved for future use) ───────────────────────────────────────────
 #define WIFI_SERVER_PORT 80
@@ -75,5 +75,5 @@
 #define VARIATION_MAX_INTERVAL_MS  480000UL
 
 // ── Animation ─────────────────────────────────────────────────────────────────
-#define DEFAULT_FPS   24
-#define FRAME_BYTES  1024   // 128 * 64 / 8
+#define DEFAULT_FPS   12
+#define FRAME_BYTES  40960  // 160 * 128 * 2 bytes RGB565 LE

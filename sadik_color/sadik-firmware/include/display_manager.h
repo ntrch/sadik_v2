@@ -293,32 +293,21 @@ public:
         _tft.print(line2);
     }
 
-    // Decode a 1024-byte RAM frame and push it directly to the TFT.
+    // Push a 40960-byte RGB565 LE frame (160×128) directly to the TFT.
     // Used by CMD_FRAME_DATA (desktop app streaming raw frames over serial).
-    void showRawFrame(const uint8_t* data) {
+    void pushFrameRgb565(const uint8_t* buf) {
         if (_sleeping) return;
-
-        static uint16_t _lineBuf[LEGACY_FB_WIDTH];
-
         _tft.startWrite();
-        _tft.setAddrWindow(
-            LEGACY_FB_OFFSET_X,
-            LEGACY_FB_OFFSET_Y,
-            LEGACY_FB_WIDTH,
-            LEGACY_FB_HEIGHT
-        );
-
-        for (uint8_t row = 0; row < LEGACY_FB_HEIGHT; row++) {
-            const uint8_t* rowPtr = data + (uint16_t)row * 16;
-            for (uint8_t col = 0; col < LEGACY_FB_WIDTH; col++) {
-                uint8_t bitIndex = 7 - (col & 0x07);
-                _lineBuf[col] = ((rowPtr[col >> 3] >> bitIndex) & 1) ? DM_WHITE : DM_BLACK;
-            }
-            _tft.writePixels(_lineBuf, LEGACY_FB_WIDTH);
-        }
-
+        _tft.setAddrWindow(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        // buf is RGB565 little-endian; writePixels with bigEndian=false swaps each
+        // uint16 from LE to the SPI big-endian order the panel expects.
+        _tft.writePixels(reinterpret_cast<uint16_t*>(const_cast<uint8_t*>(buf)),
+                         DISPLAY_WIDTH * DISPLAY_HEIGHT, /*bigEndian=*/false);
         _tft.endWrite();
     }
+
+    // Kept as alias so any remaining call sites still compile.
+    void showRawFrame(const uint8_t* buf) { pushFrameRgb565(buf); }
 
 private:
     Adafruit_ST7735 _tft;

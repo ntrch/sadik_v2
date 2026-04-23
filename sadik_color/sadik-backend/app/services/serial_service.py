@@ -220,6 +220,44 @@ class SerialService:
             logger.error(f"Serial read error: {e}")
             return None
 
+    async def send_frame_binary(self, frame_bytes: bytes, read_timeout: float = 0.25) -> tuple[bool, Optional[str]]:
+        """Write b'FRAME:' + 40960 raw bytes + b'\\n' and wait for OK:FRAME ack."""
+        if not self.is_connected:
+            return False, None
+
+        async with self._lock:
+            loop = asyncio.get_event_loop()
+
+            def _exchange() -> Optional[str]:
+                self._serial.reset_input_buffer()
+                self._serial.write(b"FRAME:" + frame_bytes + b"\n")
+                self._serial.flush()
+
+                deadline = time.monotonic() + read_timeout
+                while time.monotonic() < deadline:
+                    try:
+                        raw = self._serial.readline()
+                    except Exception as e:
+                        logger.error(f"Serial readline error: {e}")
+                        return None
+                    if not raw:
+                        continue
+                    line = raw.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    if line.startswith("DEBUG:") or line.startswith("EVENT:"):
+                        continue
+                    if line.startswith("OK:") or line.startswith("ERR:"):
+                        return line
+                return None
+
+            try:
+                response = await loop.run_in_executor(None, _exchange)
+                return True, response
+            except Exception as e:
+                logger.error(f"Serial send_frame_binary error: {e}")
+                return True, None
+
     async def send_and_read(self, command: str, read_timeout: float = 2.0) -> tuple[bool, Optional[str]]:
         """Send a command and wait for the first meaningful response line.
 

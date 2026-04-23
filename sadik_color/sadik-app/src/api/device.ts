@@ -47,9 +47,11 @@ export const deviceApi = {
   sendCommand: (command: string) =>
     http.post<{ success: boolean; error?: string }>('/api/device/command', { command }).then((r) => r.data),
   sendFrame: (buffer: Uint8Array) =>
-    http.post<{ success: boolean }>('/api/device/frame', {
-      data: Array.from(buffer).map(b => b.toString(16).padStart(2, '0')).join(''),
-    }).then((r) => r.data),
+    http.post<{ success: boolean }>(
+      '/api/device/frame',
+      buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
+      { headers: { 'Content-Type': 'application/octet-stream' } },
+    ).then((r) => r.data),
   autoConnect: () =>
     http.post<AutoConnectResult>('/api/device/auto-connect').then((r) => r.data),
   setBrightness: (percent: number) =>

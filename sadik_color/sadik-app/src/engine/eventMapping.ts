@@ -5,6 +5,7 @@ export const EVENT_TO_CLIP: Record<string, string> = {
   processing: 'thinking',
   assistant_speaking: 'talking',
   confirmation_success: 'confirming',
+  confirmation_done: 'done',
   understanding_resolved: 'understanding',
   didnt_hear: 'didnt_hear',
   soft_error: 'error_soft',
@@ -22,6 +23,7 @@ export const LOOPING_EVENT_CLIPS: Set<string> = new Set([
 // After these clips finish (non-looping), auto-return to idle
 export const AUTO_RETURN_CLIPS: Set<string> = new Set([
   'confirming',
+  'done',
   'understanding',
   'didnt_hear',
   'error_soft',

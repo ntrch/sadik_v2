@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.schemas.device import DeviceConnect, DeviceCommand, DeviceStatusResponse, AutoConnectResult, BrightnessRequest, SleepTimeoutRequest
 from app.services.device_manager import device_manager
@@ -22,7 +22,7 @@ async def connect_device(body: DeviceConnect):
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Setting).where(Setting.key == "serial_baudrate"))
         s = result.scalar_one_or_none()
-        baudrate = int(s.value) if s else 460800
+        baudrate = int(s.value) if s else 921600
 
     ok = await device_manager.connect(body.method, port=body.port, ip=body.ip, baudrate=baudrate)
     status = device_manager.get_status()
@@ -49,7 +49,7 @@ async def auto_connect_device():
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Setting).where(Setting.key == "serial_baudrate"))
         s = result.scalar_one_or_none()
-        baudrate = int(s.value) if s else 460800
+        baudrate = int(s.value) if s else 921600
 
     result = await device_manager.auto_connect(baudrate=baudrate)
     if result["connected"]:
@@ -115,22 +115,20 @@ async def set_sleep_timeout(body: SleepTimeoutRequest):
         "message": "Sleep timeout updated." if body.minutes > 0 else "Sleep disabled.",
     }
 
-class FrameData(BaseModel):
-    data: str  # hex-encoded 1024-byte frame (2048 hex chars)
-
 _frame_count = 0
 
 @router.post("/frame")
-async def send_frame(body: FrameData):
-    """Send raw frame buffer to device as FRAME:<hex>. Fire-and-forget."""
+async def send_frame(request: Request):
+    """Accept raw 40960-byte RGB565 LE frame and forward to device. Fire-and-forget."""
     global _frame_count
     _frame_count += 1
-    if len(body.data) != 2048:
-        logger.warning(f"Frame #{_frame_count}: bad length {len(body.data)}")
-        raise HTTPException(status_code=400, detail=f"Expected 2048 hex chars, got {len(body.data)}")
-    ok, error = await device_manager.send_frame_acked(body.data)
+    body = await request.body()
+    if len(body) != 40960:
+        logger.warning(f"Frame #{_frame_count}: bad length {len(body)}")
+        raise HTTPException(status_code=400, detail=f"Expected 40960 bytes, got {len(body)}")
+    ok, error = await device_manager.send_frame_acked(body)
     if _frame_count <= 5 or _frame_count % 60 == 0:
-        logger.debug(f"Frame #{_frame_count}: sent={'ok' if ok else 'fail'} err={error} first8={body.data[:8]}")
+        logger.debug(f"Frame #{_frame_count}: sent={'ok' if ok else 'fail'} err={error}")
     if not ok:
         return {"success": False, "error": error or "Failed to send frame"}
     return {"success": True}

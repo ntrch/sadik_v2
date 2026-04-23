@@ -11,7 +11,7 @@ class DeviceManager:
         self._port: Optional[str] = None
         self._ip: Optional[str] = None
 
-    async def connect(self, method: str, port: Optional[str] = None, ip: Optional[str] = None, baudrate: int = 460800) -> bool:
+    async def connect(self, method: str, port: Optional[str] = None, ip: Optional[str] = None, baudrate: int = 921600) -> bool:
         await self.disconnect()
         if method == "serial":
             success = await serial_service.open(port or "auto", baudrate)
@@ -29,7 +29,7 @@ class DeviceManager:
             return reachable
         return False
 
-    async def auto_connect(self, baudrate: int = 460800) -> dict:
+    async def auto_connect(self, baudrate: int = 921600) -> dict:
         """Auto-detect SADIK device via serial protocol verification and connect."""
         # If already connected via WiFi, return success immediately
         if self._method == "wifi":
@@ -74,8 +74,8 @@ class DeviceManager:
             return ok, None if ok else "WiFi send failed"
         return False, "Unknown method"
 
-    async def send_frame_acked(self, hex_data: str, timeout: float = 0.25) -> tuple[bool, Optional[str]]:
-        """Send FRAME:<hex> and wait for firmware's OK:FRAME ack.
+    async def send_frame_acked(self, frame_bytes: bytes, timeout: float = 0.25) -> tuple[bool, Optional[str]]:
+        """Send FRAME:<40960 binary bytes>\n and wait for firmware's OK:FRAME ack.
 
         Returns (ok, error). When timeout elapses without ack we return
         (False, "timeout") so the caller can drop the frame rather than
@@ -84,16 +84,16 @@ class DeviceManager:
         if not self._method:
             return False, "Not connected"
         if self._method == "serial":
-            ok, response = await serial_service.send_and_read(
-                f"FRAME:{hex_data}", read_timeout=timeout,
+            ok, response = await serial_service.send_frame_binary(
+                frame_bytes, read_timeout=timeout,
             )
             if not ok:
                 return False, "Serial send failed"
             if response is None:
                 return False, "timeout"
             return True, None
-        # WiFi path has no ack; fall back to fire-and-forget.
-        ok = await wifi_device_service.send_command(self._ip, f"FRAME:{hex_data}")
+        # WiFi path: fire-and-forget binary frame
+        ok = await wifi_device_service.send_command(self._ip, b"FRAME:" + frame_bytes + b"\n")
         return ok, None if ok else "WiFi send failed"
 
     async def send_command_and_read(self, command: str) -> tuple[bool, Optional[str], Optional[str]]:

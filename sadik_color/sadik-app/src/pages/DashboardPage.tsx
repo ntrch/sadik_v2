@@ -28,8 +28,9 @@ const PRESET_MODES = [
 // Maps mode keys to a one-shot intro clip + a looping text clip.
 // Intro plays once on mode-enter, then the text clip loops until the user exits.
 const MODE_CLIP_MAP: Record<string, { intro: string; loop: string }> = {
-  working: { intro: 'mod_working', loop: 'mod_working_text' },
-  break:   { intro: 'mod_break',   loop: 'mod_break_text'   },
+  working: { intro: 'mood_working', loop: 'mood_working_text' },
+  break:   { intro: 'mood_break',   loop: 'mood_break_text'   },
+  gaming:  { intro: 'mood_gaming',  loop: 'mood_gaming_text'  },
 };
 
 // ── App name beautifier ──────────────────────────────────────────────────────

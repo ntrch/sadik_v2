@@ -374,7 +374,7 @@ void processCommand(ParsedCommand& cmd) {
                 currentMode = MODE_FRAME_STREAM;
             }
 
-            display.showRawFrame(cmd.frameData);
+            display.pushFrameRgb565(cmd.frameData);
             // ACK after the OLED has actually been refreshed. The host uses
             // this to pace frame transmission (one frame in flight at a time)
             // and to keep its on-screen preview in lock-step with the OLED.

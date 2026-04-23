@@ -2,7 +2,6 @@ export interface ClipManifestEntry {
   name: string;
   category: 'ambient' | 'core';
   source: string;
-  frameCount: number;
   width: number;
   height: number;
   fps: number;
@@ -14,7 +13,7 @@ export interface ClipData {
   width: number;
   height: number;
   frameCount: number;
-  frames: number[][];
+  frames: Uint8Array[]; // each 40960 bytes RGB565 LE (160×128)
   fps: number;
   loop: boolean;
 }
@@ -40,6 +39,7 @@ export type AnimationEventType =
   | 'processing'
   | 'assistant_speaking'
   | 'confirmation_success'
+  | 'confirmation_done'
   | 'understanding_resolved'
   | 'didnt_hear'
   | 'soft_error'

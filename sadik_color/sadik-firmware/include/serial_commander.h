@@ -20,14 +20,14 @@ enum CommandType {
     CMD_FORCE_SLEEP,          // FORCE_SLEEP → immediately enter power-save (debug aid)
     CMD_APP_CONNECTED,        // APP_CONNECTED   → app becomes animation authority
     CMD_APP_DISCONNECTED,     // APP_DISCONNECTED → firmware resumes autonomous idle
-    CMD_FRAME_DATA,           // FRAME:<2048 hex chars> → raw 1024-byte frame for OLED
+    CMD_FRAME_DATA,           // FRAME:<40960 binary bytes>\n → RGB565 LE frame for TFT
     CMD_UNKNOWN
 };
 
 struct ParsedCommand {
     CommandType type;
     char        argument[128];
-    uint8_t     frameData[1024];   // decoded bitmap for CMD_FRAME_DATA
+    uint8_t     frameData[FRAME_BYTES]; // RGB565 LE frame for CMD_FRAME_DATA
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ struct ParsedCommand {
 
 class SerialCommander {
 public:
-    SerialCommander() : _head(0), _ready(false) {
+    SerialCommander() : _head(0), _ready(false), _frameMode(false), _frameBytesRead(0) {
         _buf[0]              = '\0';
         _parsed.type         = CMD_NONE;
         _parsed.argument[0]  = '\0';
@@ -49,15 +49,33 @@ public:
     }
 
     void begin() {
-        Serial.setRxBufferSize(4096);  // must be before Serial.begin()
+        Serial.setRxBufferSize(65536);  // must be before Serial.begin(); holds full frame
         Serial.begin(SERIAL_BAUD);
         _reset();
     }
 
     // Read available bytes from the serial buffer (non-blocking).
-    // Returns true when a complete line has been received and parsed.
+    // Returns true when a complete command has been received and parsed.
     bool hasCommand() {
-        if (_ready) return true;    // previous command not yet consumed
+        if (_ready) return true;
+
+        // ── Binary FRAME mode: slurp exactly FRAME_BYTES then consume '\n' ──
+        if (_frameMode) {
+            while (Serial.available() && _frameBytesRead < FRAME_BYTES) {
+                _parsed.frameData[_frameBytesRead++] = (uint8_t)Serial.read();
+            }
+            if (_frameBytesRead >= FRAME_BYTES) {
+                // consume trailing '\n' if present
+                if (Serial.available() && Serial.peek() == '\n') Serial.read();
+                _parsed.type = CMD_FRAME_DATA;
+                _frameMode       = false;
+                _frameBytesRead  = 0;
+                _head            = 0;
+                _ready           = true;
+                return true;
+            }
+            return false;
+        }
 
         while (Serial.available()) {
             char c = static_cast<char>(Serial.read());
@@ -65,19 +83,33 @@ public:
             if (c == '\n' || c == '\r') {
                 if (_head > 0) {
                     _buf[_head] = '\0';
+                    // Detect "FRAME:" prefix → switch to binary read mode
+                    if (strncmp(_buf, "FRAME:", 6) == 0) {
+                        _frameMode      = true;
+                        _frameBytesRead = 0;
+                        _head           = 0;
+                        // Immediately try to drain binary payload from current buffer
+                        return hasCommand();
+                    }
                     _parse();
                     _head  = 0;
                     _ready = true;
                     return true;
                 }
-                // Ignore empty lines / bare CR+LF pairs
                 continue;
             }
 
             if (_head < SERIAL_BUFFER_SIZE - 1) {
                 _buf[_head++] = c;
             }
-            // If buffer is full, silently discard the overflow byte.
+            // "FRAME:" prefix is 6 bytes; once we see those 6, activate frame mode
+            // mid-stream (handles edge case where '\n' is delayed)
+            if (_head == 6 && strncmp(_buf, "FRAME:", 6) == 0) {
+                _frameMode      = true;
+                _frameBytesRead = 0;
+                _head           = 0;
+                return hasCommand();
+            }
         }
 
         return false;
@@ -99,14 +131,18 @@ public:
     }
 
 private:
-    char         _buf[SERIAL_BUFFER_SIZE];
+    char         _buf[512];        // text commands only; FRAME: detected after 6 chars
     int          _head;
     bool         _ready;
+    bool         _frameMode;       // true while reading binary FRAME payload
+    int          _frameBytesRead;  // bytes consumed so far in frame mode
     ParsedCommand _parsed;
 
     void _reset() {
         _head              = 0;
         _ready             = false;
+        _frameMode         = false;
+        _frameBytesRead    = 0;
         _parsed.type       = CMD_NONE;
         _parsed.argument[0] = '\0';
     }
@@ -161,17 +197,8 @@ private:
         } else if (strcmp(_buf, "APP_DISCONNECTED") == 0) {
             _parsed.type = CMD_APP_DISCONNECTED;
 
-        } else if (strncmp(_buf, "FRAME:", 6) == 0) {
-            // Expect exactly 2048 hex characters after "FRAME:" → 1024 bytes
-            const char* hex = _buf + 6;
-            int hexLen = strlen(hex);
-            if (hexLen == 2048 && _decodeHex(hex, _parsed.frameData, 1024)) {
-                _parsed.type = CMD_FRAME_DATA;
-            } else {
-                _parsed.type = CMD_UNKNOWN;   // malformed frame data
-            }
-
         } else {
+            // FRAME: is handled in binary mode via hasCommand(); not here.
             _parsed.type = CMD_UNKNOWN;
         }
     }
