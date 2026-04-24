@@ -142,47 +142,52 @@
   {
     "name": "mood_gaming",
     "category": "core",
-    "source": "mp4/mood_gaming.mp4",
+    "source": "mp4/mode_gaming.mp4",
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/mode_gaming.bin"
   },
   {
     "name": "mood_gaming_text",
     "category": "core",
-    "source": "mp4/mood_gaming_text.mp4",
+    "source": "mp4/mode_gaming_text.mp4",
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": true
+    "loop": true,
+    "codecSource": "codec/mode_gaming_text.bin"
   },
   {
     "name": "mood_working",
     "category": "core",
-    "source": "mp4/mood_working_text.mp4",
+    "source": "mp4/mode_working.mp4",
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/mode_working.bin"
   },
   {
     "name": "mood_working_text",
     "category": "core",
-    "source": "mp4/mood_working_text.mp4",
+    "source": "mp4/mode_working_text.mp4",
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": true
+    "loop": true,
+    "codecSource": "codec/mode_working_text.bin"
   },
   {
     "name": "mood_break",
     "category": "core",
-    "source": "mp4/mood_break.mp4",
+    "source": "mp4/mode_break.mp4",
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/mode_break.bin"
   },
   {
     "name": "mood_break_text",
@@ -197,10 +202,11 @@
   {
     "name": "mood_meeting_text",
     "category": "core",
-    "source": "mp4/mood_meeting_text.mp4",
+    "source": "mp4/mode_meeting_text.mp4",
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": true
+    "loop": true,
+    "codecSource": "codec/mode_meeting_text.bin"
   }
 ]
