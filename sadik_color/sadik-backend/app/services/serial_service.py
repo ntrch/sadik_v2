@@ -233,6 +233,7 @@ class SerialService:
                         self._serial = verified_serial
                         self._active_port = port
                         logger.info(f"Auto-connect success: {port}")
+                        await self._send_app_connected()
                         return {
                             "connected": True,
                             "port": port,
@@ -286,6 +287,12 @@ class SerialService:
     async def close(self):
         if self._serial and self._serial.is_open:
             loop = asyncio.get_event_loop()
+            # Best-effort APP_DISCONNECTED — no response wait, matches firmware state machine.
+            try:
+                await loop.run_in_executor(None, self._serial.write, b"APP_DISCONNECTED\n")
+                await loop.run_in_executor(None, self._serial.flush)
+            except Exception:
+                pass
             await loop.run_in_executor(None, self._serial.close)
             self._serial = None
             self._active_port = None
@@ -319,6 +326,39 @@ class SerialService:
         except Exception as e:
             logger.error(f"Serial send error: {e}")
             return False
+
+    async def _send_app_connected(self) -> None:
+        """Send APP_CONNECTED once after PING/PONG verification to arm the firmware codec decoder.
+
+        Called while _lock is already held by auto_detect_and_connect.
+        Waits up to 2 s for OK:APP_CONNECTED; logs WARNING on timeout but does NOT
+        fail the connect (backward-compat with older firmware that may not respond).
+        """
+        loop = asyncio.get_event_loop()
+
+        def _exchange() -> str | None:
+            try:
+                self._serial.write(b"APP_CONNECTED\n")
+                self._serial.flush()
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    if self._serial.in_waiting > 0:
+                        line = self._serial.readline().decode("utf-8", errors="replace").strip()
+                        if line:
+                            return line
+                    time.sleep(0.02)
+                return None
+            except Exception as e:
+                logger.warning(f"APP_CONNECTED exchange error: {e}")
+                return None
+
+        response = await loop.run_in_executor(None, _exchange)
+        if response == "OK:APP_CONNECTED":
+            logger.info("APP_CONNECTED: firmware armed")
+        elif response is None:
+            logger.warning("APP_CONNECTED: no response within 2s — codec streams may fail")
+        else:
+            logger.warning(f"APP_CONNECTED: unexpected response: {response!r}")
 
     async def read_line(self) -> Optional[str]:
         if not self.is_connected:
