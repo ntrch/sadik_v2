@@ -62,7 +62,7 @@
 
 ### Faz 3 — Renkli streaming mimarisi (Faz 2 ile paralel tasarım)
 
-- [ ] **F3.1** Build-time: ffmpeg ile mp4 → RGB565 raw frames → delta+RLE sıkıştır → `.bin` paket
+- [x] **F3.1** Build-time: ffmpeg ile mp4 → RGB565 raw frames → delta+RLE sıkıştır → `.bin` paket — DONE (commit Sprint-2, roundtrip bit-exact, 29x compression on blink/idle)
 - [ ] **F3.2** Host streaming: app yeni codec ile frame paketi gönderir, mevcut serial pipeline extend
 - [ ] **F3.3** ESP32 firmware: incoming delta paket → framebuffer patch → Adafruit_ST7735 push
 - [ ] **F3.4** Flow control / backpressure — ACK veya pacing
