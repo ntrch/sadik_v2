@@ -5,6 +5,7 @@
 
 #include "codec_decode.h"
 #include <string.h>
+#include <esp_heap_caps.h>
 
 // ---------------------------------------------------------------------------
 // CRC16-CCITT (matches Python encoder in tools/codec/encode.py)
@@ -45,7 +46,7 @@ static DecodeState  _state              = STATE_HUNT_MAGIC;
 static uint8_t      _hdr[CODEC_HEADER_SIZE];
 static uint8_t      _hdr_pos            = 0;
 
-// Payload buffer: max IFRAME = 40960 bytes. Allocated on heap in codec_init().
+// Payload buffer: heap-allocated in codec_init (DRAM too tight for both static)
 static uint8_t*     _payload            = nullptr;
 static uint32_t     _payload_len        = 0;   // expected bytes for current packet
 static uint32_t     _payload_pos        = 0;
@@ -55,8 +56,10 @@ static uint8_t      _pkt_type           = 0;
 static uint16_t     _pkt_seq            = 0;
 static uint16_t     _pkt_crc            = 0;
 
-// Heap framebuffer: 160×128×2 = 40960 bytes
-static uint16_t*    _fb                 = nullptr;
+// Framebuffer: 160×128×2 = 40960 bytes — static (.bss) to avoid heap collision
+// with UART RX ring buffer (the known crash cause).
+static uint16_t     _fb_storage[CODEC_WIDTH * CODEC_HEIGHT];
+static uint16_t*    _fb                 = _fb_storage;
 
 // Last accepted seq
 static uint16_t     _last_seq           = 0;
@@ -77,25 +80,18 @@ static void _apply_pframe();
 void codec_init(Adafruit_ST7735* tft) {
     _tft = tft;
 
-    // Allocate 40 KB RGB565 framebuffer on the heap (not stack)
-    if (_fb == nullptr) {
-        _fb = (uint16_t*)malloc(CODEC_FRAME_BYTES);
-        if (_fb) {
-            memset(_fb, 0, CODEC_FRAME_BYTES);
-            Serial.println("CODEC:INIT fb_ok heap_bytes=40960");
-        } else {
-            Serial.println("CODEC:INIT fb_alloc_FAILED");
-        }
-    }
+    memset(_fb_storage, 0, sizeof(_fb_storage));
 
-    // Payload scratch buffer (re-used for every packet)
-    // Worst case = IFRAME payload = 40960 bytes
     if (_payload == nullptr) {
-        _payload = (uint8_t*)malloc(CODEC_FRAME_BYTES);
-        if (!_payload) {
-            Serial.println("CODEC:INIT payload_alloc_FAILED");
-        }
+        // Force DMA-capable internal SRAM — different heap region from
+        // non-DMA allocations like the UART RX ring buffer. This avoids the
+        // cross-allocation corruption observed with plain malloc.
+        _payload = (uint8_t*)heap_caps_malloc(
+            CODEC_FRAME_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     }
+    Serial.printf("CODEC:INIT fb_static=%p payload_dma=%p heap_free=%u\n",
+                  (void*)_fb_storage, (void*)_payload,
+                  (unsigned)ESP.getFreeHeap());
 
     _reset_parser();
 }
@@ -288,17 +284,12 @@ static void _emit_resync() {
 
 // IFRAME: payload is 40960 bytes of raw RGB565 LE. Copy into framebuffer and blit.
 static void _apply_iframe() {
-    if (_payload_len != CODEC_FRAME_BYTES) {
-        Serial.printf("CODEC:IFRAME bad_len=%lu\n", _payload_len);
-        return;
-    }
+    if (_payload_len != CODEC_FRAME_BYTES) return;
     memcpy(_fb, _payload, CODEC_FRAME_BYTES);
-
     if (!_tft) return;
     _tft->startWrite();
     _tft->setAddrWindow(0, 0, CODEC_WIDTH, CODEC_HEIGHT);
-    // writePixels with bigEndian=false: each uint16 is LE in buffer, panel wants BE
-    _tft->writePixels(_fb, CODEC_WIDTH * CODEC_HEIGHT, /*bigEndian=*/false);
+    _tft->writePixels(_fb, CODEC_WIDTH * CODEC_HEIGHT);
     _tft->endWrite();
 }
 
@@ -363,7 +354,7 @@ static void _apply_pframe() {
         if (_tft) {
             _tft->startWrite();
             _tft->setAddrWindow(tx, ty, CODEC_TILE_W, CODEC_TILE_H);
-            _tft->writePixels(tile_buf, CODEC_PIXELS_PER_TILE, /*bigEndian=*/false);
+            _tft->writePixels(tile_buf, CODEC_PIXELS_PER_TILE);
             _tft->endWrite();
         }
     }

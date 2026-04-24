@@ -449,7 +449,13 @@ void loop() {
     //    The SerialCommander path (step 1) handles non-codec text commands.
     //    Both can coexist because SerialCommander only activates on '\n'-
     //    terminated lines; a codec stream never emits '\n'.
-    if (appConnected && Serial.available() > 0 && Serial.peek() == (int)CODEC_MAGIC) {
+    // When app is connected, route ALL incoming bytes to codec_feed regardless
+    // of the first byte.  codec_feed's state machine hunts for the 0xC5 magic
+    // itself, so non-magic bytes mid-stream (PFRAME payload contains arbitrary
+    // RGB565 data that rarely starts with 0xC5) are still handled correctly.
+    // Without this, a peek()!=0xC5 mid-packet would fall through to
+    // SerialCommander, which would consume bytes meant for the codec.
+    if (appConnected && Serial.available() > 0) {
         size_t avail = (size_t)Serial.available();
         while (avail > 0) {
             size_t chunk = (avail < sizeof(_codecScratch)) ? avail : sizeof(_codecScratch);
@@ -458,10 +464,15 @@ void loop() {
             codec_feed(_codecScratch, got);
             avail = (size_t)Serial.available();
         }
+        return;
     }
 
     // 1. Non-blocking serial command check — parse at most one command per tick.
-    if (serialCmd.hasCommand()) {
+    //    Skip while app is connected: codec stream owns the UART, and calling
+    //    Serial.available() from SerialCommander concurrently with the codec
+    //    drain path crashed the UART driver's queue semaphore (observed
+    //    consistently during Sprint-2 bring-up).
+    if (!appConnected && serialCmd.hasCommand()) {
         ParsedCommand cmd = serialCmd.getCommand();
         processCommand(cmd);
     }
@@ -469,7 +480,10 @@ void loop() {
     // 2. Advance animation playback.  ClipPlayer renders a new frame only when
     //    the per-frame interval has elapsed, so this is cheap on most ticks.
     //    Skip while asleep to avoid wasted I2C traffic.
-    if (!display.isSleeping()) {
+    //    Skip while app is connected — app owns the display (codec stream or
+    //    raw frame data). ClipPlayer writing to TFT concurrently with codec
+    //    SPI pushes causes bus corruption and crashes.
+    if (!display.isSleeping() && !appConnected) {
         clipPlayer.update();
     }
 

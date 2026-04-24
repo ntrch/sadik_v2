@@ -50,7 +50,7 @@ CRC_INIT     = 0xFFFF
 
 DEFAULT_BAUD    = 921600
 DEFAULT_WINDOW  = 2
-DEFAULT_TIMEOUT = 0.150  # seconds
+DEFAULT_TIMEOUT = 1.500  # seconds — IFRAME = 40960 bytes @ 921600 baud ≈ 450ms wire alone
 MAX_RETRIES     = 3
 
 
@@ -394,8 +394,44 @@ def main():
         print(f"ERROR: could not open serial port: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Brief settle — ESP32 may reset on DTR toggle
+    # ESP32 resets on DTR toggle — wait for SADIK:READY before handshake
     time.sleep(0.5)
+    ser.reset_input_buffer()
+    print("Waiting for firmware boot (SADIK:READY) ...")
+    boot_deadline = time.monotonic() + 5.0
+    boot_buf = bytearray()
+    got_ready = False
+    while time.monotonic() < boot_deadline:
+        chunk = ser.read(ser.in_waiting or 1)
+        if chunk:
+            boot_buf.extend(chunk)
+            if b"SADIK:READY" in boot_buf:
+                got_ready = True
+                break
+    if not got_ready:
+        print("WARN: SADIK:READY not seen within 5s — continuing anyway")
+    else:
+        print("  Firmware ready.")
+
+    # APP_CONNECTED handshake — firmware requires this before routing codec bytes
+    print("Sending APP_CONNECTED handshake ...")
+    ser.write(b"APP_CONNECTED\n")
+    ser.flush()
+    hs_deadline = time.monotonic() + 2.0
+    hs_buf = bytearray()
+    got_ack = False
+    while time.monotonic() < hs_deadline:
+        chunk = ser.read(ser.in_waiting or 1)
+        if chunk:
+            hs_buf.extend(chunk)
+            if b"OK:APP_CONNECTED" in hs_buf:
+                got_ack = True
+                break
+    if not got_ack:
+        print("ERROR: firmware did not acknowledge APP_CONNECTED within 2s", file=sys.stderr)
+        ser.close()
+        sys.exit(1)
+    print("  Handshake OK.")
     ser.reset_input_buffer()
     print(f"Connected.  Window={args.window}  Timeout={args.timeout_ms}ms")
 
