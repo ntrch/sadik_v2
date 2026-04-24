@@ -92,9 +92,17 @@ class SerialService:
             pass
         return None
 
-    async def auto_detect_and_connect(self, baudrate: int = 460800) -> dict:
+    async def auto_detect_and_connect(
+        self,
+        baudrate: int = 460800,
+        retries: int = 1,
+        retry_delay: float = 2.0,
+    ) -> dict:
         """Scan all serial ports, verify SADIK device via PING/PONG protocol,
         and keep the connection open on first match.
+
+        retries=3 at startup covers the ~2-3 s ESP32 needs to boot before its
+        serial interface responds to PING.  Manual connect passes retries=1.
 
         Returns a dict with: connected, port, method, message, scanned_ports,
         matched_ports, error.
@@ -115,43 +123,53 @@ class SerialService:
                 }
 
             loop = asyncio.get_event_loop()
-            preferred, others = await loop.run_in_executor(None, self._rank_ports)
-            all_candidates = preferred + others
-            scanned = len(all_candidates)
+            last_scanned = 0
 
-            logger.info(
-                f"Auto-detect: scanning {scanned} port(s). "
-                f"Preferred: {preferred}, Fallback: {others}"
-            )
+            for attempt in range(1, retries + 1):
+                preferred, others = await loop.run_in_executor(None, self._rank_ports)
+                all_candidates = preferred + others
+                last_scanned = len(all_candidates)
 
-            for port in all_candidates:
-                # Hard per-port timeout: if the executor thread stalls (e.g. on a
-                # Bluetooth COM port or ghost port whose Serial() constructor blocks),
-                # we time out from the async side and move on.  The stalled thread
-                # will eventually complete on its own and its result is discarded.
-                try:
-                    verified_serial = await asyncio.wait_for(
-                        loop.run_in_executor(
-                            None, self._try_open_and_verify_sync, port, baudrate
-                        ),
-                        timeout=2.0,
+                logger.info(
+                    f"Auto-detect: attempt {attempt}/{retries} — scanning {last_scanned} port(s). "
+                    f"Preferred: {preferred}, Fallback: {others}"
+                )
+
+                for port in all_candidates:
+                    # Hard per-port timeout: if the executor thread stalls (e.g. on a
+                    # Bluetooth COM port or ghost port whose Serial() constructor blocks),
+                    # we time out from the async side and move on.  The stalled thread
+                    # will eventually complete on its own and its result is discarded.
+                    try:
+                        verified_serial = await asyncio.wait_for(
+                            loop.run_in_executor(
+                                None, self._try_open_and_verify_sync, port, baudrate
+                            ),
+                            timeout=2.0,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Auto-detect: port {port} verification timed out — skipping")
+                        verified_serial = None
+                    if verified_serial is not None:
+                        self._serial = verified_serial
+                        self._active_port = port
+                        logger.info(f"Auto-connect success: {port}")
+                        return {
+                            "connected": True,
+                            "port": port,
+                            "method": "auto",
+                            "message": f"SADIK cihazı otomatik bağlandı ({port}).",
+                            "scanned_ports": last_scanned,
+                            "matched_ports": [port],
+                            "error": None,
+                        }
+
+                if attempt < retries:
+                    logger.info(
+                        f"Auto-detect: attempt {attempt}/{retries} — no device found, "
+                        f"retrying in {retry_delay:.0f}s"
                     )
-                except asyncio.TimeoutError:
-                    logger.warning(f"Auto-detect: port {port} verification timed out — skipping")
-                    verified_serial = None
-                if verified_serial is not None:
-                    self._serial = verified_serial
-                    self._active_port = port
-                    logger.info(f"Auto-connect success: {port}")
-                    return {
-                        "connected": True,
-                        "port": port,
-                        "method": "auto",
-                        "message": f"SADIK cihazı otomatik bağlandı ({port}).",
-                        "scanned_ports": scanned,
-                        "matched_ports": [port],
-                        "error": None,
-                    }
+                    await asyncio.sleep(retry_delay)
 
             logger.info("Auto-detect: no SADIK device found on any port")
             return {
@@ -159,7 +177,7 @@ class SerialService:
                 "port": None,
                 "method": "auto",
                 "message": "SADIK cihazı otomatik olarak algılanamadı.",
-                "scanned_ports": scanned,
+                "scanned_ports": last_scanned,
                 "matched_ports": [],
                 "error": "No SADIK device responded to PING on any available port.",
             }

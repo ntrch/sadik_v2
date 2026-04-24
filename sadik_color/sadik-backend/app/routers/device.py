@@ -19,11 +19,8 @@ async def get_status():
 
 @router.post("/connect")
 async def connect_device(body: DeviceConnect):
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Setting).where(Setting.key == "serial_baudrate"))
-        s = result.scalar_one_or_none()
-        baudrate = int(s.value) if s else 921600
-
+    # sadik_color: baud hardwired to firmware build. DB setting ignored.
+    baudrate = 921600
     ok = await device_manager.connect(body.method, port=body.port, ip=body.ip, baudrate=baudrate)
     status = device_manager.get_status()
     await ws_manager.broadcast({"type": "device_status", "data": status})
@@ -46,11 +43,8 @@ async def disconnect_device():
 
 @router.post("/auto-connect", response_model=AutoConnectResult)
 async def auto_connect_device():
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Setting).where(Setting.key == "serial_baudrate"))
-        s = result.scalar_one_or_none()
-        baudrate = int(s.value) if s else 921600
-
+    # sadik_color: baud hardwired to firmware build.
+    baudrate = 921600
     result = await device_manager.auto_connect(baudrate=baudrate)
     if result["connected"]:
         status = device_manager.get_status()

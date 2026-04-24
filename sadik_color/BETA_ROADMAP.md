@@ -50,6 +50,16 @@
 
 **Exit criteria**: Tüm hedef klipler `.mp4` formatında hazır, manifest'e mapping yapılmış.
 
+### Sprint-1 stabilizasyon (2026-04-24)
+- [x] Baud hardwire: backend `main.py` + `routers/device.py` — 921600 sabitlendi, DB `serial_baudrate` ayarı yok sayılıyor (color firmware her zaman 921600)
+- [x] Firmware stack-overflow fix: `serial_commander.h` — `ParsedCommand` içindeki 40960B alan stack'te kopyalanıyordu (ESP32 loop task 8KB), pointer-to-owned-buffer pattern'e geçildi; reset döngüsü kapandı
+- [x] Preview buffer fix: `useAnimationEngine.ts` — buffer init 1024→40960B; preview güncellemesi ACK pump'tan ayrıldı, `onFrameReady` içine taşındı; serial düştüğünde preview donmuyor
+- [x] Manifest fps: `clips-manifest.json` — 21 klip için `fps: 24` (kullanıcı 24fps'de üretmiş)
+- [x] SADIK-text flash fix: `AnimationEngine.ts` + `types.ts` — engine `'black'` modunda başlıyor, sıfır-frame emit ediyor; `loadClips()` idle bekliyor, idle hazır olunca başlıyor, diğer klipler arka planda decode ediliyor
+- [x] Auto-connect retry: `serial_service.py` + `device_manager.py` + `main.py` — startup 3× retry (2s aralık); outer timeout 10→20s; ESP32 boot gecikmesi karşılandı; manual connect unchanged (retries=1)
+- [x] mp4 kaynak asset'ler `sadik_color/assets/` dizinine eklendi
+- [ ] **Bilinen sorun (deferred)**: Tamam yazısı görünüyor; animasyon logic revisit sprint-2 sonrası yapılacak
+
 ### Faz 3 — Renkli streaming mimarisi (Faz 2 ile paralel tasarım)
 
 - [ ] **F3.1** Build-time: ffmpeg ile mp4 → RGB565 raw frames → delta+RLE sıkıştır → `.bin` paket

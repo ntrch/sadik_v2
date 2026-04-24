@@ -29,7 +29,12 @@ class DeviceManager:
             return reachable
         return False
 
-    async def auto_connect(self, baudrate: int = 921600) -> dict:
+    async def auto_connect(
+        self,
+        baudrate: int = 921600,
+        retries: int = 1,
+        retry_delay: float = 2.0,
+    ) -> dict:
         """Auto-detect SADIK device via serial protocol verification and connect."""
         # If already connected via WiFi, return success immediately
         if self._method == "wifi":
@@ -43,7 +48,9 @@ class DeviceManager:
                 "error": None,
             }
 
-        result = await serial_service.auto_detect_and_connect(baudrate)
+        result = await serial_service.auto_detect_and_connect(
+            baudrate, retries=retries, retry_delay=retry_delay
+        )
 
         if result["connected"]:
             self._method = "serial"

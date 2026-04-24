@@ -148,7 +148,7 @@ export class AnimationEngine {
   private bufferDirty = true;
   private lastTextEmitTime = 0;
 
-  private playbackMode: PlaybackMode = 'text';
+  private playbackMode: PlaybackMode = 'black'; // stays black until idle is decoded
   private textContent: string = 'SADIK';
   private idleSubState: IdleSubState = 'idle_loop';
 
@@ -217,7 +217,7 @@ export class AnimationEngine {
         return;
       }
 
-      const loadPromises = manifest.map(async (entry) => {
+      const loadClipEntry = async (entry: ClipManifestEntry) => {
         try {
           const r = await fetch(`${base}/${entry.source}`);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -242,9 +242,25 @@ export class AnimationEngine {
         } catch (e) {
           console.warn(`[AnimationEngine] Failed to load clip "${entry.name}":`, e);
         }
-      });
+      };
 
-      await Promise.all(loadPromises);
+      // Load idle first so we can start playing before the rest are decoded.
+      const idleEntry = manifest.find((e) => e.name === 'idle');
+      const restEntries = manifest.filter((e) => e.name !== 'idle');
+
+      if (idleEntry) {
+        await loadClipEntry(idleEntry);
+        this.startIdleOrchestration(); // idle is ready — start immediately
+        this.emitState();
+        // Decode remaining clips in the background; no await here.
+        Promise.all(restEntries.map(loadClipEntry)).then(() => {
+          console.log(`[AnimationEngine] Loaded ${this.clips.size} clips`);
+        });
+        return; // emitState already called above
+      }
+
+      // No idle entry — load everything and fall back to text.
+      await Promise.all(manifest.map(loadClipEntry));
       console.log(`[AnimationEngine] Loaded ${this.clips.size} clips`);
 
       if (this.clips.has('idle')) {
@@ -311,6 +327,16 @@ export class AnimationEngine {
   }
 
   update(timestamp: number): Uint8Array {
+    // During initial clip load: emit a single black frame then go quiet.
+    if (this.playbackMode === 'black') {
+      if (this.bufferDirty) {
+        this.frameBuffer.fill(0);
+        this.bufferDirty = false;
+        if (this.streamingEnabled) this.frameReadyCallback?.(this.frameBuffer);
+      }
+      return this.frameBuffer;
+    }
+
     if (this.playbackMode === 'text') {
       if (this.bufferDirty) {
         this.frameBuffer = renderTextToRgb565(this.textContent);

@@ -25,9 +25,9 @@ enum CommandType {
 };
 
 struct ParsedCommand {
-    CommandType type;
-    char        argument[128];
-    uint8_t     frameData[FRAME_BYTES]; // RGB565 LE frame for CMD_FRAME_DATA
+    CommandType    type;
+    char           argument[128];
+    const uint8_t* frameData; // points into SerialCommander-owned buffer; valid until next getCommand()
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,7 +45,8 @@ public:
         _buf[0]              = '\0';
         _parsed.type         = CMD_NONE;
         _parsed.argument[0]  = '\0';
-        memset(_parsed.frameData, 0, sizeof(_parsed.frameData));
+        _parsed.frameData    = _frameBuf;
+        memset(_frameBuf, 0, sizeof(_frameBuf));
     }
 
     void begin() {
@@ -62,7 +63,7 @@ public:
         // ── Binary FRAME mode: slurp exactly FRAME_BYTES then consume '\n' ──
         if (_frameMode) {
             while (Serial.available() && _frameBytesRead < FRAME_BYTES) {
-                _parsed.frameData[_frameBytesRead++] = (uint8_t)Serial.read();
+                _frameBuf[_frameBytesRead++] = (uint8_t)Serial.read();
             }
             if (_frameBytesRead >= FRAME_BYTES) {
                 // consume trailing '\n' if present
@@ -137,6 +138,7 @@ private:
     bool         _frameMode;       // true while reading binary FRAME payload
     int          _frameBytesRead;  // bytes consumed so far in frame mode
     ParsedCommand _parsed;
+    uint8_t      _frameBuf[FRAME_BYTES]; // single owned frame buffer; _parsed.frameData points here
 
     void _reset() {
         _head              = 0;

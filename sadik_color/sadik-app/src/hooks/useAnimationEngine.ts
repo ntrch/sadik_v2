@@ -28,7 +28,7 @@ export function useAnimationEngine(
 ) {
   const engine = getAnimationEngine();
   const rafRef = useRef<number | null>(null);
-  const bufferRef = useRef<Uint8Array>(new Uint8Array(1024));
+  const bufferRef = useRef<Uint8Array>(new Uint8Array(40960));
   const [engineState, setEngineState] = useState<EngineState>(defaultEngineState);
   // frameVersion increments to signal canvas needs a repaint
   const [frameVersion, setFrameVersion] = useState(0);
@@ -64,10 +64,10 @@ export function useAnimationEngine(
     engine.onFrameReady((buffer: Uint8Array) => {
       const snapshot = new Uint8Array(buffer);
       latestPendingBuffer.current = snapshot;
-      if (!deviceConnectedRef.current) {
-        bufferRef.current = snapshot;
-        setFrameVersion((v) => v + 1);
-      }
+      // Preview always mirrors engine output immediately, independent of serial ACK.
+      // Serial drops / latency must not freeze the app-side preview.
+      bufferRef.current = snapshot;
+      setFrameVersion((v) => v + 1);
     });
 
     let pumpAlive = true;
@@ -91,9 +91,6 @@ export function useAnimationEngine(
           console.warn('[FrameStream] send failed:', e);
         }
         if (delivered) {
-          // Preview mirrors OLED refresh cadence — only bump on successful ACK.
-          bufferRef.current = buf;
-          setFrameVersion((v) => v + 1);
           // Clear staged buffer only if no newer frame arrived during the send.
           if (latestPendingBuffer.current === buf) latestPendingBuffer.current = null;
         }

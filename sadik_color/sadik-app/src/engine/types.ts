@@ -18,7 +18,7 @@ export interface ClipData {
   loop: boolean;
 }
 
-export type PlaybackMode = 'idle' | 'explicit_clip' | 'text';
+export type PlaybackMode = 'idle' | 'explicit_clip' | 'text' | 'black';
 
 export type IdleSubState = 'idle_loop' | 'blink' | 'variation' | 'focus_look';
 

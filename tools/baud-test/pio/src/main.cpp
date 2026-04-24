@@ -11,7 +11,7 @@
 
 #include <Arduino.h>
 
-#define TEST_BAUD 2000000UL   // try 921600, 1500000, 2000000, 3000000
+#define TEST_BAUD 921600UL    // try 921600, 1500000, 2000000, 3000000
 
 void setup() {
   Serial.begin(TEST_BAUD);

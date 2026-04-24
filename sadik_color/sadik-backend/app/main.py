@@ -162,24 +162,23 @@ async def lifespan(app: FastAPI):
     _patterns_task = behavioral_patterns.create_scheduler_task()
 
     # Best-effort auto-connect on startup — must never block indefinitely.
-    # Each port gets a 2 s internal timeout; the whole scan gets a 10 s outer
-    # guard so startup always completes even if a port stalls in the OS layer.
+    # Each port gets a 2 s internal timeout; 3 retries with 2 s sleep cover the
+    # ~2-3 s ESP32 needs to boot before serial responds to PING.  The 20 s outer
+    # guard ensures startup always completes even if a port stalls in the OS layer.
     try:
         from app.services.device_manager import device_manager as _dm
-        async with AsyncSessionLocal() as session:
-            baud_result = await session.execute(select(Setting).where(Setting.key == "serial_baudrate"))
-            baud_setting = baud_result.scalar_one_or_none()
-            baudrate = int(baud_setting.value) if baud_setting else 115200
+        # sadik_color: baud hardwired to firmware build (921600). DB setting ignored.
+        baudrate = 921600
         conn_result = await asyncio.wait_for(
-            _dm.auto_connect(baudrate=baudrate),
-            timeout=10.0,
+            _dm.auto_connect(baudrate=baudrate, retries=3, retry_delay=2.0),
+            timeout=20.0,
         )
         if conn_result["connected"]:
             logger.info(f"Startup auto-connect: connected to {conn_result['port']}")
         else:
             logger.info(f"Startup auto-connect: no device found ({conn_result['message']})")
     except asyncio.TimeoutError:
-        logger.warning("Startup auto-connect timed out after 10 s — continuing without device")
+        logger.warning("Startup auto-connect timed out after 20 s — continuing without device")
     except Exception as e:
         logger.warning(f"Startup auto-connect skipped: {e}")
 
