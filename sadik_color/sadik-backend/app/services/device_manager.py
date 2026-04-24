@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -8,22 +9,76 @@ from app.services.wifi_device_service import wifi_device_service
 logger = logging.getLogger(__name__)
 
 # ── Clip registry ─────────────────────────────────────────────────────────────
-# .bin files live in sadik-backend/../assets/codec/<name>.bin
-# This mirrors the webpack CopyPlugin convention: assets/codec/ is served as
-# /animations/personas/sadik/codec/ by the Electron/webpack frontend.
-# Backend resolves to the same source tree directory; no duplication.
+# .bin files live at <repo>/sadik_color/assets/codec/<filename>.bin
+# Path chain from this file:
+#   device_manager.py → [0]=services → [1]=app → [2]=sadik-backend → [3]=sadik_color
 _ASSETS_CODEC_DIR = (
-    Path(__file__).resolve()          # device_manager.py
-    .parent.parent.parent             # sadik_color/
+    Path(__file__).resolve()          # …/sadik_color/sadik-backend/app/services/device_manager.py
+    .parents[3]                       # …/sadik_color/
     / "assets" / "codec"
 )
 
+if not _ASSETS_CODEC_DIR.exists():
+    logger.warning(f"_ASSETS_CODEC_DIR not found at startup: {_ASSETS_CODEC_DIR}")
+
+# Manifest lives in sadik-app/public/animations/personas/sadik/clips-manifest.json
+# It maps each clip's logical `name` to its actual `codecSource` filename.
+_MANIFEST_PATH = (
+    Path(__file__).resolve()
+    .parents[3]                       # …/sadik_color/
+    / "sadik-app" / "public" / "animations" / "personas" / "sadik" / "clips-manifest.json"
+)
+
+# name → absolute Path, built once at import time
+_CLIP_MAP: dict[str, Path] = {}
+
+def _build_clip_map() -> dict[str, Path]:
+    if not _MANIFEST_PATH.exists():
+        logger.warning(f"clips-manifest.json not found: {_MANIFEST_PATH}")
+        return {}
+    try:
+        with open(_MANIFEST_PATH, encoding="utf-8") as fh:
+            entries = json.load(fh)
+    except Exception as exc:
+        logger.warning(f"Failed to load clips-manifest.json: {exc}")
+        return {}
+
+    mapping: dict[str, Path] = {}
+    for entry in entries:
+        name = entry.get("name")
+        codec_src = entry.get("codecSource")  # e.g. "codec/idle.bin"
+        if not name or not codec_src:
+            continue
+        # Strip the "codec/" prefix to get just the filename, then join with dir
+        filename = Path(codec_src).name
+        abs_path = _ASSETS_CODEC_DIR / filename
+        mapping[name] = abs_path
+
+    logger.info(f"Clip manifest loaded: {len(mapping)} clips mapped from {_MANIFEST_PATH}")
+    return mapping
+
+_CLIP_MAP = _build_clip_map()
+
 
 def resolve_clip_bin(name: str) -> Optional[Path]:
-    """Resolve clip name → absolute .bin path.  Returns None if not found."""
+    """Resolve clip name → absolute .bin path.  Returns None if not found.
+
+    First tries the manifest-based map (handles name/filename mismatches).
+    Falls back to <_ASSETS_CODEC_DIR>/<name>.bin for resilience.
+    """
+    # 1. Manifest lookup
+    p = _CLIP_MAP.get(name)
+    if p is not None:
+        if p.exists():
+            return p
+        logger.warning(f"Clip mapped in manifest but .bin missing on disk: {p}")
+        return None
+
+    # 2. Fallback: direct name → filename
     p = _ASSETS_CODEC_DIR / f"{name}.bin"
     if p.exists():
         return p
+
     logger.warning(f"Clip not found: {p}")
     return None
 
