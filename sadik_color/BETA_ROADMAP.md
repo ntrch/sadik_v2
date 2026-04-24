@@ -72,7 +72,7 @@
   - [x] Step 2 — Build script (`tools/build-codec-assets.mjs`), `npm run build:codec` in sadik-app/package.json; manifest `codecSource` field added (additive, mp4 path kept); 15/21 clips encoded (6 mood_* skipped — mp4s renamed to mode_* in assets, manifest not yet updated)
   - [x] Step 2.5 — Manifest source paths fixed (mood_*.mp4 → mode_*.mp4); 6 remaining clips encoded; all 21 entries have codecSource; mood_* mp4s git-renamed to mode_*
   - [x] Step 3 — AnimationEngine codec preview path (flag-gated): `USE_CODEC_PREVIEW` in `src/engine/codecConfig.ts` (default true); `loadCodecClip()` fetches .bin, decodes via SadikDecoder, reinterprets Uint16Array→Uint8Array (same bytes); webpack CopyPlugin serves codec/*.bin under same base URL as mp4s; mp4 path preserved as fallback; device/backend path untouched
-  - [ ] Step 4 — Streamer feeds both preview + ESP32 from same decoded frames
+  - [x] Step 4 — Backend codec streamer + serial mutex: `SerialService` refactored to single port owner with `asyncio.Lock`; `send()` queues commands when stream is active (clip-end flush policy); `streamCodec(bin_path, loop)` sliding-window ACK streamer (ported from stream_to_device.py); `DeviceManager.play_clip/stop_clip` + clip registry (`assets/codec/<name>.bin`); HTTP endpoints `POST /api/device/play-clip` + `/stop-clip`; `USE_CODEC_DEVICE` flag in `codecConfig.ts` (default false); `useAnimationEngine` gates raw-frame pump on flag; old frame path preserved for Step 6 removal
   - [ ] Step 5 — Preview canvas wired to codec frames (already done via OledPreview frameBuffer; Step 3 completes this)
   - [ ] Step 6 — mp4 pipeline removal (after parity validated)
 - [ ] **F3.7** Fallback: flash'a 1 idle klip preload — disconnect durumunda standalone yaşar

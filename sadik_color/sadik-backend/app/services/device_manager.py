@@ -1,15 +1,38 @@
+import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 from app.services.serial_service import serial_service
 from app.services.wifi_device_service import wifi_device_service
 
 logger = logging.getLogger(__name__)
 
+# ── Clip registry ─────────────────────────────────────────────────────────────
+# .bin files live in sadik-backend/../assets/codec/<name>.bin
+# This mirrors the webpack CopyPlugin convention: assets/codec/ is served as
+# /animations/personas/sadik/codec/ by the Electron/webpack frontend.
+# Backend resolves to the same source tree directory; no duplication.
+_ASSETS_CODEC_DIR = (
+    Path(__file__).resolve()          # device_manager.py
+    .parent.parent.parent             # sadik_color/
+    / "assets" / "codec"
+)
+
+
+def resolve_clip_bin(name: str) -> Optional[Path]:
+    """Resolve clip name → absolute .bin path.  Returns None if not found."""
+    p = _ASSETS_CODEC_DIR / f"{name}.bin"
+    if p.exists():
+        return p
+    logger.warning(f"Clip not found: {p}")
+    return None
+
 class DeviceManager:
     def __init__(self):
         self._method: Optional[str] = None
         self._port: Optional[str] = None
         self._ip: Optional[str] = None
+        self._active_stream_task: Optional[asyncio.Task] = None
 
     async def connect(self, method: str, port: Optional[str] = None, ip: Optional[str] = None, baudrate: int = 921600) -> bool:
         await self.disconnect()
@@ -130,5 +153,47 @@ class DeviceManager:
             "port": self._port,
             "ip": self._ip,
         }
+
+    # ── Codec clip streaming ──────────────────────────────────────────────────
+
+    async def play_clip(self, name: str, loop: bool = False) -> dict:
+        """
+        Start streaming a .bin clip to the device (serial only for now).
+
+        Resolves the clip name to a .bin path, cancels any in-flight stream,
+        then fires the new stream in a background asyncio.Task so this method
+        returns immediately.  The caller can await the task if it needs to know
+        when the clip finishes.
+
+        Returns a status dict so the HTTP layer can respond synchronously.
+        """
+        if self._method != "serial":
+            return {"success": False, "error": "play_clip requires serial connection"}
+
+        bin_path = resolve_clip_bin(name)
+        if bin_path is None:
+            return {"success": False, "error": f"Clip not found: {name}"}
+
+        # Stop any running stream first
+        await self.stop_clip()
+
+        logger.info(f"play_clip: starting {name} (loop={loop})")
+        self._active_stream_task = asyncio.create_task(
+            serial_service.streamCodec(str(bin_path), loop=loop),
+            name=f"codec_stream_{name}",
+        )
+        return {"success": True, "clip": name, "loop": loop}
+
+    async def stop_clip(self) -> None:
+        """Abort an in-flight codec stream (no-op if nothing is streaming)."""
+        serial_service.stopCodec()
+        if self._active_stream_task and not self._active_stream_task.done():
+            logger.info("stop_clip: waiting for stream task to exit")
+            try:
+                await asyncio.wait_for(self._active_stream_task, timeout=3.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._active_stream_task.cancel()
+        self._active_stream_task = None
+
 
 device_manager = DeviceManager()

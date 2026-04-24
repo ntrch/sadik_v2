@@ -38,6 +38,13 @@ export interface SleepTimeoutResult {
   message: string;
 }
 
+export interface PlayClipResult {
+  success: boolean;
+  clip?: string;
+  loop?: boolean;
+  error?: string;
+}
+
 export const deviceApi = {
   getStatus: () => http.get<DeviceStatus>('/api/device/status').then((r) => r.data),
   connect: (data: { method: string; port?: string; ip?: string }) =>
@@ -58,4 +65,18 @@ export const deviceApi = {
     http.post<BrightnessResult>('/api/device/brightness', { percent }).then((r) => r.data),
   setSleepTimeout: (minutes: number) =>
     http.post<SleepTimeoutResult>('/api/device/sleep-timeout', { minutes }).then((r) => r.data),
+
+  /**
+   * Tell the backend to stream a codec .bin clip to the device.
+   * Backend resolves name → assets/codec/<name>.bin and streams via serial.
+   * Returns immediately; stream runs in background on the backend.
+   */
+  playClip: (name: string, loop = false) =>
+    http.post<PlayClipResult>('/api/device/play-clip', { name, loop }).then((r) => r.data),
+
+  /**
+   * Abort the current codec stream (no-op if nothing is playing).
+   */
+  stopClip: () =>
+    http.post<{ success: boolean }>('/api/device/stop-clip').then((r) => r.data),
 };

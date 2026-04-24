@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { getAnimationEngine } from '../engine/AnimationEngine';
 import { EngineState, AnimationEventType } from '../engine/types';
 import { deviceApi } from '../api/device';
+import { USE_CODEC_DEVICE } from '../engine/codecConfig';
 
 /** Map sadik_position setting → clip direction for focus-look. */
 function positionToClipDirection(pos: 'left' | 'right' | 'top'): 'left' | 'right' | 'down' {
@@ -58,6 +59,12 @@ export function useAnimationEngine(
     //     the preview — so screen preview visually matches the OLED refresh
     //     rate exactly. When disconnected, preview repaints immediately on
     //     each engine emit (OLED path skipped entirely).
+    //
+    // USE_CODEC_DEVICE path (flag in codecConfig.ts):
+    //   The raw-frame pump is disabled.  Instead, AnimationEngine clip changes
+    //   are detected via onStateChange and translated into device.playClip()
+    //   calls so the backend streams the .bin file directly to ESP32.
+    //   The preview still renders via onFrameReady (unchanged).
     const latestPendingBuffer: { current: Uint8Array | null } = { current: null };
     let frameCount = 0;
 
@@ -71,39 +78,77 @@ export function useAnimationEngine(
     });
 
     let pumpAlive = true;
-    const pump = async () => {
-      while (pumpAlive) {
-        const buf = latestPendingBuffer.current;
-        if (!buf || !deviceConnectedRef.current) {
-          await new Promise((r) => setTimeout(r, 30));
-          continue;
+
+    if (USE_CODEC_DEVICE) {
+      // ── Codec device path ──────────────────────────────────────────────────
+      // No raw-frame pump.  Engine state changes drive playClip() calls.
+      // We track last-sent clip to avoid redundant API calls on every rAF tick.
+      let lastDeviceClip: string | null = null;
+      let lastDeviceLoop: boolean | null = null;
+
+      engine.onStateChange(async (state) => {
+        if (!deviceConnectedRef.current) return;
+        const clip = state.currentClipName;
+        const loop = state.isPlaying ? (state.totalFrames > 0 && state.currentFrameIndex < state.totalFrames - 1 ? false : true) : false;
+        // Use the engine's own loop flag via the clip playback state
+        // (simpler: track clip name changes + playing state)
+        if (clip && clip !== lastDeviceClip && state.isPlaying) {
+          lastDeviceClip = clip;
+          lastDeviceLoop = loop;
+          console.log(`[CodecDevice] playClip → ${clip} (loop=${state.isPlaying})`);
+          try {
+            // loop flag: engine sets pb.loop per clip — we infer it from the
+            // playback mode (idle loops, explicit_clip usually doesn't).
+            const shouldLoop = state.playbackMode === 'idle';
+            await deviceApi.playClip(clip, shouldLoop);
+          } catch (e) {
+            console.warn('[CodecDevice] playClip failed:', e);
+          }
+        } else if (!state.isPlaying && lastDeviceClip) {
+          // Clip finished on engine side — stop the device stream too.
+          lastDeviceClip = null;
+          lastDeviceLoop = null;
+          try {
+            await deviceApi.stopClip();
+          } catch (_) { /* ignore */ }
         }
-        frameCount++;
-        if (frameCount <= 5 || frameCount % 60 === 0) {
-          console.log(`[FrameStream] sending frame #${frameCount}`);
+      });
+    } else {
+      // ── Raw-frame pump (legacy path, removed in Step 6) ───────────────────
+      const pump = async () => {
+        while (pumpAlive) {
+          const buf = latestPendingBuffer.current;
+          if (!buf || !deviceConnectedRef.current) {
+            await new Promise((r) => setTimeout(r, 30));
+            continue;
+          }
+          frameCount++;
+          if (frameCount <= 5 || frameCount % 60 === 0) {
+            console.log(`[FrameStream] sending frame #${frameCount}`);
+          }
+          let delivered = false;
+          try {
+            const res = await deviceApi.sendFrame(buf);
+            delivered = !!res.success;
+            if (!delivered) console.warn('[FrameStream] drop');
+          } catch (e) {
+            console.warn('[FrameStream] send failed:', e);
+          }
+          if (delivered) {
+            // Clear staged buffer only if no newer frame arrived during the send.
+            if (latestPendingBuffer.current === buf) latestPendingBuffer.current = null;
+          }
+          // On drop: leave buf staged so next pump iteration retries the same
+          // frame. This rescues the held last-frame of non-looping clips (e.g.
+          // 'confirming' freeze) — the engine stops emitting new frames in that
+          // state, so if we cleared the buffer a drop would freeze both sides.
+          // Newer frames from onFrameReady naturally overwrite during retry.
+          // No sleep — device_manager's 250 ms serial ACK timeout is the natural
+          // rate limit, and retries must be tight to keep OLED/preview in sync.
         }
-        let delivered = false;
-        try {
-          const res = await deviceApi.sendFrame(buf);
-          delivered = !!res.success;
-          if (!delivered) console.warn('[FrameStream] drop');
-        } catch (e) {
-          console.warn('[FrameStream] send failed:', e);
-        }
-        if (delivered) {
-          // Clear staged buffer only if no newer frame arrived during the send.
-          if (latestPendingBuffer.current === buf) latestPendingBuffer.current = null;
-        }
-        // On drop: leave buf staged so next pump iteration retries the same
-        // frame. This rescues the held last-frame of non-looping clips (e.g.
-        // 'confirming' freeze) — the engine stops emitting new frames in that
-        // state, so if we cleared the buffer a drop would freeze both sides.
-        // Newer frames from onFrameReady naturally overwrite during retry.
-        // No sleep — device_manager's 250 ms serial ACK timeout is the natural
-        // rate limit, and retries must be tight to keep OLED/preview in sync.
-      }
-    };
-    pump();
+      };
+      pump();
+    }
 
     // Register state change listener (throttled in the RAF loop instead)
     engine.onStateChange((state) => {

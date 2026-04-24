@@ -29,3 +29,7 @@ class BrightnessRequest(BaseModel):
 
 class SleepTimeoutRequest(BaseModel):
     minutes: int
+
+class PlayClipRequest(BaseModel):
+    name: str
+    loop: bool = False

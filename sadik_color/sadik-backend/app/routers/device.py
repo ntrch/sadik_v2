@@ -1,7 +1,7 @@
 import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from app.schemas.device import DeviceConnect, DeviceCommand, DeviceStatusResponse, AutoConnectResult, BrightnessRequest, SleepTimeoutRequest
+from app.schemas.device import DeviceConnect, DeviceCommand, DeviceStatusResponse, AutoConnectResult, BrightnessRequest, SleepTimeoutRequest, PlayClipRequest
 from app.services.device_manager import device_manager
 from app.services.serial_service import serial_service
 from app.services.ws_manager import ws_manager
@@ -133,4 +133,30 @@ async def send_command(body: DeviceCommand):
     await ws_manager.broadcast({"type": "device_command", "data": {"command": body.command}})
     if not ok:
         return {"success": False, "error": error or "Failed to send command"}
+    return {"success": True}
+
+
+@router.post("/play-clip")
+async def play_clip(body: PlayClipRequest):
+    """
+    Tell the backend to stream a codec .bin clip to the device.
+
+    The backend resolves the clip name → assets/codec/<name>.bin, acquires the
+    serial mutex, and streams packets with the same sliding-window ACK protocol
+    used by tools/codec/stream_to_device.py.  Any text commands (brightness, mode
+    switch) that arrive while the stream is in progress are queued and sent after
+    the clip ends.
+
+    This endpoint returns immediately (stream runs in background).
+    """
+    result = await device_manager.play_clip(body.name, loop=body.loop)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "play_clip failed"))
+    return result
+
+
+@router.post("/stop-clip")
+async def stop_clip():
+    """Abort the current codec stream (no-op if nothing is playing)."""
+    await device_manager.stop_clip()
     return {"success": True}
