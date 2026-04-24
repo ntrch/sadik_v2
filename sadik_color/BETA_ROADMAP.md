@@ -97,6 +97,7 @@
 
 - [x] **F4.1** Backend codec ACK window 1 → 2–4 (sliding window, ref: `tools/codec/stream_to_device.py --window 2`). Target: 24fps steady on hold segments. — DONE (ported in F3.6 Step 4, confirmed Sprint-3; `_DEFAULT_WINDOW=2`, ACK reader thread + executor bridge, 1.5s timeout, IFRAME resync on timeout/RESYNC opcode).
   - [x] **F4.1b** `APP_CONNECTED` sent once at connect-time (after PING/PONG) to arm firmware codec decoder; `APP_DISCONNECTED` sent best-effort on close. `streamCodec` has no handshake — only `reset_input_buffer()`. Fixes `acked=0` / `TIMEOUT seq=0` / device stuck on boot splash regression introduced in b2ac54e.
+  - [x] **F4.1c** Diagnostic log added to `_run_codec_stream`: `window={N} outstanding_max={M}` logged at stream end. If `outstanding_max=1` → firmware serializes (fix is F4.2 ABORT_STREAM, not host-side); if `outstanding_max=2` → window saturated and ~20fps expected. Host-side window logic confirmed structurally correct after line-for-line audit vs `stream_to_device.py` reference.
 - [ ] **F4.2** Firmware `ABORT_STREAM` opcode — `stop_clip` wires to this so scene-switch race (current 7–8s timeout → "skip to IFRAME") is eliminated. Closes the race where backend aborts host-side while firmware decoder state isn't signaled.
 - [ ] **F4.3** Firmware `PAUSE_CODEC` / `RESUME_CODEC` — enables frame-boundary command injection so brightness mid-stream latency drops from ~clip-length to <50ms.
 - [ ] **F4.4** Baud ramp 921600 → 1.5M (formerly F3.5; verify with existing `tools/baud-test/` harness first; IFRAME worst-case 450ms → ~280ms).

@@ -634,12 +634,15 @@ class SerialService:
             ack_thread = _threading.Thread(target=_read_acks, daemon=True)
             ack_thread.start()
 
+            logger.info(f"streamCodec: window={_DEFAULT_WINDOW} starting — watching outstanding_max")
+
             total_pkts  = len(packets)
             send_idx    = 0
             in_flight   = deque()
             frames_sent = 0
             frames_acked = 0
             resync_count = 0
+            max_outstanding = 0  # diagnostic: track peak in-flight count
 
             try:
                 while (send_idx < total_pkts or in_flight) and not self._abort_stream:
@@ -649,6 +652,8 @@ class SerialService:
                         frames_sent += 1
                         in_flight.append((seq, time.monotonic(), 0, send_idx))
                         send_idx += 1
+                        if len(in_flight) > max_outstanding:
+                            max_outstanding = len(in_flight)
 
                     if not in_flight:
                         break
@@ -705,6 +710,10 @@ class SerialService:
                                 frames_sent += 1
                                 in_flight.appendleft((seq_r, time.monotonic(), retries + 1, pkt_idx_r))
             finally:
+                logger.info(
+                    f"streamCodec: window={_DEFAULT_WINDOW} outstanding_max={max_outstanding} "
+                    f"— {'firmware serializes (F4.2)' if max_outstanding <= 1 else 'window saturated OK'}"
+                )
                 self._abort_stream = True   # signal ACK thread to stop
                 ack_thread.join(timeout=1.0)
                 self._abort_stream = False  # reset for next call
