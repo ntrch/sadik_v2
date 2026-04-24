@@ -6,7 +6,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/blink.bin"
   },
   {
     "name": "idle",
@@ -15,7 +16,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": true
+    "loop": true,
+    "codecSource": "codec/idle.bin"
   },
   {
     "name": "idle_alt_look_down",
@@ -24,7 +26,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/idle_alt_look_down.bin"
   },
   {
     "name": "idle_alt_look_left",
@@ -33,7 +36,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/idle_alt_left_look.bin"
   },
   {
     "name": "idle_alt_look_right",
@@ -42,7 +46,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/idle_alt_right_look.bin"
   },
   {
     "name": "confirming",
@@ -51,7 +56,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/confirming.bin"
   },
   {
     "name": "didnt_hear",
@@ -60,7 +66,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/didnthear.bin"
   },
   {
     "name": "goodbye_to_idle",
@@ -69,7 +76,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/return_to_idle.bin"
   },
   {
     "name": "listening",
@@ -78,7 +86,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/listening.bin"
   },
   {
     "name": "talking",
@@ -87,7 +96,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/talking.bin"
   },
   {
     "name": "thinking",
@@ -96,7 +106,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/thinking.bin"
   },
   {
     "name": "understanding",
@@ -105,7 +116,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/understanding.bin"
   },
   {
     "name": "waking",
@@ -114,7 +126,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/wakeword.bin"
   },
   {
     "name": "done",
@@ -123,7 +136,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": false
+    "loop": false,
+    "codecSource": "codec/done.bin"
   },
   {
     "name": "mood_gaming",
@@ -177,7 +191,8 @@
     "width": 160,
     "height": 128,
     "fps": 24,
-    "loop": true
+    "loop": true,
+    "codecSource": "codec/break_text.bin"
   },
   {
     "name": "mood_meeting_text",

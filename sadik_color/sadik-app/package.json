@@ -9,7 +9,8 @@
     "build": "webpack --mode production",
     "electron": "electron .",
     "convert:animation": "node scripts/convert-cpp-animation.js",
-    "convert:animations": "node scripts/batch-convert-animations.js"
+    "convert:animations": "node scripts/batch-convert-animations.js",
+    "build:codec": "node ../tools/build-codec-assets.mjs"
   },
   "dependencies": {
     "@ricky0123/vad-web": "^0.0.30",

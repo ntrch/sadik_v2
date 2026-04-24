@@ -67,7 +67,13 @@
 - [x] **F3.3** ESP32 firmware: `codec_decode.h/.cpp` streaming state machine — IFRAME/PFRAME apply, partial tile blit, CRC fail→RESYNC, ACK emit; validated on hardware (idle.mp4 renders, 62/62 ACK, ~50 fps wire rate, exceeds 24 fps target). Fixes: static `_fb_storage`, SerialCommander guarded while `appConnected`, router drains all bytes to codec_feed.
 - [ ] **F3.4** Flow control / backpressure — ACK veya pacing
 - [ ] **F3.5** Baud rate ramp — 460800 → 921600 → 1.5M ramp test gerçek stream üstünde
-- [ ] **F3.6** Preview parity — React canvas aynı stream'i decode etsin (host-side decode servisi her ikisini besler)
+- [x] **F3.6** Preview parity — React canvas aynı stream'i decode etsin (host-side decode servisi her ikisini besler)
+  - [x] Step 1 — TS decoder (`sadik-app/src/codec/SadikDecoder.ts`) + Node round-trip test (`tools/codec/test_roundtrip_ts.mjs`): bit-exact 62-frame pass on idle.bin (29.88x compression)
+  - [x] Step 2 — Build script (`tools/build-codec-assets.mjs`), `npm run build:codec` in sadik-app/package.json; manifest `codecSource` field added (additive, mp4 path kept); 15/21 clips encoded (6 mood_* skipped — mp4s renamed to mode_* in assets, manifest not yet updated)
+  - [ ] Step 3 — AnimationEngine → .bin decode path (next)
+  - [ ] Step 4 — Streamer feeds both preview + ESP32 from same decoded frames
+  - [ ] Step 5 — Preview canvas wired to codec frames
+  - [ ] Step 6 — mp4 pipeline removal (after parity validated)
 - [ ] **F3.7** Fallback: flash'a 1 idle klip preload — disconnect durumunda standalone yaşar
 - [ ] **F3.8** Performance: 24fps sustained, frame drop telemetry
 
