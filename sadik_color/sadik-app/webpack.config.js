@@ -55,6 +55,13 @@ module.exports = (env, argv) => {
           { from: 'node_modules/onnxruntime-web/dist/*.mjs', to: 'vad/[name][ext]', noErrorOnMissing: true },
           { from: 'public/wake-models', to: 'wake-models', noErrorOnMissing: true },
           { from: 'public/animations', to: 'animations', noErrorOnMissing: true },
+          // Codec .bin files live in sadik_color/assets/codec/ (produced by
+          // build:codec) and are served under the same persona base dir as mp4s.
+          {
+            from: '../assets/codec/*.bin',
+            to: 'animations/personas/sadik/codec/[name][ext]',
+            noErrorOnMissing: true,
+          },
         ],
       }),
     ],

@@ -7,6 +7,8 @@ import {
   AnimationEventType,
 } from './types';
 import { EVENT_TO_CLIP, LOOPING_EVENT_CLIPS, AUTO_RETURN_CLIPS, EVENT_DISPLAY_TEXT } from './eventMapping';
+import { USE_CODEC_PREVIEW } from './codecConfig';
+import { decodeBin } from '../codec/SadikDecoder';
 
 const FRAME_W = 160;
 const FRAME_H = 128;
@@ -142,6 +144,24 @@ function renderTextToRgb565(text: string): Uint8Array {
   return rgb565;
 }
 
+/**
+ * Load a .bin codec clip from a URL and decode it into an array of RGB565 LE
+ * frames (Uint8Array, FRAME_BYTES each) — same format as decodeMp4ToRgb565Frames.
+ *
+ * SadikDecoder.decodeBin() returns Uint16Array[] (RGB565 pixels, LE).
+ * We reinterpret each Uint16Array as a Uint8Array view — the bytes are identical;
+ * no pixel conversion occurs.  OledPreview already reads the buffer as LE bytes.
+ */
+async function loadCodecClip(url: string): Promise<Uint8Array[]> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} loading codec: ${url}`);
+  const arrayBuf = await res.arrayBuffer();
+  const u8 = new Uint8Array(arrayBuf);
+  const frames16 = decodeBin(u8);
+  // Reinterpret: Uint16Array backing bytes are already RGB565 LE — same as mp4 path.
+  return frames16.map((f) => new Uint8Array(f.buffer, f.byteOffset, f.byteLength));
+}
+
 export class AnimationEngine {
   private clips: Map<string, ClipData> = new Map();
   private frameBuffer: Uint8Array = new Uint8Array(FRAME_BYTES);
@@ -219,16 +239,27 @@ export class AnimationEngine {
 
       const loadClipEntry = async (entry: ClipManifestEntry) => {
         try {
-          const r = await fetch(`${base}/${entry.source}`);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const blob = await r.blob();
-          const url = URL.createObjectURL(blob);
-          const frames = await decodeMp4ToRgb565Frames(
-            url,
-            entry.width ?? FRAME_W,
-            entry.height ?? FRAME_H,
-            entry.fps ?? 12,
-          );
+          let frames: Uint8Array[];
+
+          if (USE_CODEC_PREVIEW && entry.codecSource) {
+            // Codec path: fetch .bin → decode → Uint8Array[] (RGB565 LE bytes)
+            const binUrl = `${base}/${entry.codecSource}`;
+            console.log(`[AnimationEngine] codec load: ${entry.name} (${entry.codecSource})`);
+            frames = await loadCodecClip(binUrl);
+          } else {
+            // Mp4 fallback: video element → OffscreenCanvas → RGB565
+            const r = await fetch(`${base}/${entry.source}`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            frames = await decodeMp4ToRgb565Frames(
+              url,
+              entry.width ?? FRAME_W,
+              entry.height ?? FRAME_H,
+              entry.fps ?? 12,
+            );
+          }
+
           const clip: ClipData = {
             name: entry.name,
             width: entry.width ?? FRAME_W,

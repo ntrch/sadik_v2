@@ -2,6 +2,8 @@ export interface ClipManifestEntry {
   name: string;
   category: 'ambient' | 'core';
   source: string;
+  /** Path to .bin codec file, relative to the persona base dir (e.g. "codec/idle.bin"). */
+  codecSource?: string;
   width: number;
   height: number;
   fps: number;
