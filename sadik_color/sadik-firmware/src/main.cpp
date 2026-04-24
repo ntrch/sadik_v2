@@ -127,7 +127,7 @@ void setup() {
 
     // ── Boot splash ───────────────────────────────────────────────────────────
     // drawTwoLineText writes to TFT directly; sendBuffer is a no-op for text paths.
-    display.drawTwoLineText("SADIK", "v2.0");
+    display.drawRainbowText("COLOR");
     delay(2000);
 
     display.drawText("Hazir");

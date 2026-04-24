@@ -236,6 +236,39 @@ public:
         _tft.print(text);
     }
 
+    // Draw a single centred line where each character gets its own RGB565 colour.
+    // Used for the COLOR boot splash so the operator can confirm at a glance
+    // that the renk-supporting firmware is flashed.
+    void drawRainbowText(const char* text, uint8_t size = 3) {
+        _tft.fillRect(LEGACY_FB_OFFSET_X, LEGACY_FB_OFFSET_Y,
+                      LEGACY_FB_WIDTH, LEGACY_FB_HEIGHT, DM_BLACK);
+        _tft.setTextSize(size);
+
+        static const uint16_t palette[] = {
+            0xF800, // red
+            0xFD20, // orange
+            0xFFE0, // yellow
+            0x07E0, // green
+            0x07FF, // cyan
+            0x001F, // blue
+            0xF81F, // magenta
+        };
+        const int paletteLen = sizeof(palette) / sizeof(palette[0]);
+
+        int16_t charW = 6 * size;
+        int16_t charH = 8 * size;
+        int16_t n = static_cast<int16_t>(strlen(text));
+        int16_t w = n * charW;
+        int16_t x = LEGACY_FB_OFFSET_X + (LEGACY_FB_WIDTH  - w)     / 2;
+        int16_t y = LEGACY_FB_OFFSET_Y + (LEGACY_FB_HEIGHT - charH) / 2;
+
+        for (int16_t i = 0; i < n; i++) {
+            _tft.setTextColor(palette[i % paletteLen], DM_BLACK);
+            _tft.setCursor(x + i * charW, y);
+            _tft.print(text[i]);
+        }
+    }
+
     // Draw a single centred line in the largest text size.
     void drawTextLarge(const char* text) {
         _tft.fillRect(LEGACY_FB_OFFSET_X, LEGACY_FB_OFFSET_Y,
