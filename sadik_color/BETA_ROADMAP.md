@@ -60,14 +60,20 @@
 - [x] mp4 kaynak asset'ler `sadik_color/assets/` dizinine eklendi
 - [ ] **Bilinen sorun (deferred)**: Tamam yazısı görünüyor; animasyon logic revisit sprint-2 sonrası yapılacak
 
+### Sprint-2 — Faz 3 codec pipeline ✅ CLOSED (baseline commit `b2ac54e`, 2026-04-24)
+
+**Summary:** Codec pipeline end-to-end: mp4 → .bin build, TS decoder bit-exact (62/62 frames), backend streamer with manifest resolution, preview+device flag-gated, scene-switch debounce. FPS ~10.7 on device (window=1 ACK), preview smooth at 24fps. TFT↔preview bit-exact, latency ~200ms.
+
+**Known race condition (Sprint-3):** `stream_to_device.py` is the known-working reference for packet flow. The race condition today is because backend aborts host-side while firmware decoder state isn't signaled — ABORT_STREAM opcode (F4.2) closes that loop. Current workaround: 7–8s timeout → "skip to IFRAME".
+
 ### Faz 3 — Renkli streaming mimarisi (Faz 2 ile paralel tasarım)
 
 - [x] **F3.1** Build-time: ffmpeg ile mp4 → RGB565 raw frames → delta+RLE sıkıştır → `.bin` paket — DONE (commit Sprint-2, roundtrip bit-exact, 29x compression on blink/idle)
-- [x] **F3.2** Host streaming: `tools/codec/stream_to_device.py` standalone streamer — window-2 sliding ACK, 1500ms timeout/resend, SADIK:READY+APP_CONNECTED handshake, self-test CRC verify
-- [x] **F3.3** ESP32 firmware: `codec_decode.h/.cpp` streaming state machine — IFRAME/PFRAME apply, partial tile blit, CRC fail→RESYNC, ACK emit; validated on hardware (idle.mp4 renders, 62/62 ACK, ~50 fps wire rate, exceeds 24 fps target). Fixes: static `_fb_storage`, SerialCommander guarded while `appConnected`, router drains all bytes to codec_feed.
+- [x] **F3.2** Host streaming: `tools/codec/stream_to_device.py` standalone streamer — window-2 sliding ACK, 1500ms timeout/resend, SADIK:READY+APP_CONNECTED handshake, self-test CRC verify — DONE
+- [x] **F3.3** ESP32 firmware: `codec_decode.h/.cpp` streaming state machine — IFRAME/PFRAME apply, partial tile blit, CRC fail→RESYNC, ACK emit; validated on hardware (idle.mp4 renders, 62/62 ACK, ~50 fps wire rate, exceeds 24 fps target). Fixes: static `_fb_storage`, SerialCommander guarded while `appConnected`, router drains all bytes to codec_feed — DONE
 - [ ] **F3.4** Flow control / backpressure — ACK veya pacing
-- [ ] **F3.5** Baud rate ramp — 460800 → 921600 → 1.5M ramp test gerçek stream üstünde
-- [x] **F3.6** Preview parity — React canvas aynı stream'i decode etsin (host-side decode servisi her ikisini besler)
+- [ ] **F3.5** Baud rate ramp — 460800 → 921600 → 1.5M ramp test gerçek stream üstünde *(deferred → Sprint-3 F4.4)*
+- [x] **F3.6** Preview parity — React canvas aynı stream'i decode etsin (host-side decode servisi her ikisini besler) — DONE
   - [x] Step 1 — TS decoder (`sadik-app/src/codec/SadikDecoder.ts`) + Node round-trip test (`tools/codec/test_roundtrip_ts.mjs`): bit-exact 62-frame pass on idle.bin (29.88x compression)
   - [x] Step 2 — Build script (`tools/build-codec-assets.mjs`), `npm run build:codec` in sadik-app/package.json; manifest `codecSource` field added (additive, mp4 path kept); 15/21 clips encoded (6 mood_* skipped — mp4s renamed to mode_* in assets, manifest not yet updated)
   - [x] Step 2.5 — Manifest source paths fixed (mood_*.mp4 → mode_*.mp4); 6 remaining clips encoded; all 21 entries have codecSource; mood_* mp4s git-renamed to mode_*
@@ -76,12 +82,25 @@
   - [x] Step 4.5 — F3.6 bug fixes: (1) `USE_CODEC_DEVICE` flipped to `true` (was left false); (2) duplicate `onStateChange` listener bug fixed — codec+UI state merged into single handler so playClip dispatch is not overwritten; (3) `streamCodec` now sends `APP_CONNECTED\n` + waits for `OK:APP_CONNECTED` before streaming (matches stream_to_device.py handshake — firmware requires this to arm codec decoder)
   - [x] Step 4.6 — Backend path + name-resolution fixes: `_ASSETS_CODEC_DIR` corrected to `parents[3]/assets/codec` (was resolving to non-existent `sadik-backend/assets/codec`); `resolve_clip_bin()` now builds a manifest-based `name→abs_path` dict at import from `clips-manifest.json` (21 clips mapped); handles `mood_*→mode_*.bin`, `didnt_hear→didnthear.bin`, `goodbye_to_idle→return_to_idle.bin`, `waking→wakeword.bin` mismatches; fallback to `<name>.bin` preserved
   - [x] Step 4.7 — F3.6 perf fixes: (1) per-stream APP_CONNECTED handshake removed from `streamCodec` — backend keeps persistent connection, firmware armed at connect (PONG verified); only `reset_input_buffer()` kept pre-stream to drop stale bytes; (2) 200ms trailing debounce + coalescing added to `useAnimationEngine.ts` — rapid scene churn (blink/look/hold) collapsed to single playClip per 200ms window; same-clip coalesce prevents redundant stop+start; device scene trails preview by ≤200ms
-  - [ ] Step 5 — Preview canvas wired to codec frames (already done via OledPreview frameBuffer; Step 3 completes this)
-  - [ ] Step 6 — mp4 pipeline removal (after parity validated)
+  - [x] Step 5 — Preview canvas wired to codec frames (done via OledPreview frameBuffer; Step 3 completed this)
+  - [ ] Step 6 — mp4 pipeline removal (after Sprint-3 F4.6 smoke test)
 - [ ] **F3.7** Fallback: flash'a 1 idle klip preload — disconnect durumunda standalone yaşar
 - [ ] **F3.8** Performance: 24fps sustained, frame drop telemetry
 
 **Exit criteria**: Tüm renkli klipler 24fps'de akar, preview ile ESP32 senkron, baudrate budget içinde.
+
+---
+
+### Sprint-3 — Faz 4 (performance + firmware control opcodes) — AKTİF
+
+**Exit criteria:** v2 parity feel: 24fps steady, scene-switch <500ms perceived, preview-device lag <100ms, event→clip mapping zero drops.
+
+- [ ] **F4.1** Backend codec ACK window 1 → 2–4 (sliding window, ref: `tools/codec/stream_to_device.py --window 2`). Target: 24fps steady on hold segments.
+- [ ] **F4.2** Firmware `ABORT_STREAM` opcode — `stop_clip` wires to this so scene-switch race (current 7–8s timeout → "skip to IFRAME") is eliminated. Closes the race where backend aborts host-side while firmware decoder state isn't signaled.
+- [ ] **F4.3** Firmware `PAUSE_CODEC` / `RESUME_CODEC` — enables frame-boundary command injection so brightness mid-stream latency drops from ~clip-length to <50ms.
+- [ ] **F4.4** Baud ramp 921600 → 1.5M (formerly F3.5; verify with existing `tools/baud-test/` harness first; IFRAME worst-case 450ms → ~280ms).
+- [ ] **F4.5** Preview↔device latency measurement — video-cue-based, target ≤100ms steady-state.
+- [ ] **F4.6** 22-clip hardware smoke test + no-drop verification (mp4 pipeline removal gated on this passing).
 
 ---
 
