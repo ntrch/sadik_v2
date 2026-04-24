@@ -95,7 +95,7 @@
 
 **Exit criteria:** v2 parity feel: 24fps steady, scene-switch <500ms perceived, preview-device lag <100ms, event→clip mapping zero drops.
 
-- [ ] **F4.1** Backend codec ACK window 1 → 2–4 (sliding window, ref: `tools/codec/stream_to_device.py --window 2`). Target: 24fps steady on hold segments.
+- [x] **F4.1** Backend codec ACK window 1 → 2–4 (sliding window, ref: `tools/codec/stream_to_device.py --window 2`). Target: 24fps steady on hold segments. — DONE (ported in F3.6 Step 4, confirmed Sprint-3; `_DEFAULT_WINDOW=2`, ACK reader thread + executor bridge, 1.5s timeout, IFRAME resync on timeout/RESYNC opcode).
 - [ ] **F4.2** Firmware `ABORT_STREAM` opcode — `stop_clip` wires to this so scene-switch race (current 7–8s timeout → "skip to IFRAME") is eliminated. Closes the race where backend aborts host-side while firmware decoder state isn't signaled.
 - [ ] **F4.3** Firmware `PAUSE_CODEC` / `RESUME_CODEC` — enables frame-boundary command injection so brightness mid-stream latency drops from ~clip-length to <50ms.
 - [ ] **F4.4** Baud ramp 921600 → 1.5M (formerly F3.5; verify with existing `tools/baud-test/` harness first; IFRAME worst-case 450ms → ~280ms).
