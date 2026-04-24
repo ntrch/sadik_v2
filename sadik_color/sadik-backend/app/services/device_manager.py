@@ -243,12 +243,19 @@ class DeviceManager:
         """Abort an in-flight codec stream (no-op if nothing is streaming)."""
         serial_service.stopCodec()
         if self._active_stream_task and not self._active_stream_task.done():
-            logger.info("stop_clip: waiting for stream task to exit")
             try:
-                await asyncio.wait_for(self._active_stream_task, timeout=3.0)
+                await asyncio.wait_for(self._active_stream_task, timeout=1.0)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._active_stream_task.cancel()
         self._active_stream_task = None
+        # After host-side abort, tell firmware to drop any half-parsed packet
+        # bytes. Without this, the next stream's IFRAME lands on a stale parser
+        # state → TIMEOUT seq=0 → 7-8s freeze. 0.2s timeout is intentional.
+        aborted = await serial_service.send_abort_stream(timeout=0.2)
+        if aborted:
+            logger.info("stop_clip: firmware ABORTED")
+        else:
+            logger.warning("stop_clip: no OK:ABORTED within 200ms (continuing)")
 
 
 device_manager = DeviceManager()

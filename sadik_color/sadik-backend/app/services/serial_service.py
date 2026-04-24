@@ -475,6 +475,29 @@ class SerialService:
                 return True, None
 
 
+    async def send_abort_stream(self, timeout: float = 0.2) -> bool:
+        """Send ABORT_STREAM and wait for OK:ABORTED. Short timeout — do not block scene switch."""
+        if not self._serial or not self._serial.is_open:
+            return False
+        loop = asyncio.get_event_loop()
+        def _do():
+            try:
+                self._serial.reset_input_buffer()
+                self._serial.write(b"ABORT_STREAM\n")
+                deadline = time.monotonic() + timeout
+                buf = b""
+                while time.monotonic() < deadline:
+                    chunk = self._serial.read(64)
+                    if chunk:
+                        buf += chunk
+                        if b"OK:ABORTED" in buf:
+                            return True
+                return False
+            except Exception as e:
+                logger.warning(f"send_abort_stream: {e}")
+                return False
+        return await loop.run_in_executor(None, _do)
+
     async def streamCodec(
         self,
         bin_path: str,

@@ -21,6 +21,7 @@ enum CommandType {
     CMD_APP_CONNECTED,        // APP_CONNECTED   → app becomes animation authority
     CMD_APP_DISCONNECTED,     // APP_DISCONNECTED → firmware resumes autonomous idle
     CMD_FRAME_DATA,           // FRAME:<40960 binary bytes>\n → RGB565 LE frame for TFT
+    CMD_ABORT_STREAM,         // ABORT_STREAM → codec decoder state reset, host scene-switch sync
     CMD_UNKNOWN
 };
 
@@ -198,6 +199,9 @@ private:
 
         } else if (strcmp(_buf, "APP_DISCONNECTED") == 0) {
             _parsed.type = CMD_APP_DISCONNECTED;
+
+        } else if (strcmp(_buf, "ABORT_STREAM") == 0) {
+            _parsed.type = CMD_ABORT_STREAM;
 
         } else {
             // FRAME: is handled in binary mode via hasCommand(); not here.

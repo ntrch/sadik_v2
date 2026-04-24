@@ -56,3 +56,8 @@ void codec_feed(const uint8_t* bytes, size_t n);
 
 // Return the seq number of the last accepted packet (for manual ACK if needed).
 uint16_t codec_last_seq();
+
+// Reset the streaming parser to STATE_HUNT_MAGIC (keep framebuffer intact).
+// Call this after the host sends ABORT_STREAM so that a half-parsed packet
+// from the previous clip does not corrupt the next stream's IFRAME.
+void codec_abort();

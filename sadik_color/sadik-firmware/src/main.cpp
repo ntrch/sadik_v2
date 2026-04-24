@@ -363,6 +363,17 @@ void processCommand(ParsedCommand& cmd) {
             break;
         }
 
+        // ── ABORT_STREAM ──────────────────────────────────────────────────────
+        // Host signals that it has stopped sending codec packets.  Reset the
+        // firmware decoder state machine so the next stream's IFRAME lands on a
+        // clean parser (prevents 7-8s TIMEOUT seq=0 freeze on scene switch).
+        // Framebuffer is kept intact — no visible black flash.
+        case CMD_ABORT_STREAM: {
+            codec_abort();
+            Serial.println("OK:ABORTED");
+            break;
+        }
+
         // ── APP_DISCONNECTED ──────────────────────────────────────────────────
         // The desktop app has disconnected.  Hand animation authority back to
         // the firmware autonomous idle orchestrator.

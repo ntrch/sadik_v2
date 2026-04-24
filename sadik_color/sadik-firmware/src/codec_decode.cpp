@@ -250,6 +250,14 @@ static void _reset_parser() {
     _pkt_crc     = 0;
 }
 
+// ---------------------------------------------------------------------------
+// Public API — codec_abort
+// ---------------------------------------------------------------------------
+
+void codec_abort() {
+    _reset_parser();
+}
+
 // ACK packet: [0xC5][0x03][seq_lo][seq_hi][0x00][0x00][crc_lo][crc_hi]
 // Payload length = 0, so CRC covers only the 6 header bytes (bytes 0-5).
 static void _emit_ack(uint16_t seq) {
