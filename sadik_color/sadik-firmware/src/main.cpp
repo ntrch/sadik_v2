@@ -10,6 +10,7 @@
 #include "idle_orchestrator.h"   // also pulls in clip_registry.h (guarded)
 #include "serial_commander.h"
 #include "text_renderer.h"
+#include "codec_decode.h"        // Sprint-2 F3.3: streaming codec decoder
 
 // ── Playback mode ─────────────────────────────────────────────────────────────
 
@@ -54,6 +55,15 @@ bool appConnected = false;
 void processCommand(ParsedCommand& cmd);
 void markActivity(const char* reason);
 void ensureAwake(const char* reason);
+void onCodecFrameReady(uint16_t seq, uint8_t type);
+
+// ── Codec byte-routing ────────────────────────────────────────────────────────
+// When 0xC5 magic byte arrives, route raw bytes to codec_feed() instead of
+// SerialCommander.  Both paths are active simultaneously; codec_feed() hunts
+// for 0xC5 itself, so we simply drain all available bytes into it when a
+// codec stream is in flight (appConnected must be true).
+// Scratch buffer for batched Serial.readBytes() → codec_feed() calls.
+static uint8_t _codecScratch[256];
 
 // =============================================================================
 // markActivity
@@ -100,6 +110,20 @@ void ensureAwake(const char* reason) {
 void setup() {
     serialCmd.begin();      // Serial.begin(SERIAL_BAUD) + reset parser state
     display.begin();        // SPI init + TFT controller init (prints BOOT:OK to serial)
+
+    // ── Codec decoder init (Sprint-2 F3.3) ───────────────────────────────────
+    // Allocates 40 KB heap framebuffer; must come after display.begin() so
+    // we know the TFT object is fully initialised.
+    {
+        // DisplayManager wraps Adafruit_ST7735 privately; we access the TFT
+        // directly by exposing it via the codec path.  The decoder needs the
+        // raw Adafruit_ST7735 pointer, which DisplayManager holds privately.
+        // Work-around: pass nullptr here and let codec_decode call
+        // display.pushFrameRgb565() / pushTileRgb565() via the callback.
+        // Actual blit is handled in onCodecFrameReady — see below.
+        codec_init(display.tft());   // pass raw ST7735 pointer for tile blits
+        codec_on_frame_ready(onCodecFrameReady);
+    }
 
     // ── Boot splash ───────────────────────────────────────────────────────────
     // drawTwoLineText writes to TFT directly; sendBuffer is a no-op for text paths.
@@ -392,10 +416,50 @@ void processCommand(ParsedCommand& cmd) {
 }
 
 // =============================================================================
+// onCodecFrameReady — Sprint-2 F3.3
+// Called by codec_decode after each successfully applied frame packet.
+// Used to update firmware state (wake, activity, mode).
+// NOTE: actual blitting is done inside codec_decode.cpp (it holds the TFT ptr).
+// =============================================================================
+
+void onCodecFrameReady(uint16_t seq, uint8_t type) {
+    ensureAwake("CODEC_FRAME");
+    markActivity("CODEC_FRAME");
+
+    if (currentMode != MODE_FRAME_STREAM) {
+        idleOrchestrator.pause();
+        clipPlayer.stop();
+        textRenderer.clear();
+        currentMode = MODE_FRAME_STREAM;
+    }
+    // ACK is emitted by codec_decode directly over Serial (binary packet).
+    (void)seq; (void)type;
+}
+
+// =============================================================================
 // loop
 // =============================================================================
 
 void loop() {
+    // 0. Codec byte router — Sprint-2 F3.3
+    //    When appConnected: peek at the serial buffer. If the first byte is the
+    //    codec magic (0xC5), drain all available bytes into codec_feed() in
+    //    chunks.  codec_feed() is a state machine that hunts for magic itself,
+    //    so passing arbitrary chunks is safe.
+    //    The SerialCommander path (step 1) handles non-codec text commands.
+    //    Both can coexist because SerialCommander only activates on '\n'-
+    //    terminated lines; a codec stream never emits '\n'.
+    if (appConnected && Serial.available() > 0 && Serial.peek() == (int)CODEC_MAGIC) {
+        size_t avail = (size_t)Serial.available();
+        while (avail > 0) {
+            size_t chunk = (avail < sizeof(_codecScratch)) ? avail : sizeof(_codecScratch);
+            size_t got   = Serial.readBytes(_codecScratch, chunk);
+            if (got == 0) break;
+            codec_feed(_codecScratch, got);
+            avail = (size_t)Serial.available();
+        }
+    }
+
     // 1. Non-blocking serial command check — parse at most one command per tick.
     if (serialCmd.hasCommand()) {
         ParsedCommand cmd = serialCmd.getCommand();

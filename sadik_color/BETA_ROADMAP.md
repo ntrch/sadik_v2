@@ -63,8 +63,8 @@
 ### Faz 3 — Renkli streaming mimarisi (Faz 2 ile paralel tasarım)
 
 - [x] **F3.1** Build-time: ffmpeg ile mp4 → RGB565 raw frames → delta+RLE sıkıştır → `.bin` paket — DONE (commit Sprint-2, roundtrip bit-exact, 29x compression on blink/idle)
-- [ ] **F3.2** Host streaming: app yeni codec ile frame paketi gönderir, mevcut serial pipeline extend
-- [ ] **F3.3** ESP32 firmware: incoming delta paket → framebuffer patch → Adafruit_ST7735 push
+- [x] **F3.2** Host streaming: `tools/codec/stream_to_device.py` standalone streamer — window-2 sliding ACK, 150ms timeout/resend, self-test CRC verify (commit Sprint-2 F3.2+F3.3)
+- [x] **F3.3** ESP32 firmware: `codec_decode.h/.cpp` streaming state machine — IFRAME/PFRAME apply, partial tile blit, CRC fail→RESYNC, ACK emit; wired into `main.cpp` beside Sprint-1 path (commit Sprint-2 F3.2+F3.3)
 - [ ] **F3.4** Flow control / backpressure — ACK veya pacing
 - [ ] **F3.5** Baud rate ramp — 460800 → 921600 → 1.5M ramp test gerçek stream üstünde
 - [ ] **F3.6** Preview parity — React canvas aynı stream'i decode etsin (host-side decode servisi her ikisini besler)

@@ -309,6 +309,11 @@ public:
     // Kept as alias so any remaining call sites still compile.
     void showRawFrame(const uint8_t* buf) { pushFrameRgb565(buf); }
 
+    // ── Codec decoder access ───────────────────────────────────────────────
+    // Expose raw TFT pointer so codec_decode.cpp can call setAddrWindow /
+    // writePixels directly for partial tile updates (Sprint-2 F3.3).
+    Adafruit_ST7735* tft() { return &_tft; }
+
 private:
     Adafruit_ST7735 _tft;
 
