@@ -64,10 +64,32 @@ static uint16_t*    _fb                 = _fb_storage;
 // Last accepted seq
 static uint16_t     _last_seq           = 0;
 
+// millis() of the most recently consumed byte while a packet is in flight.
+// Used by codec_tick() to detect stalled mid-packet parsers.
+static uint32_t     _last_byte_ms       = 0;
+
+// Stall threshold (ms). A well-formed codec packet is fully transmitted in
+// ~100 ms at 921600 baud even for a 40 KB IFRAME, so 150 ms is tight enough
+// to recover quickly on clip switch (host's ABORT_STREAM timeout is 200 ms)
+// without firing on merely slow streams.
+static const uint32_t CODEC_STALL_MS    = 150;
+
+// Small ASCII sniff buffer used inside STATE_HUNT_MAGIC. While the host is
+// appConnected, the main loop cannot safely call SerialCommander (racing the
+// UART driver semaphore crashes the system). The parser instead watches the
+// byte stream for newline-terminated ASCII commands that matter mid-stream
+// (currently only ABORT_STREAM) and handles them inline. The buffer is reset
+// on newline and whenever a magic byte is seen, so it never interferes with
+// real codec packets.
+#define CODEC_ASCII_MAX 32
+static char     _ascii_buf[CODEC_ASCII_MAX + 1];
+static uint8_t  _ascii_len = 0;
+
 // ---------------------------------------------------------------------------
 // Forward declarations
 // ---------------------------------------------------------------------------
 static void _reset_parser();
+static void _ascii_try_handle();
 static void _emit_ack(uint16_t seq);
 static void _emit_resync();
 static void _apply_iframe();
@@ -106,6 +128,7 @@ uint16_t codec_last_seq() {
 
 void codec_feed(const uint8_t* bytes, size_t n) {
     if (!_fb || !_payload) return;  // not initialised
+    if (n > 0) _last_byte_ms = millis();
 
     for (size_t i = 0; i < n; i++) {
         uint8_t byte = bytes[i];
@@ -115,9 +138,17 @@ void codec_feed(const uint8_t* bytes, size_t n) {
             // ── Hunt for magic 0xC5 ────────────────────────────────────────
             case STATE_HUNT_MAGIC:
                 if (byte == CODEC_MAGIC) {
-                    _hdr[0]  = byte;
-                    _hdr_pos = 1;
-                    _state   = STATE_HEADER;
+                    _hdr[0]    = byte;
+                    _hdr_pos   = 1;
+                    _ascii_len = 0;   // discard any partial ASCII sniff
+                    _state     = STATE_HEADER;
+                } else if (byte == '\n' || byte == '\r') {
+                    if (_ascii_len > 0) _ascii_try_handle();
+                } else if (byte >= 0x20 && byte < 0x7F && _ascii_len < CODEC_ASCII_MAX) {
+                    _ascii_buf[_ascii_len++] = (char)byte;
+                } else {
+                    // non-printable non-newline byte → not an ASCII command
+                    _ascii_len = 0;
                 }
                 break;
 
@@ -248,6 +279,7 @@ static void _reset_parser() {
     _pkt_type    = 0;
     _pkt_seq     = 0;
     _pkt_crc     = 0;
+    _ascii_len   = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +288,30 @@ static void _reset_parser() {
 
 void codec_abort() {
     _reset_parser();
+}
+
+static void _ascii_try_handle() {
+    _ascii_buf[_ascii_len] = '\0';
+    if (strcmp(_ascii_buf, "ABORT_STREAM") == 0) {
+        _reset_parser();
+        Serial.println("OK:ABORTED");
+    }
+    _ascii_len = 0;
+}
+
+bool codec_is_idle() {
+    return _state == STATE_HUNT_MAGIC;
+}
+
+void codec_tick() {
+    if (_state == STATE_HUNT_MAGIC) return;
+    uint32_t now = millis();
+    if ((now - _last_byte_ms) >= CODEC_STALL_MS) {
+        Serial.printf("CODEC:STALL_RESET state=%d hdr_pos=%u payload_pos=%lu/%lu\n",
+                      (int)_state, (unsigned)_hdr_pos,
+                      (unsigned long)_payload_pos, (unsigned long)_payload_len);
+        _reset_parser();
+    }
 }
 
 // ACK packet: [0xC5][0x03][seq_lo][seq_hi][0x00][0x00][crc_lo][crc_hi]

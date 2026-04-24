@@ -452,20 +452,18 @@ void onCodecFrameReady(uint16_t seq, uint8_t type) {
 // =============================================================================
 
 void loop() {
-    // 0. Codec byte router — Sprint-2 F3.3
-    //    When appConnected: peek at the serial buffer. If the first byte is the
-    //    codec magic (0xC5), drain all available bytes into codec_feed() in
-    //    chunks.  codec_feed() is a state machine that hunts for magic itself,
-    //    so passing arbitrary chunks is safe.
-    //    The SerialCommander path (step 1) handles non-codec text commands.
-    //    Both can coexist because SerialCommander only activates on '\n'-
-    //    terminated lines; a codec stream never emits '\n'.
-    // When app is connected, route ALL incoming bytes to codec_feed regardless
-    // of the first byte.  codec_feed's state machine hunts for the 0xC5 magic
-    // itself, so non-magic bytes mid-stream (PFRAME payload contains arbitrary
-    // RGB565 data that rarely starts with 0xC5) are still handled correctly.
-    // Without this, a peek()!=0xC5 mid-packet would fall through to
-    // SerialCommander, which would consume bytes meant for the codec.
+    // 0. Codec byte router — Sprint-2 F3.3 / F4 fix
+    //    When appConnected, route ALL incoming bytes to codec_feed().
+    //    codec_feed() itself recognises ASCII commands (ABORT_STREAM\n) while
+    //    in STATE_HUNT_MAGIC so the host can still reset a stuck parser.
+    //    codec_tick() additionally auto-resets a mid-packet parser after
+    //    CODEC_STALL_MS of silence.
+    //    Calling SerialCommander::hasCommand() (which in turn calls
+    //    Serial.available()) while appConnected crashes the UART driver's
+    //    semaphore under codec streaming rates — observed as
+    //    "Guru Meditation Error: LoadProhibited" in xQueueSemaphoreTake.
+    //    So commander must stay gated on !appConnected.
+    codec_tick();
     if (appConnected && Serial.available() > 0) {
         size_t avail = (size_t)Serial.available();
         while (avail > 0) {
@@ -479,10 +477,9 @@ void loop() {
     }
 
     // 1. Non-blocking serial command check — parse at most one command per tick.
-    //    Skip while app is connected: codec stream owns the UART, and calling
-    //    Serial.available() from SerialCommander concurrently with the codec
-    //    drain path crashed the UART driver's queue semaphore (observed
-    //    consistently during Sprint-2 bring-up).
+    //    Gated on !appConnected (see step 0 comment): while the codec stream
+    //    owns the UART, invoking Serial.available() from SerialCommander
+    //    races the UART driver's semaphore and crashes.
     if (!appConnected && serialCmd.hasCommand()) {
         ParsedCommand cmd = serialCmd.getCommand();
         processCommand(cmd);

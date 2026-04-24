@@ -61,3 +61,14 @@ uint16_t codec_last_seq();
 // Call this after the host sends ABORT_STREAM so that a half-parsed packet
 // from the previous clip does not corrupt the next stream's IFRAME.
 void codec_abort();
+
+// True when the parser is waiting for a magic byte (no packet in flight).
+// Main loop uses this to decide whether raw bytes belong to the codec or
+// should be handed to SerialCommander for ASCII command parsing.
+bool codec_is_idle();
+
+// Call from the main loop. If a packet has been in flight (i.e. not idle) for
+// longer than the stall threshold, reset the parser so a truncated stream
+// (host crash, cable unplug mid-packet, stray 0xC5 in ASCII) cannot swallow
+// the UART forever. Framebuffer is preserved.
+void codec_tick();
