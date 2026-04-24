@@ -83,24 +83,28 @@ export function useAnimationEngine(
       // ── Codec device path ──────────────────────────────────────────────────
       // No raw-frame pump.  Engine state changes drive playClip() calls.
       // We track last-sent clip to avoid redundant API calls on every rAF tick.
+      // NOTE: AnimationEngine.onStateChange supports a single callback — this
+      // one handler merges both UI state update AND device playClip dispatch so
+      // neither overwrites the other.
       let lastDeviceClip: string | null = null;
       let lastDeviceLoop: boolean | null = null;
 
       engine.onStateChange(async (state) => {
+        // Always update UI state
+        setEngineState(state);
+
         if (!deviceConnectedRef.current) return;
         const clip = state.currentClipName;
-        const loop = state.isPlaying ? (state.totalFrames > 0 && state.currentFrameIndex < state.totalFrames - 1 ? false : true) : false;
         // Use the engine's own loop flag via the clip playback state
         // (simpler: track clip name changes + playing state)
         if (clip && clip !== lastDeviceClip && state.isPlaying) {
           lastDeviceClip = clip;
-          lastDeviceLoop = loop;
-          console.log(`[CodecDevice] playClip → ${clip} (loop=${state.isPlaying})`);
+          lastDeviceLoop = state.playbackMode === 'idle';
+          console.log(`[CodecDevice] playClip → ${clip} (loop=${lastDeviceLoop})`);
           try {
             // loop flag: engine sets pb.loop per clip — we infer it from the
             // playback mode (idle loops, explicit_clip usually doesn't).
-            const shouldLoop = state.playbackMode === 'idle';
-            await deviceApi.playClip(clip, shouldLoop);
+            await deviceApi.playClip(clip, lastDeviceLoop);
           } catch (e) {
             console.warn('[CodecDevice] playClip failed:', e);
           }
@@ -148,12 +152,12 @@ export function useAnimationEngine(
         }
       };
       pump();
-    }
 
-    // Register state change listener (throttled in the RAF loop instead)
-    engine.onStateChange((state) => {
-      setEngineState(state);
-    });
+      // Register state change listener for UI (codec path merges this above)
+      engine.onStateChange((state) => {
+        setEngineState(state);
+      });
+    }
 
     // Load clips on mount (per active persona)
     engine.loadClips(personaSlug);

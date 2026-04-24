@@ -27,4 +27,4 @@ export const USE_CODEC_PREVIEW = true;
  * raw RGB565 frames via device.sendFrame().  Default false — flip to test
  * on hardware.  See class comment above for prerequisites.
  */
-export const USE_CODEC_DEVICE = false;
+export const USE_CODEC_DEVICE = true;

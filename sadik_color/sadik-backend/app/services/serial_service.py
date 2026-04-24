@@ -472,6 +472,38 @@ class SerialService:
         )
 
         async with self._lock:
+            # ── APP_CONNECTED handshake ────────────────────────────────────────
+            # Mirrors stream_to_device.py lines 417-435: firmware requires this
+            # before it routes incoming bytes to the codec decoder.  Without it
+            # the decoder is never armed and the TFT stays on firmware boot screen.
+            logger.info("streamCodec: sending APP_CONNECTED handshake")
+            loop_ref = asyncio.get_event_loop()
+
+            def _handshake() -> bool:
+                self._serial.write(b"APP_CONNECTED\n")
+                self._serial.flush()
+                deadline = time.monotonic() + 2.0
+                hs_buf = bytearray()
+                while time.monotonic() < deadline:
+                    chunk = self._serial.read(self._serial.in_waiting or 1)
+                    if chunk:
+                        hs_buf.extend(chunk)
+                        if b"OK:APP_CONNECTED" in hs_buf:
+                            return True
+                return False
+
+            got_ack = await loop_ref.run_in_executor(None, _handshake)
+            if not got_ack:
+                logger.warning("streamCodec: APP_CONNECTED not acknowledged within 2s — continuing anyway")
+            else:
+                logger.info("streamCodec: handshake OK (OK:APP_CONNECTED received)")
+
+            def _flush_input():
+                self._serial.reset_input_buffer()
+
+            await loop_ref.run_in_executor(None, _flush_input)
+            # ─────────────────────────────────────────────────────────────────
+
             self._streaming = True
             self._abort_stream = False
             try:
