@@ -82,36 +82,67 @@ export function useAnimationEngine(
     if (USE_CODEC_DEVICE) {
       // ── Codec device path ──────────────────────────────────────────────────
       // No raw-frame pump.  Engine state changes drive playClip() calls.
-      // We track last-sent clip to avoid redundant API calls on every rAF tick.
+      //
+      // Debounce + coalescing policy (device scene choice trails preview by ≤200ms
+      // — strict sync deferred):
+      //   1. Coalesce: if playClip called with the same name as currently streaming
+      //      clip, return early — no backend call, no stop.
+      //   2. Trailing debounce: 200ms window.  Every distinct clip change resets a
+      //      timer; when the timer fires, ONE playClip is sent for the latest name.
+      //      Interim stop/start churn within the window is dropped.
+      //
       // NOTE: AnimationEngine.onStateChange supports a single callback — this
       // one handler merges both UI state update AND device playClip dispatch so
       // neither overwrites the other.
-      let lastDeviceClip: string | null = null;
-      let lastDeviceLoop: boolean | null = null;
+      let currentStreamingClip: string | null = null;  // clip confirmed sent to backend
+      let pendingClipName: string | null = null;        // latest desired clip (debounce window)
+      let pendingLoop: boolean = false;
+      let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const DEBOUNCE_MS = 200;
+
+      const sendPending = async () => {
+        debounceTimer = null;
+        const name = pendingClipName;
+        const loopFlag = pendingLoop;
+        if (!name) return;
+        if (!deviceConnectedRef.current) return;
+        // Coalesce: already streaming this clip — nothing to do
+        if (name === currentStreamingClip) return;
+        currentStreamingClip = name;
+        console.log(`[CodecDevice] playClip → ${name} (loop=${loopFlag})`);
+        try {
+          await deviceApi.playClip(name, loopFlag);
+        } catch (e) {
+          console.warn('[CodecDevice] playClip failed:', e);
+          currentStreamingClip = null;
+        }
+      };
 
       engine.onStateChange(async (state) => {
-        // Always update UI state
+        // Always update UI state (preview runs at full 24fps, unaffected)
         setEngineState(state);
 
         if (!deviceConnectedRef.current) return;
         const clip = state.currentClipName;
-        // Use the engine's own loop flag via the clip playback state
-        // (simpler: track clip name changes + playing state)
-        if (clip && clip !== lastDeviceClip && state.isPlaying) {
-          lastDeviceClip = clip;
-          lastDeviceLoop = state.playbackMode === 'idle';
-          console.log(`[CodecDevice] playClip → ${clip} (loop=${lastDeviceLoop})`);
-          try {
-            // loop flag: engine sets pb.loop per clip — we infer it from the
-            // playback mode (idle loops, explicit_clip usually doesn't).
-            await deviceApi.playClip(clip, lastDeviceLoop);
-          } catch (e) {
-            console.warn('[CodecDevice] playClip failed:', e);
+
+        if (clip && state.isPlaying) {
+          // Coalesce: same clip already streaming — skip entirely
+          if (clip === currentStreamingClip) return;
+
+          // New clip: set pending + (re)start debounce timer
+          pendingClipName = clip;
+          pendingLoop = state.playbackMode === 'idle';
+          if (debounceTimer !== null) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(sendPending, DEBOUNCE_MS);
+        } else if (!state.isPlaying && currentStreamingClip) {
+          // Clip finished on engine side — cancel any pending debounce and stop device
+          if (debounceTimer !== null) {
+            clearTimeout(debounceTimer);
+            debounceTimer = null;
           }
-        } else if (!state.isPlaying && lastDeviceClip) {
-          // Clip finished on engine side — stop the device stream too.
-          lastDeviceClip = null;
-          lastDeviceLoop = null;
+          pendingClipName = null;
+          currentStreamingClip = null;
           try {
             await deviceApi.stopClip();
           } catch (_) { /* ignore */ }
