@@ -453,6 +453,33 @@ Opsiyonel optimizasyonlar (Sprint-5):
 
 ---
 
+## Color Sprint-5: standalone stability (donanım öncesi)
+
+**Durum:** Wave-1 ✅ — Wave-2 (FreeRTOS task split) bekliyor.
+
+**Amaç:** S3 elinize gelmeden firmware'i sorunsuz/stabil hale getirmek. Donanım gelince smoke-test → onay → ana projeye merge.
+
+Wave-1 (tamamlandı 2026-04-26):
+- [x] LittleFS local clip playback path: `PLAY_LOCAL:<name>` opcode → LittleFS'ten okunur → mevcut codec_feed pipeline'a pump edilir (yeni decoder yok). Host streaming pipeline (appConnected) hiç dokunulmadı.
+- [x] `LocalClipPlayer` modülü (`local_clip_player.h`): mount-on-boot (non-fatal fail), 4 KB read buffer, MODE_LOCAL_CLIP state machine entegrasyonu, STATUS + sleep-guard support.
+- [x] LittleFS partition: `partitions_s3_n16r8.csv` subtype `ffat/fat` → `spiffs/spiffs` (Arduino LittleFS slot). `board_build.filesystem = littlefs` eklendi.
+- [x] Tooling: `tools/build-clip-image.mjs` (Node 18+ ESM) → `assets/codec/*.bin` + master manifest → `sadik-firmware/data/clips/` + `data/manifest.json`. Workflow: `node sadik_color/tools/build-clip-image.mjs` → `pio run -e esp32-s3-n16r8 -t uploadfs`.
+- [x] `psram_alloc.h` helper: PSRAM-aware allocator (S3 PSRAM, WROOM internal fallback). DMA buffer'lara DOKUNMAZ.
+
+Wave-2 (sonraki session, donanım hala beklemiyor):
+- [ ] FreeRTOS task split: codec decode + SPI blit core 1'de, UART servisi core 0'da. xQueueHandle ile decoupling. Sahne değişimi PFRAME peak spike'ları core'a yayılır.
+- [ ] (opsiyonel) `CODEC_STALL_MS` ve sliding window pacing review — task split sonrası latency profili değişir.
+
+Kapsam dışı (donanım sonrasına ertelendi):
+- `_fb_storage` PSRAM migration: S3'te DMA-from-PSRAM OPI behaviour donanım test gerektirir; psram_alloc helper additive olarak eklendi, future buffer'lar PSRAM kullanır ama framebuffer iç SRAM'de kalır.
+
+Donanım gelince (Sprint-4 checklist'i aynen geçerli):
+- Boot + TFT smoke test → USB-CDC handshake → `node tools/build-clip-image.mjs` → `pio run -e esp32-s3-n16r8 -t uploadfs` → `PLAY_LOCAL:wakeword\n` ile local playback validation → throughput ölçümü → `CODEC_STALL_MS` fine-tune.
+
+Bu sprint geçince: **Sprint-Color-Merge** (backend de-dup, device profile abstraction, frontend animation dispatcher, native USB device auto-detect).
+
+---
+
 ## 6. Concurrency zones (iki hesap paralel çalışma)
 
 Her sprint içinde **zone A** ve **zone B** ayrıldı. Aynı anda iki hesap:

@@ -10,6 +10,7 @@
 enum CommandType {
     CMD_NONE,
     CMD_PLAY_CLIP,        // PLAY_CLIP:<name>
+    CMD_PLAY_LOCAL,       // PLAY_LOCAL:<name>  → play clip from LittleFS
     CMD_STOP_CLIP,        // STOP_CLIP
     CMD_SHOW_TEXT,        // SHOW_TEXT:<text>
     CMD_RETURN_TO_IDLE,   // RETURN_TO_IDLE
@@ -162,6 +163,11 @@ private:
         if (strncmp(_buf, "PLAY_CLIP:", 10) == 0) {
             _parsed.type = CMD_PLAY_CLIP;
             strncpy(_parsed.argument, _buf + 10, sizeof(_parsed.argument) - 1);
+            _parsed.argument[sizeof(_parsed.argument) - 1] = '\0';
+
+        } else if (strncmp(_buf, "PLAY_LOCAL:", 11) == 0) {
+            _parsed.type = CMD_PLAY_LOCAL;
+            strncpy(_parsed.argument, _buf + 11, sizeof(_parsed.argument) - 1);
             _parsed.argument[sizeof(_parsed.argument) - 1] = '\0';
 
         } else if (strcmp(_buf, "STOP_CLIP") == 0) {

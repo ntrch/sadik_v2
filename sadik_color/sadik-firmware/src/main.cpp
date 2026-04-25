@@ -11,6 +11,7 @@
 #include "serial_commander.h"
 #include "text_renderer.h"
 #include "codec_decode.h"        // Sprint-2 F3.3: streaming codec decoder
+#include "local_clip_player.h"   // LittleFS local clip playback
 
 // ── Playback mode ─────────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ enum PlaybackMode {
     MODE_BOOT,
     MODE_IDLE,
     MODE_EXPLICIT_CLIP,
+    MODE_LOCAL_CLIP,       // playing a clip from LittleFS via LocalClipPlayer
     MODE_TEXT,
     MODE_FRAME_STREAM,     // app is streaming raw frames via FRAME: command
 };
@@ -29,6 +31,7 @@ ClipPlayer       clipPlayer(display);       // needs display
 IdleOrchestrator idleOrchestrator(clipPlayer); // needs clipPlayer
 SerialCommander  serialCmd;
 TextRenderer     textRenderer(display);     // needs display
+LocalClipPlayer  localClipPlayer;           // LittleFS local clip playback
 PlaybackMode     currentMode = MODE_BOOT;
 
 // ── OLED sleep state ──────────────────────────────────────────────────────────
@@ -125,6 +128,8 @@ void setup() {
         codec_on_frame_ready(onCodecFrameReady);
     }
 
+    localClipPlayer.begin();     // mount LittleFS; non-fatal on WROOM (no partition)
+
     // ── Boot splash ───────────────────────────────────────────────────────────
     // drawTwoLineText writes to TFT directly; sendBuffer is a no-op for text paths.
     display.drawRainbowText("COLOR");
@@ -184,6 +189,22 @@ void processCommand(ParsedCommand& cmd) {
 
             snprintf(resp, sizeof(resp), "OK:PLAYING:%s", cmd.argument);
             Serial.println(resp);
+            break;
+        }
+
+        // ── PLAY_LOCAL:<name> ─────────────────────────────────────────────────
+        case CMD_PLAY_LOCAL: {
+            const char* name = cmd.argument;
+            // Stop any currently-playing legacy/codec content.
+            clipPlayer.stop();
+            idleOrchestrator.pause();
+            if (localClipPlayer.play(name, /*loop=*/false)) {
+                currentMode = MODE_LOCAL_CLIP;
+                markActivity("PLAY_LOCAL");
+            } else {
+                Serial.print("ERR:LOCAL_CLIP_FAILED name=");
+                Serial.println(name);
+            }
             break;
         }
 
@@ -271,6 +292,10 @@ void processCommand(ParsedCommand& cmd) {
                 case MODE_EXPLICIT_CLIP:
                     modeStr  = "CLIP";
                     clipName = clipPlayer.currentClipName();
+                    break;
+                case MODE_LOCAL_CLIP:
+                    modeStr  = "LOCAL_CLIP";
+                    clipName = localClipPlayer.currentClipName();
                     break;
                 case MODE_TEXT:          modeStr = "TEXT";          break;
                 case MODE_FRAME_STREAM: modeStr = "FRAME_STREAM"; break;
@@ -495,6 +520,18 @@ void loop() {
         clipPlayer.update();
     }
 
+    // 2b. Advance local clip playback (LittleFS source → codec_feed).
+    //     Runs independently of appConnected — localClipPlayer feeds codec itself.
+    if (currentMode == MODE_LOCAL_CLIP && !display.isSleeping()) {
+        localClipPlayer.update();
+        if (localClipPlayer.hasFinished()) {
+            currentMode = MODE_IDLE;
+            idleOrchestrator.resume();
+            markActivity("LOCAL_CLIP_DONE");
+            Serial.println("EVENT:LOCAL_CLIP_FINISHED");
+        }
+    }
+
     // 3. Detect when a non-looping explicit clip has played to its end and
     //    automatically return to idle without needing a host command.
     if (currentMode == MODE_EXPLICIT_CLIP && clipPlayer.hasFinished()) {
@@ -525,6 +562,7 @@ void loop() {
     if (sleepTimeoutMs > 0 &&
         !display.isSleeping() &&
         currentMode != MODE_EXPLICIT_CLIP &&
+        currentMode != MODE_LOCAL_CLIP &&
         currentMode != MODE_FRAME_STREAM &&
         currentMode != MODE_BOOT) {
 
