@@ -427,6 +427,32 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 
 ---
 
+## Color Sprint-4: ESP32-S3 N16R8 donanım geçişi
+
+**Durum:** WIP — donanım siparişte, firmware S3-ready hale getiriliyor. WROOM-32 build path korunuyor (paralel env).
+
+Hazırlık (donanım gelmeden):
+- [x] PlatformIO `[env:esp32-s3-n16r8]` env eklendi (USB-CDC, PSRAM-OPI, 16MB flash)
+- [x] `partitions_s3_n16r8.csv` eklendi (6MB app + 10MB FAT, ileride embedded codec clip için)
+- [x] `ledcSetup`/`ledcAttachPin`/`ledcWrite` Arduino core 3.x shim'i (S3 default toolchain)
+- [x] SPI bus / DMA varsayım yorumları (kod davranışı değişmedi)
+- [x] BETA_ROADMAP entry
+
+Donanım gelince (TODO):
+- [ ] S3 board pinout doğrulama + gerekirse `config.h` pin düzenleme
+- [ ] İlk boot + TFT init smoke test (boot splash görünmeli)
+- [ ] USB-CDC üzerinden APP_CONNECTED handshake
+- [ ] Codec stream throughput ölçümü (hedef: 40KB IFRAME ~40-60ms, clip switch <500ms)
+- [ ] Backend `serial_service.py` keyword scoring — S3 USB VID/PID için bias (gerekirse)
+- [ ] `CODEC_STALL_MS` fine-tune (USB CDC latency profile farklı olabilir)
+
+Opsiyonel optimizasyonlar (Sprint-5):
+- [ ] Framebuffer'ı PSRAM'e taşı (`heap_caps_malloc(..., MALLOC_CAP_SPIRAM)`)
+- [ ] Tüm codec clip set'i FAT partition'a embed → host streaming bypass; `PLAY_CLIP:name` flash'tan okur
+- [ ] Double-buffering / dual-task render
+
+---
+
 ## 6. Concurrency zones (iki hesap paralel çalışma)
 
 Her sprint içinde **zone A** ve **zone B** ayrıldı. Aynı anda iki hesap:

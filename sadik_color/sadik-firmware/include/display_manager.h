@@ -30,6 +30,7 @@
 class DisplayManager {
 public:
     DisplayManager()
+        // SPI bus: WROOM-32 uses VSPI (SPI3), S3 uses FSPI (SPI2). GPIO18/23 are valid on both — default Arduino SPI object handles the mapping.
         : _tft(TFT_CS, TFT_DC, TFT_RST),   // 3-arg = hardware SPI (VSPI)
           _currentBrightness(TFT_DEFAULT_BRIGHTNESS),
           _sleeping(false),
@@ -44,9 +45,17 @@ public:
     void begin() {
         // Backlight PWM setup BEFORE TFT init so the panel never flashes at full
         // brightness during boot.
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+        ledcAttach(TFT_BLK, TFT_PWM_FREQ, TFT_PWM_RESOLUTION);
+#else
         ledcSetup(TFT_PWM_CHANNEL, TFT_PWM_FREQ, TFT_PWM_RESOLUTION);
         ledcAttachPin(TFT_BLK, TFT_PWM_CHANNEL);
+#endif
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+        ledcWrite(TFT_BLK, _currentBrightness);
+#else
         ledcWrite(TFT_PWM_CHANNEL, _currentBrightness);
+#endif
 
         _tft.initR(TFT_INIT_TAB);
         _tft.setSPISpeed(TFT_SPI_HZ);
@@ -144,7 +153,11 @@ public:
     void setBrightness(uint8_t value) {
         _currentBrightness = value;
         if (!_sleeping) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+            ledcWrite(TFT_BLK, value);
+#else
             ledcWrite(TFT_PWM_CHANNEL, value);
+#endif
         }
     }
 
@@ -158,7 +171,11 @@ public:
         if (_sleeping) return;
         _sleeping = true;
         _tft.fillScreen(DM_BLACK);
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+        ledcWrite(TFT_BLK, 0);
+#else
         ledcWrite(TFT_PWM_CHANNEL, 0);
+#endif
     }
 
     // Wake: restore backlight to user-set brightness; next sendBuffer() repaints.
@@ -166,7 +183,11 @@ public:
         if (!_sleeping) return;
         _sleeping = false;
         _tft.fillScreen(DM_BLACK);
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+        ledcWrite(TFT_BLK, _currentBrightness);
+#else
         ledcWrite(TFT_PWM_CHANNEL, _currentBrightness);
+#endif
     }
 
     bool isSleeping() const {

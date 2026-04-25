@@ -108,6 +108,7 @@ void codec_init(Adafruit_ST7735* tft) {
         // Force DMA-capable internal SRAM — different heap region from
         // non-DMA allocations like the UART RX ring buffer. This avoids the
         // cross-allocation corruption observed with plain malloc.
+        // On S3, MALLOC_CAP_DMA lands in internal SRAM (not PSRAM). Keep this allocation internal — DMA SPI requires it. PSRAM (BOARD_HAS_PSRAM) reserved for future framebuffer/cache moves.
         _payload = (uint8_t*)heap_caps_malloc(
             CODEC_FRAME_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     }
