@@ -144,6 +144,7 @@ const defaultEngineState: EngineState = {
   currentFrameIndex: 0,
   totalFrames: 0,
   isPlaying: false,
+  isLooping: false,
   idleSubState: 'idle_loop',
   textContent: 'SADIK',
   fps: 12,

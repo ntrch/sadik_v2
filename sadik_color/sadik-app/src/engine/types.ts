@@ -30,6 +30,9 @@ export interface EngineState {
   currentFrameIndex: number;
   totalFrames: number;
   isPlaying: boolean;
+  /** True when the current clip is playing with loop enabled. Drives the
+   *  loop flag the backend passes to the firmware stream. */
+  isLooping: boolean;
   idleSubState: IdleSubState;
   textContent: string | null;
   fps: number;

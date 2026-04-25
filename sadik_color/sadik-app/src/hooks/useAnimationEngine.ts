@@ -17,6 +17,7 @@ const defaultEngineState: EngineState = {
   currentFrameIndex: 0,
   totalFrames: 0,
   isPlaying: false,
+  isLooping: false,
   idleSubState: 'idle_loop',
   textContent: 'SADIK',
   fps: 12,
@@ -129,10 +130,20 @@ export function useAnimationEngine(
         if (clip && state.isPlaying) {
           // Coalesce: same clip already streaming — skip entirely
           if (clip === currentStreamingClip) return;
+          // Already scheduled to dispatch this exact clip — leave the timer
+          // alone. Engine emits state every frame (~83 ms at 12 fps); without
+          // this guard, each emit would clearTimeout+setTimeout and the 200 ms
+          // debounce would never fire, so playClip was never sent for mode
+          // changes.
+          if (clip === pendingClipName) return;
 
-          // New clip: set pending + (re)start debounce timer
+          // New distinct clip: set pending + (re)start debounce timer.
+          // Trust the engine's own loop flag: idle clips loop, mod loop clips
+          // loop, intros do not. Deriving from playbackMode alone lost the
+          // loop bit for 'explicit_clip' mod loops and froze the TFT on the
+          // clip's final frame.
           pendingClipName = clip;
-          pendingLoop = state.playbackMode === 'idle';
+          pendingLoop = state.isLooping;
           if (debounceTimer !== null) clearTimeout(debounceTimer);
           debounceTimer = setTimeout(sendPending, DEBOUNCE_MS);
         } else if (!state.isPlaying && currentStreamingClip) {

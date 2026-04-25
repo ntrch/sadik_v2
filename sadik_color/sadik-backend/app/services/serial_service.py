@@ -671,7 +671,19 @@ class SerialService:
                 while (send_idx < total_pkts or in_flight) and not self._abort_stream:
                     while send_idx < total_pkts and len(in_flight) < _DEFAULT_WINDOW:
                         ptype, seq, raw = packets[send_idx]
-                        ser.write(raw)
+                        try:
+                            ser.write(raw)
+                        except serial.SerialTimeoutException:
+                            # Firmware's USB CDC endpoint backed up (busy applying a
+                            # previous packet). Abandon this stream cleanly — callers
+                            # will start a fresh one on the next clip change. Do NOT
+                            # let the exception propagate as an unhandled asyncio
+                            # task error.
+                            logger.warning(
+                                f"streamCodec: write timeout seq={seq} — aborting stream "
+                                f"(sent={frames_sent} acked={frames_acked})"
+                            )
+                            return frames_sent, frames_acked, resync_count
                         frames_sent += 1
                         in_flight.append((seq, time.monotonic(), 0, send_idx))
                         send_idx += 1
@@ -729,7 +741,13 @@ class SerialService:
                                 send_idx = next_if
                             else:
                                 _, _, raw_r = packets[pkt_idx_r]
-                                ser.write(raw_r)
+                                try:
+                                    ser.write(raw_r)
+                                except serial.SerialTimeoutException:
+                                    logger.warning(
+                                        f"streamCodec: retry write timeout seq={seq_r} — aborting stream"
+                                    )
+                                    return frames_sent, frames_acked, resync_count
                                 frames_sent += 1
                                 in_flight.appendleft((seq_r, time.monotonic(), retries + 1, pkt_idx_r))
             finally:

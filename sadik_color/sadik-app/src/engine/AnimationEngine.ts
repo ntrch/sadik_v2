@@ -427,6 +427,7 @@ export class AnimationEngine {
       currentFrameIndex: this.pb.frameIndex,
       totalFrames: this.pb.clip?.frames.length ?? 0,
       isPlaying: this.pb.isPlaying,
+      isLooping: this.pb.loop,
       idleSubState: this.idleSubState,
       textContent: this.textContent,
       fps: this.pb.clip?.fps ?? 12,
