@@ -11,6 +11,11 @@ venv/
 node_modules/
 dist/
 .webpack/
+sadik-app/release/
+
+# PyInstaller backend bundle
+sadik-backend/build/__pycache__/
+sadik-backend/dist/
 
 # PlatformIO
 .pio/

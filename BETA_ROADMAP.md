@@ -124,6 +124,10 @@
 - **Sprint 4 TAMAMLANDI ✅**
 - **Sprint 5 tamamlandı ✅** — T5.1 (preset kataloğu), T5.2 (jargon temizliği), T5.3 (onboarding persona), T5.4 (empty states + first-day tutorial)
   - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
+- **Sprint 6 T6.2 + T6.5 tamamlandı ✅** — electron-builder config + PyInstaller embedded backend + spawn lifecycle
+  - Build sırası: `cd sadik-backend && .\build\build.ps1` (PyInstaller onedir → `sadik-backend/dist/sadik-backend/`) → `cd sadik-app && npm install && npm run package:win` (NSIS unsigned, signing env-driven)
+  - Test akışı: temiz Windows VM'de installer → app aç → `~/AppData/Roaming/SADIK/logs/backend.log`'a bak (uvicorn boot logu görünmeli) → UI normal çalışmalı
+  - Code-signing cert kullanıcı tarafından alınacak (Windows EV/OV + macOS Developer ID); cert geldiğinde `package.json` `build.win.signtoolOptions` + `build.mac.notarize=true` env-driven enable edilir
 
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
@@ -377,19 +381,25 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Kullanıcı OAuth client create etmek zorunda kalmasın
 
 **Concurrency zone B (build + release):**
-- [ ] **T6.2** electron-builder config
-  - `package.json` → `build.appId: "com.sadik.app"`, macOS entitlements (mic, notifications, accessibility), Windows signing
-  - Code signing cert (macOS Developer ID, Windows EV/OV)
-  - Notarization pipeline
+- [x] **T6.2 tamam [session-A]** electron-builder config + embedded backend spawn ✅
+  - `sadik-app/package.json` → `build` block (appId `com.sadik.app`, NSIS Win, DMG mac, hardenedRuntime, entitlements, extraResources `../sadik-backend/dist/sadik-backend → backend`); scripts `package`/`package:dir`/`package:win`/`package:mac`; `electron-builder ^24.13.3` devDep
+  - `sadik-app/build/entitlements.mac.plist` (mic, audio-input, JIT, network, apple-events)
+  - `sadik-app/electron/backend-launcher.js` (yeni) — `app.isPackaged` guard'lı spawn, `/api/health` 30s polling, SIGTERM→3s→SIGKILL teardown, log → `app.getPath('logs')/backend.log`, fail dialog + app.quit
+  - `sadik-app/electron/main.js` — `whenReady` async + `await startBackend()`, `before-quit`'e `stopBackend()` eklendi (dev'de no-op, regression yok)
+  - Code signing cert henüz yok → signing default off, env-driven (cert geldiğinde aktive)
+- [x] **T6.5 tamam [session-A]** Backend embedded (PyInstaller onedir, Option A) ✅
+  - `sadik-backend/launch.py` (yeni) — uvicorn entry, frozen `_MEIPASS` sys.path fix
+  - `sadik-backend/build/sadik-backend.spec` — onedir, openwakeword/onnxruntime/sounddevice data + custom `app/wake_models/sadik.onnx`, geniş hidden imports (uvicorn/fastapi/sqlalchemy submodules + 14 SADIK service modülü), UPX off (onnxruntime DLL koruma)
+  - `sadik-backend/build/build.ps1` + `build.sh` — venv kontrol + pyinstaller install + build
+  - `sadik-backend/app/main.py` — `GET /api/health` endpoint
+  - `sadik-backend/app/config.py` — `_default_db_path()`: frozen → `%APPDATA%/sadik/sadik.db` (Win) / `~/sadik/sadik.db`; dev davranışı aynen korundu (`getattr(sys,"frozen",False)` False branch)
+  - `.gitignore` (sadik-backend + root) — `dist/`, `release/`, `build/__pycache__/`
 - [ ] **T6.3** Auto-update (electron-updater)
   - Publish target: GitHub Releases (private repo OK) veya S3
   - Frontend update notification UI
 - [ ] **T6.4** Basit landing page (markdown'dan statik)
   - Download links, changelog, support email
-- [ ] **T6.5** Backend dağıtım stratejisi
-  - Option A: Python backend embedded (PyInstaller) — kolay dağıtım, tek binary
-  - Option B: Python backend local process (user install etsin) — esnek ama setup zor
-  - **Karar gerekli** — Opus A'yı öneriyor (user friction sıfır)
+- [x] **T6.5 KARAR + IMPLEMENTATION** — Option A (PyInstaller embedded) ✅ yukarıda detay
 
 **Exit criteria:** Temiz Windows + macOS makinede `.exe` / `.dmg` çift tıkla → app çalışır.
 

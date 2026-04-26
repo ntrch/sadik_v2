@@ -1,10 +1,26 @@
+import os
+import sys
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def _default_db_path() -> str:
+    """Resolve SQLite DB path. Frozen (PyInstaller) → user data dir; dev → repo root."""
+    if getattr(sys, "frozen", False):
+        if sys.platform == "win32":
+            base = os.environ.get("APPDATA", os.path.expanduser("~"))
+        else:
+            base = os.path.expanduser("~")
+        data_dir = os.path.join(base, "sadik")
+        os.makedirs(data_dir, exist_ok=True)
+        return f"sqlite+aiosqlite:///{data_dir}/sadik.db"
+    return f"sqlite+aiosqlite:///{BASE_DIR}/sadik.db"
+
+
 class Settings(BaseSettings):
-    database_url: str = f"sqlite+aiosqlite:///{BASE_DIR}/sadik.db"
+    database_url: str = _default_db_path()
     host: str = "0.0.0.0"
     port: int = 8000
 

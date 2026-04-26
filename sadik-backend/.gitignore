@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+sadik.db
+
+# PyInstaller artifacts
+build/__pycache__/
+dist/
+*.spec.bak

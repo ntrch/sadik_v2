@@ -234,3 +234,9 @@ app.include_router(privacy_router_mod.router)
 @app.get("/")
 async def root():
     return {"status": "ok", "service": "SADIK Backend", "version": "1.0.0"}
+
+
+@app.get("/api/health")
+async def health():
+    """Startup health probe — Electron polls this until the backend is ready."""
+    return {"status": "ok", "version": "2.0.0"}

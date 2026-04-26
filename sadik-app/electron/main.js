@@ -8,6 +8,7 @@ const fs      = require('fs');
 const os      = require('os');
 const http    = require('http');
 const zlib    = require('zlib');
+const { startBackend, stopBackend } = require('./backend-launcher');
 
 // =============================================================================
 // Startup proof marker — written before anything else
@@ -431,6 +432,9 @@ app.on('before-quit', (event) => {
   stopTrackerTimers();
   if (idleCheckInterval) { clearInterval(idleCheckInterval); idleCheckInterval = null; }
   if (clipboardPollTimer) { clearInterval(clipboardPollTimer); clipboardPollTimer = null; }
+
+  // Tear down embedded backend (no-op in dev). SIGTERM → 3s grace → SIGKILL.
+  try { stopBackend(); } catch (e) { twarn('[SADIK] stopBackend error:', e.message); }
 
   if (currentApp && sessionStart) {
     tlog(`[AppTracker] before-quit: flushing final session for "${currentApp.name}"`);
@@ -1556,10 +1560,21 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.sadik.app');
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   tlog('[SADIK] app.whenReady() fired — starting initialization');
   tlog(`[SADIK] Backend base URL: ${BACKEND_ORIGIN}`);
   tlog(`[SADIK] Platform: ${process.platform} | Electron: ${process.versions.electron}`);
+
+  // In packaged builds, spawn the embedded PyInstaller backend and wait until
+  // its /api/health probe returns 200 before creating the BrowserWindow.
+  // In dev (app.isPackaged=false) the backend is launched separately via venv,
+  // so startBackend() is a no-op.
+  try {
+    await startBackend();
+  } catch (e) {
+    tlog(`[SADIK] startBackend failed: ${e.message}`);
+    return;
+  }
 
   // ── Media permission handler ──────────────────────────────────────────────
   //
