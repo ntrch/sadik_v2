@@ -343,7 +343,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Backend: `user_persona` setting + `_PERSONA_HINTS` + `_get_user_persona()` helper, `_build_messages(persona=...)` ile system prompt'a "KULLANICI ROLÜ" bloğu enjekte
   - `send_message` + `stream_voice_response` her iki path'te de persona threadli
   - SettingsPage "Rol" section — sonradan değiştirilebilir
-- [ ] **T5.4** Empty state'ler + ilk-gün tutorial
+- [WIP: session-A] **T5.4** Empty state'ler + ilk-gün tutorial
 
 **Exit criteria:** Fresh install → onboarding akışı tamam → kullanıcı ilk task'ını voice ile sorabiliyor.
 
