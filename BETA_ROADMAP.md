@@ -138,6 +138,17 @@
   - Code-signing cert kullanıcı tarafından alınacak (Windows EV/OV + macOS Developer ID); cert geldiğinde `package.json` `build.win.signtoolOptions` + `build.mac.notarize=true` env-driven enable edilir
   - **Bilinen ufak iş** (ship-blocker değil): Workspace launcher'da Windows Terminal (UWP/wt.exe) snap+anlık-açılma sorunu — UWP wrapper PID problemi, klasik .exe'ler (Steam/Chrome/cmd.exe/powershell.exe) sorunsuz. Beta sonrası fix listesi.
 
+### Distribution stratejisi (2026-04-27 kararı)
+
+**Bütçe + donanım kısıtı**: Eren'in Mac'i yok, code-signing cert bütçesi yok. Beta tester'lar arkadaşları (3-5 kişi). Mac için arkadaşının M2'sine geçici erişim var.
+
+**Plan**:
+1. **Windows beta — yakın hedef**: Unsigned NSIS installer kabul (`SADIK-Setup.exe`). SmartScreen "bilinmeyen yayıncı" uyarısı çıkacak; arkadaşları "yine de çalıştır"a basıp geçecek. Cert sonra (gelir gelirse).
+2. **Mac one-shot**: Arkadaşının M2'sinde tek seferlik build, unsigned `.dmg`. Arkadaş Sistem Ayarları → Güvenlik → "yine de aç" ile çalıştırır. Apple Developer hesabı + notarize alınmıyor (99$/yıl bütçe yok). Tek tester için yeterli.
+3. **Sıralama**: T6.3 auto-update → Windows NSIS test → T8 closed beta (Drive linki) → Mac one-shot Mac erişimi olunca → T6.1b (Notion PKCE) bug'a göre.
+
+**Halka açık release ertelendi**: Cert + Apple Developer alınana kadar herkese açık değil; sadece arkadaş çevresi beta.
+
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
