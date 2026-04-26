@@ -10,7 +10,10 @@ module.exports = (env, argv) => {
     output: {
       path: path.resolve(__dirname, 'dist'),
       filename: 'bundle.js',
-      publicPath: '/',
+      // Dev: '/' so webpack-dev-server serves bundle.js at the host root.
+      // Prod: './' so packaged Electron's file:// loader resolves assets
+      // relative to index.html instead of the filesystem root.
+      publicPath: isDev ? '/' : './',
     },
     resolve: {
       extensions: ['.tsx', '.ts', '.js', '.jsx'],
@@ -54,6 +57,7 @@ module.exports = (env, argv) => {
           { from: 'node_modules/onnxruntime-web/dist/*.wasm', to: 'vad/[name][ext]', noErrorOnMissing: true },
           { from: 'node_modules/onnxruntime-web/dist/*.mjs', to: 'vad/[name][ext]', noErrorOnMissing: true },
 { from: 'public/wake-models', to: 'wake-models', noErrorOnMissing: true },
+          { from: 'public/animations', to: 'animations', noErrorOnMissing: true },
         ],
       }),
     ],

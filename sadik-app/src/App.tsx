@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { MessageSquare, Mic } from 'lucide-react';
 import { AppProvider } from './context/AppContext';
 import { AppContext } from './context/AppContext';
@@ -125,9 +125,9 @@ function AppShell() {
 export default function App() {
   return (
     <AppProvider>
-      <BrowserRouter>
+      <HashRouter>
         <AppShell />
-      </BrowserRouter>
+      </HashRouter>
     </AppProvider>
   );
 }

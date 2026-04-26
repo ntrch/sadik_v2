@@ -84,7 +84,10 @@ export class AnimationEngine {
   }
 
   async loadClips(personaSlug: string = 'sadik'): Promise<void> {
-    const base = `/animations/personas/${personaSlug}`;
+    // Use relative path so packaged Electron (file:// protocol) can resolve
+    // assets from the bundled dist/. Absolute "/animations/..." would resolve
+    // to filesystem root and fail.
+    const base = `./animations/personas/${personaSlug}`;
     try {
       const res = await fetch(`${base}/clips-manifest.json`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

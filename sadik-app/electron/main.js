@@ -1406,7 +1406,12 @@ Write-Output "OK"
     }
   });
 
-  win.loadURL('http://localhost:3000');
+  // Dev: webpack-dev-server on localhost:3000. Packaged: bundled dist/index.html.
+  if (app.isPackaged) {
+    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  } else {
+    win.loadURL('http://localhost:3000');
+  }
   win.setMenuBarVisibility(false);
 
   // ── Close-to-tray handler ─────────────────────────────────────────────────

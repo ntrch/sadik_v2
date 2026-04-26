@@ -92,6 +92,9 @@ hiddenimports += collect_submodules("uvicorn")
 hiddenimports += collect_submodules("fastapi")
 hiddenimports += collect_submodules("sqlalchemy")
 hiddenimports += collect_submodules("openwakeword")
+# SADIK app package — uvicorn loads it via string ("app.main:app"); without
+# this the import graph misses every router/service module.
+hiddenimports += collect_submodules("app")
 
 block_cipher = None
 
