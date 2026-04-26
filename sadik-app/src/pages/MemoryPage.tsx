@@ -1,7 +1,9 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import {
   Brain, BrainCircuit, Copy, Trash2, Plus, Send, ImagePlus, X, Check, Pencil, Lightbulb,
+  Clipboard, StickyNote,
 } from 'lucide-react';
+import EmptyState from '../components/common/EmptyState';
 import {
   memoryApi, ClipboardItem as ClipboardItemType, BrainstormNote,
 } from '../api/memory';
@@ -285,9 +287,15 @@ export default function MemoryPage() {
           )}
         </div>
         {sortedClips.length === 0 ? (
-          <div className="bg-bg-card border border-border rounded-card p-8 text-center text-text-muted text-sm">
-            {loading ? 'Yükleniyor...' : 'Henüz kopyalama yok. Ctrl+C ile bir şey kopyala.'}
-          </div>
+          loading ? (
+            <div className="bg-bg-card border border-border rounded-card p-8 text-center text-text-muted text-sm">Yükleniyor...</div>
+          ) : (
+            <EmptyState
+              icon={Clipboard}
+              title="Henüz kopyalama yok"
+              description="Ctrl+C ile bir şey kopyaladığında burada görünecek."
+            />
+          )
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -325,9 +333,13 @@ export default function MemoryPage() {
         </div>
 
         {notes.length === 0 ? (
-          <div className="bg-bg-card border border-border rounded-card p-8 text-center text-text-muted text-sm">
-            Henüz not yok. Kopyaladığın bir şeyi veya yeni bir fikri nota dönüştür.
-          </div>
+          <EmptyState
+            icon={StickyNote}
+            title="Henüz not yok"
+            description="Kopyaladığın bir şeyi veya yeni bir fikri nota dönüştür."
+            ctaLabel="Yeni not"
+            onCta={openNewNote}
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {notes.map((n) => (

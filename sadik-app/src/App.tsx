@@ -16,6 +16,7 @@ import HabitsPage from './pages/HabitsPage';
 import AgendaPage from './pages/AgendaPage';
 import VoiceAssistant from './components/voice/VoiceAssistant';
 import OnboardingPage from './pages/OnboardingPage';
+import FirstDayTutorial from './components/onboarding/FirstDayTutorial';
 import { settingsApi } from './api/settings';
 
 /**
@@ -63,22 +64,28 @@ function AppShell() {
   const { voiceUiVisible, setVoiceUiVisible } = useContext(AppContext);
   const onChatRoute = location.pathname === '/chat';
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
+  const [tutorialDone, setTutorialDone] = useState<boolean | null>(null);
 
   useEffect(() => {
     settingsApi.get('onboarding_completed')
       .then((s) => setOnboardingDone(s.value === 'true'))
       .catch(() => setOnboardingDone(true));
+    settingsApi.get('tutorial_completed')
+      .then((s) => setTutorialDone(s.value === 'true'))
+      .catch(() => setTutorialDone(true));
   }, []);
 
   useEffect(() => {
     if (!onChatRoute && voiceUiVisible) setVoiceUiVisible(false);
   }, [onChatRoute, voiceUiVisible, setVoiceUiVisible]);
 
-  if (onboardingDone === null) return null;
+  if (onboardingDone === null || tutorialDone === null) return null;
 
   if (!onboardingDone) {
     return <OnboardingPage onComplete={() => setOnboardingDone(true)} />;
   }
+
+  const showTutorial = onboardingDone && !tutorialDone;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-bg-main">
@@ -108,6 +115,9 @@ function AppShell() {
         </div>
       </main>
       <BottomNav />
+      {showTutorial && (
+        <FirstDayTutorial onDone={() => setTutorialDone(true)} />
+      )}
     </div>
   );
 }

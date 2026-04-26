@@ -122,7 +122,7 @@
   - ⚠️ Mevcut Google Calendar kullanıcıları Meet scope için reconnect gerektirir (scope_granted=false dönecek)
 - **Sprint 4 T4.3b + T4.4 tamamlandı ✅ — Meet scope uyarısı + in_meeting synthetic insight handler**
 - **Sprint 4 TAMAMLANDI ✅**
-- **Sprint 5 ilerleme:** T5.1 ✅ (preset kataloğu), T5.2 ✅ (jargon temizliği), T5.3 ✅ (onboarding persona) — kalan: **T5.4** empty states + ilk-gün tutorial
+- **Sprint 5 tamamlandı ✅** — T5.1 (preset kataloğu), T5.2 (jargon temizliği), T5.3 (onboarding persona), T5.4 (empty states + first-day tutorial)
   - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
 
 
@@ -343,7 +343,15 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Backend: `user_persona` setting + `_PERSONA_HINTS` + `_get_user_persona()` helper, `_build_messages(persona=...)` ile system prompt'a "KULLANICI ROLÜ" bloğu enjekte
   - `send_message` + `stream_voice_response` her iki path'te de persona threadli
   - SettingsPage "Rol" section — sonradan değiştirilebilir
-- [WIP: session-A] **T5.4** Empty state'ler + ilk-gün tutorial
+- [x] **T5.4 tamam [session-A]** Empty state'ler + ilk-gün tutorial ✅
+  - YENİ: `components/common/EmptyState.tsx` (icon + title + desc + CTA + Mic ikonlu voiceHint)
+  - YENİ: `components/onboarding/FirstDayTutorial.tsx` — 4-step spotlight overlay (voice-btn → mode-selector → nav-tasks → nav-settings), Atla/İleri/Tamam, complete'te `settingsApi.update({tutorial_completed:'true'})`
+  - Empty state replacements: TaskBoard (tüm tasks==0), HabitsPage, MemoryPage (clipboard+notes), WorkspacePage, AgendaPage (selectedItems==0)
+  - data-tutorial attrs: HeaderBar voice-btn + nav-settings (gear), DashboardPage mode-selector, BottomNav `/tasks` nav-tasks
+  - Backend: `DEFAULT_SETTINGS["tutorial_completed"]="false"` (lifespan auto-seed)
+  - AppShell gate: onboarding done + tutorial pending → mount FirstDayTutorial
+  - Fix (master): Sonnet'in dead-code Sidebar'a eklediği data-tutorial revert edildi; nav-tasks BottomNav'a, nav-settings HeaderBar gear'a taşındı
+  - **Sprint 5 tamamlandı ✅**
 
 **Exit criteria:** Fresh install → onboarding akışı tamam → kullanıcı ilk task'ını voice ile sorabiliyor.
 

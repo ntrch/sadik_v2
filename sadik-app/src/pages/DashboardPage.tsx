@@ -323,7 +323,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Mode selector — compact inline */}
-      <div className="bg-bg-card border border-border rounded-card p-4 mb-5 shadow-card">
+      <div data-tutorial="mode-selector" className="bg-bg-card border border-border rounded-card p-4 mb-5 shadow-card">
         <div className="flex items-center gap-2 flex-wrap">
           {PRESET_MODES.map(({ key, label, oledText }) => {
             const isActive = currentMode === key;

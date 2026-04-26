@@ -93,6 +93,7 @@ DEFAULT_SETTINGS = {
     "privacy_voice_memory": "false",
     "privacy_tier": "hybrid",
     "onboarding_completed": "false",
+    "tutorial_completed": "false",
     "user_profile_patterns": "",
     "user_persona": "general",
 }

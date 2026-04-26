@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Repeat, Plus, Pencil, Trash2, X } from 'lucide-react';
 import { habitsApi, Habit, HabitCreate, HabitUpdate } from '../api/habits';
+import EmptyState from '../components/common/EmptyState';
 
 // ── Day labels ────────────────────────────────────────────────────────────────
 
@@ -392,10 +393,13 @@ export default function HabitsPage() {
       {loading ? (
         <p className="text-text-muted text-sm text-center py-12">Yükleniyor...</p>
       ) : habits.length === 0 ? (
-        <div className="text-center py-16">
-          <Repeat size={40} className="text-text-muted mx-auto mb-3 opacity-40" />
-          <p className="text-text-muted text-sm">Henüz alışkanlık yok. İlk alışkanlığını ekle.</p>
-        </div>
+        <EmptyState
+          icon={Repeat}
+          title="Henüz alışkanlık yok"
+          description="Düzenli yapmak istediğin küçük rutinleri ekle."
+          ctaLabel="Yeni alışkanlık"
+          onCta={openCreate}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {habits.map((h) => (

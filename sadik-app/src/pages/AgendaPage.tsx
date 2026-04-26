@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, ListTodo, Repeat, CalendarDays, Plus, X, Trash2 } from 'lucide-react';
+import EmptyState from '../components/common/EmptyState';
 import gcalLogo from '../assets/brand/icons8-google-calendar.svg';
 import { tasksApi, Task } from '../api/tasks';
 import { habitsApi, Habit } from '../api/habits';
@@ -346,7 +347,14 @@ export default function AgendaPage() {
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {selectedItems.length === 0 && (
-              <p className="text-sm text-text-muted text-center py-6">Bu gün için planlanmış bir şey yok.</p>
+              <div className="py-4">
+                <EmptyState
+                  icon={CalendarDays}
+                  title="Bugün ajandanda etkinlik yok"
+                  description="Google Takvim bağlıysa otomatik senkronize edilir."
+                  voiceHint="Sadık, bu hafta neler var?"
+                />
+              </div>
             )}
             {selectedItems.map((ev) => {
               const c = colorsFor(ev);

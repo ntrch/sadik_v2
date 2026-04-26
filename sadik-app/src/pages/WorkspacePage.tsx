@@ -8,6 +8,7 @@ import {
   AlignVerticalJustifyStart, AlignVerticalJustifyEnd, Maximize,
   LucideIcon, LayoutGrid, Square,
 } from 'lucide-react';
+import EmptyState from '../components/common/EmptyState';
 import { workspacesApi, Workspace, WorkspaceActionCreate, ActionType } from '../api/workspaces';
 import { modesApi } from '../api/modes';
 import { AppContext } from '../context/AppContext';
@@ -1090,11 +1091,13 @@ export default function WorkspacePage() {
       {loading ? (
         <p className="text-text-muted text-sm text-center py-12">Yükleniyor...</p>
       ) : workspaces.length === 0 ? (
-        <div className="text-center py-16">
-          <LayoutGrid size={40} className="text-text-muted mx-auto mb-3 opacity-40" />
-          <p className="text-text-muted text-sm">Henüz çalışma alanı yok.</p>
-          <p className="text-text-muted text-xs mt-1">Yukarıdan yeni bir tane oluşturun.</p>
-        </div>
+        <EmptyState
+          icon={LayoutGrid}
+          title="Henüz çalışma alanı yok"
+          description="Sık kullandığın uygulama+sekme grubunu kaydet, tek tıkla aç."
+          ctaLabel="Yeni çalışma alanı"
+          onCta={openCreate}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {workspaces.map((ws) => (

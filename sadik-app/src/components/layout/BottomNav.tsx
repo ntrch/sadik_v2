@@ -24,6 +24,7 @@ export default function BottomNav() {
           to={to}
           end={to === '/'}
           title={label}
+          data-tutorial={to === '/tasks' ? 'nav-tasks' : undefined}
           className={({ isActive }) =>
             `p-3 rounded-xl transition-all flex items-center justify-center ${
               isActive

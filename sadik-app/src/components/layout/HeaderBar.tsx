@@ -214,6 +214,7 @@ export default function HeaderBar() {
           <div className="w-px h-5 bg-border/50" />
 
           <button
+            data-tutorial="voice-btn"
             onClick={toggleWakeWord}
             title={wakeWordEnabled ? 'Sesli komutu kapat' : 'Sesli komutu aç'}
             className={`p-2.5 rounded-full transition-all ${
@@ -230,6 +231,7 @@ export default function HeaderBar() {
           </button>
 
           <button
+            data-tutorial="nav-settings"
             onClick={() => navigate('/settings')}
             title="Ayarlar"
             className={`p-2.5 rounded-full transition-all ${

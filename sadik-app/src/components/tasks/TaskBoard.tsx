@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ListTodo } from 'lucide-react';
 import { Task, tasksApi } from '../../api/tasks';
 import TaskColumn from './TaskColumn';
 import TaskModal from './TaskModal';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { AppContext } from '../../context/AppContext';
+import EmptyState from '../common/EmptyState';
 
 const COLUMNS = [
   { status: 'todo',        label: 'Yapılacak' },
@@ -111,6 +113,31 @@ export default function TaskBoard({ highlightTaskId }: TaskBoardProps) {
   };
 
   const tasksByStatus = (status: string) => tasks.filter((t) => t.status === status);
+
+  if (tasks.length === 0) {
+    return (
+      <>
+        <div className="flex items-center justify-center h-full py-8">
+          <EmptyState
+            icon={ListTodo}
+            title="Henüz görev yok"
+            description="İlk görevini ekle ve ne üzerinde çalışacağını planla."
+            ctaLabel="Yeni görev"
+            onCta={() => openCreate('todo')}
+            voiceHint="Sadık, bugün teslim edeceğim görevler ne?"
+          />
+        </div>
+        {showModal && (
+          <TaskModal
+            task={selectedTask}
+            defaultStatus={defaultStatus}
+            onClose={() => setShowModal(false)}
+            onSaved={loadTasks}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <>
