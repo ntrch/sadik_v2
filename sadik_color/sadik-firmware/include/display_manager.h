@@ -5,6 +5,15 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
 #include "config.h"
+#include "rtos_tasks.h"
+
+// RAII helper: takes tftMutex on construction, releases on destruction.
+// Guards against the early-boot case where rtos_init() has not yet run and
+// tftMutex is still nullptr (begin() is called before rtos_init()).
+struct TftLock {
+    TftLock()  { if (tftMutex) xSemaphoreTake(tftMutex, portMAX_DELAY); }
+    ~TftLock() { if (tftMutex) xSemaphoreGive(tftMutex); }
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DisplayManager — Faz 1: ST7735S SPI TFT (160×128 landscape)
@@ -43,6 +52,7 @@ public:
 
     // Initialise SPI bus and TFT controller.
     void begin() {
+        TftLock _lock;
         // Backlight PWM setup BEFORE TFT init so the panel never flashes at full
         // brightness during boot.
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
@@ -108,6 +118,7 @@ public:
     void sendBuffer() {
         if (_sleeping || !_fbDirty) return;
         _fbDirty = false;
+        TftLock _lock;
 
         // Full 128×64 RGB565 framebuffer (16 KB, static BSS — one-time alloc)
         static uint16_t _rgbFrame[LEGACY_FB_WIDTH * LEGACY_FB_HEIGHT];
@@ -170,7 +181,10 @@ public:
     void sleepDisplay() {
         if (_sleeping) return;
         _sleeping = true;
-        _tft.fillScreen(DM_BLACK);
+        {
+            TftLock _lock;
+            _tft.fillScreen(DM_BLACK);
+        }
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
         ledcWrite(TFT_BLK, 0);
 #else
@@ -182,7 +196,10 @@ public:
     void wakeDisplay() {
         if (!_sleeping) return;
         _sleeping = false;
-        _tft.fillScreen(DM_BLACK);
+        {
+            TftLock _lock;
+            _tft.fillScreen(DM_BLACK);
+        }
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
         ledcWrite(TFT_BLK, _currentBrightness);
 #else
@@ -239,6 +256,7 @@ public:
 
     // Draw a single centred line of auto-sized text.
     void drawText(const char* text) {
+        TftLock _lock;
         // Clear the legacy FB area on the TFT
         _tft.fillRect(LEGACY_FB_OFFSET_X, LEGACY_FB_OFFSET_Y,
                       LEGACY_FB_WIDTH, LEGACY_FB_HEIGHT, DM_BLACK);
@@ -261,6 +279,7 @@ public:
     // Used for the COLOR boot splash so the operator can confirm at a glance
     // that the renk-supporting firmware is flashed.
     void drawRainbowText(const char* text, uint8_t size = 3) {
+        TftLock _lock;
         _tft.fillRect(LEGACY_FB_OFFSET_X, LEGACY_FB_OFFSET_Y,
                       LEGACY_FB_WIDTH, LEGACY_FB_HEIGHT, DM_BLACK);
         _tft.setTextSize(size);
@@ -292,6 +311,7 @@ public:
 
     // Draw a single centred line in the largest text size.
     void drawTextLarge(const char* text) {
+        TftLock _lock;
         _tft.fillRect(LEGACY_FB_OFFSET_X, LEGACY_FB_OFFSET_Y,
                       LEGACY_FB_WIDTH, LEGACY_FB_HEIGHT, DM_BLACK);
         _tft.setTextSize(3);
@@ -309,6 +329,7 @@ public:
 
     // Draw two centred lines of auto-sized text.
     void drawTwoLineText(const char* line1, const char* line2) {
+        TftLock _lock;
         _tft.fillRect(LEGACY_FB_OFFSET_X, LEGACY_FB_OFFSET_Y,
                       LEGACY_FB_WIDTH, LEGACY_FB_HEIGHT, DM_BLACK);
 
@@ -351,6 +372,7 @@ public:
     // Used by CMD_FRAME_DATA (desktop app streaming raw frames over serial).
     void pushFrameRgb565(const uint8_t* buf) {
         if (_sleeping) return;
+        TftLock _lock;
         _tft.startWrite();
         _tft.setAddrWindow(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
         // buf is RGB565 little-endian; writePixels with bigEndian=false swaps each

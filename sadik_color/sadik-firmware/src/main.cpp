@@ -12,6 +12,7 @@
 #include "text_renderer.h"
 #include "codec_decode.h"        // Sprint-2 F3.3: streaming codec decoder
 #include "local_clip_player.h"   // LittleFS local clip playback
+#include "rtos_tasks.h"          // Sprint-5 W2A: FreeRTOS task split foundation
 
 // ── Playback mode ─────────────────────────────────────────────────────────────
 
@@ -146,6 +147,9 @@ void setup() {
     // ── Enter idle mode ───────────────────────────────────────────────────────
     currentMode = MODE_IDLE;
     idleOrchestrator.start();   // plays idle loop + arms blink/variation timers
+
+    // ── Sprint-5 W2A: spawn FreeRTOS task scaffolding (stubs) ────────────────
+    rtos_init();
 
     // Seed the inactivity timer from the moment we enter idle so the first
     // sleep fires exactly sleepTimeoutMs after boot, not from time 0.

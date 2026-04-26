@@ -455,7 +455,7 @@ Opsiyonel optimizasyonlar (Sprint-5):
 
 ## Color Sprint-5: standalone stability (donanım öncesi)
 
-**Durum:** Wave-1 ✅ — Wave-2 (FreeRTOS task split) bekliyor.
+**Durum:** Wave-1 ✅ — Wave-2 partial ✅ (foundation + TFT mutex landed); task body wiring donanım sonrasına ertelendi.
 
 **Amaç:** S3 elinize gelmeden firmware'i sorunsuz/stabil hale getirmek. Donanım gelince smoke-test → onay → ana projeye merge.
 
@@ -466,8 +466,11 @@ Wave-1 (tamamlandı 2026-04-26):
 - [x] Tooling: `tools/build-clip-image.mjs` (Node 18+ ESM) → `assets/codec/*.bin` + master manifest → `sadik-firmware/data/clips/` + `data/manifest.json`. Workflow: `node sadik_color/tools/build-clip-image.mjs` → `pio run -e esp32-s3-n16r8 -t uploadfs`.
 - [x] `psram_alloc.h` helper: PSRAM-aware allocator (S3 PSRAM, WROOM internal fallback). DMA buffer'lara DOKUNMAZ.
 
-Wave-2 (sonraki session, donanım hala beklemiyor):
-- [ ] FreeRTOS task split: codec decode + SPI blit core 1'de, UART servisi core 0'da. xQueueHandle ile decoupling. Sahne değişimi PFRAME peak spike'ları core'a yayılır.
+Wave-2 (kısmen tamamlandı 2026-04-26):
+- [x] **W2A foundation**: `rtos_tasks.h/.cpp` — `tftMutex`, `byteQueue` (depth 8, ByteChunk[256]), `eventQueue` (depth 16, RtosEvent), `g_abortRequested` flag. `xTaskCreatePinnedToCore` UartTask (core 0, prio 2, 4 KB) + CodecTask (core 1, prio 3, 6 KB) — body stub. `rtos_init()` setup() sonunda çağrılıyor. `build_src_filter` her iki env'de güncellendi.
+- [x] **W2B display_manager TFT mutex**: `TftLock` RAII helper (`if (tftMutex) xSemaphoreTake/Give` — early-boot mutex=null guard'lı). begin/sendBuffer/sleepDisplay/wakeDisplay/drawText (4 variant)/pushFrameRgb565 sarmalandı. setBrightness ledc-only, dokunulmadı.
+- [x] **W2C codec_decode TFT mutex**: `_apply_iframe` ve `_apply_pframe` içinde `TftLock` (anonim namespace). PFRAME tek lock per-frame (per-tile değil), atomicity korunur.
+- [ ] **W2D task body wiring** (ertelendi → donanım sonrası): UartTask serial drain + ASCII parse + byte producer; CodecTask byteQueue/file dual-source consumer + frame ready event; LocalClipPlayer ownership transfer; main loop event-consumer'a indirgeme. **Sebep**: serial-stream timing, SPI thread starvation, queue overflow donanımsız doğrulanamaz; smoke-test öncesi land etmek regression riski yüksek.
 - [ ] (opsiyonel) `CODEC_STALL_MS` ve sliding window pacing review — task split sonrası latency profili değişir.
 
 Kapsam dışı (donanım sonrasına ertelendi):

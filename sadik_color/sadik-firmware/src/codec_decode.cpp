@@ -4,8 +4,16 @@
 // =============================================================================
 
 #include "codec_decode.h"
+#include "rtos_tasks.h"
 #include <string.h>
 #include <esp_heap_caps.h>
+
+namespace {
+struct TftLock {
+    TftLock()  { if (tftMutex) xSemaphoreTake(tftMutex, portMAX_DELAY); }
+    ~TftLock() { if (tftMutex) xSemaphoreGive(tftMutex); }
+};
+}
 
 // ---------------------------------------------------------------------------
 // CRC16-CCITT (matches Python encoder in tools/codec/encode.py)
@@ -352,6 +360,7 @@ static void _apply_iframe() {
     if (_payload_len != CODEC_FRAME_BYTES) return;
     memcpy(_fb, _payload, CODEC_FRAME_BYTES);
     if (!_tft) return;
+    TftLock _lock;
     _tft->startWrite();
     _tft->setAddrWindow(0, 0, CODEC_WIDTH, CODEC_HEIGHT);
     _tft->writePixels(_fb, CODEC_WIDTH * CODEC_HEIGHT);
@@ -370,6 +379,8 @@ static void _apply_pframe() {
     const uint8_t* dirty = _payload;
     const uint8_t* rle   = _payload + CODEC_DIRTY_BITMAP_BYTES;
     const uint8_t* rle_end = _payload + _payload_len;
+
+    TftLock _lock;
 
     // Tile scratch buffer (64 pixels = 128 bytes)
     uint16_t tile_buf[CODEC_PIXELS_PER_TILE];
