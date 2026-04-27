@@ -519,7 +519,87 @@ Kapsam dışı (donanım sonrasına ertelendi):
 Donanım gelince (Sprint-4 checklist'i aynen geçerli):
 - Boot + TFT smoke test → USB-CDC handshake → `node tools/build-clip-image.mjs` → `pio run -e esp32-s3-n16r8 -t uploadfs` → `PLAY_LOCAL:wakeword\n` ile local playback validation → throughput ölçümü → `CODEC_STALL_MS` fine-tune.
 
-Bu sprint geçince: **Sprint-Color-Merge** (backend de-dup, device profile abstraction, frontend animation dispatcher, native USB device auto-detect).
+Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprint-1..3** (ortak app) → **RGB LED Sprint**.
+
+---
+
+## Color Sprint-6: legacy clip mimarisi sökümü (color firmware tek render path)
+
+**Durum:** WIP başlamadı.
+
+**Amaç:** Color firmware'inde iki paralel render path'i (legacy 1-bit `ClipPlayer` 128×64 sub-region + codec full 160×128 RGB565) tek path'e indirgemek. Tüm clip'ler LittleFS'ten codec format ile oynar; idle/blink/variation timing in-firmware `AnimationEngine`'ine devredilir. Backend bağlıyken tek otorite app, değilken tek otorite firmware.
+
+**Why:** Çift path bug yüzeyini büyütüyor (LOCAL_CLIP→idle artifact bug'ı buradan çıktı). Color iki render mimarisini sürdürmenin uzun vadeli maliyeti yok — color sadece codec format kullanmalı. Flash + RAM kazancı bonus.
+
+**Wave-1 — yeni AnimationEngine, legacy yan yana**
+- [ ] `animation_engine.h` modülü (color firmware): `play(name)`, `playLoop(name)`, `onFinished()` event, idle state machine (idle → random blink → idle, idle_alt variation timing). LocalClipPlayer'ı altında kullanır. `idle_orchestrator` mantığı port edilir; legacy `ClipPlayer` çağrıları korunur (yan yana).
+- [ ] main.cpp'de runtime flag (`USE_NEW_ANIMATION_ENGINE`) — donanımda A/B test edilebilir.
+- [ ] Smoke test: idle loop + blink + variation + LOCAL_CLIP event'leri yeni engine üzerinden bir tur dönsün.
+
+**Wave-2 — legacy söküm**
+- [ ] Legacy `ClipPlayer` instance'ı, `clip_player.h`, `clip_registry.h`, `include/clips/` (PROGMEM mono frame'ler) silinsin.
+- [ ] DisplayManager 1-bit framebuffer (`_fb`, `drawFrame`, `sendBuffer`, `_rgbFrame` 16 KB BSS) silinsin. `text_renderer` dokunulmasın (drawText path ayrı).
+- [ ] UART byte streaming (`codec_feed` external source) — appConnected modu için kalsın ama LOCAL_CLIP path default. (Ya da tamamen ASCII-event'e indirgeme — sprint sonunda karar.)
+- [ ] Manifest publish (`MANIFEST:idle,blink,listening,...` boot'ta Serial'e) — Multi-device Sprint-1'de app tarafı kullanacak.
+- [ ] Flash/RAM ölçümü (öncesi vs. sonrası) commit mesajına yazılsın.
+
+**Bu sprint geçince color tek başına stable, tek render path. Sonra Multi-device.**
+
+---
+
+## Multi-device Sprint-1: handshake protokolü + DeviceProfile (app)
+
+**Durum:** WIP başlamadı.
+
+- [ ] Color firmware boot'ta publish: `DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=<ver> caps=local_clips`
+- [ ] Mini firmware'e aynı satır: `DEVICE:variant=mini hw=esp32-wroom32 display=128x64_mono fw=<ver> caps=raw_frame_stream,progmem_clips` (backwards-compatible — eski app ignore eder)
+- [ ] App connection handshake: ilk N satır içinde `DEVICE:` parse edilir → `connectedDevice` state'ine yazılır. Yoksa `variant=mini` default (mevcut davranış).
+- [ ] App'te `DeviceProfile` katmanı (TS types): `{ variant, display, capabilities, fwVersion }`. Connection drop'ta null'lanır.
+- [ ] **Dashboard preview RGB badge**: `variant === 'color'` iken sağ üst köşede şeffaf çerçeve içinde renkli "RGB" yazısı (lineer R→G→B gradient text).
+
+---
+
+## Multi-device Sprint-2: AnimationEngine adapter pattern (app)
+
+**Durum:** WIP başlamadı.
+
+- [ ] App'te `AnimationEngine` interface'i: `onEvent(event)`, `onIdle()`, `destroy()`.
+- [ ] `MiniAnimationEngine` — mevcut SADIK_mini animation kodu bu sınıfa kapsüllensin.
+- [ ] `ColorAnimationEngine` — yeni, sadece `PLAY_LOCAL:<name>` ASCII komutu yollar; firmware kendi AnimationEngine'iyle (Color Sprint-6 W1) idle/blink yönetir.
+- [ ] Connection açıldığında `deviceProfile.variant`'a göre doğru engine instantiate edilir.
+- [ ] Backend variant-aware OLMASIN — semantik event üretsin, app çevirsin.
+
+---
+
+## Multi-device Sprint-3: dashboard preview adapter + asset pipeline
+
+**Durum:** WIP başlamadı.
+
+- [ ] Dashboard preview component'ı `MiniPreview` (128×64 mono canvas) ve `ColorPreview` (160×128 RGB canvas) olarak ikiye bölünsün.
+- [ ] `app/assets/devices/mini/...` ve `app/assets/devices/color/...` ayrı asset klasörleri.
+- [ ] Asset build pipeline: tek source animasyondan iki target üretme (mono PROGMEM + color codec bin). Manuel adım kabul.
+- [ ] CI: iki firmware build (mini + color), app tarafında mock-profile ile iki UI render testi.
+
+---
+
+## RGB LED Sprint (Color-only, Multi-device sonrası)
+
+**Durum:** WIP başlamadı.
+
+**Donanım:** ESP32-S3-DevKitC-1 N16R8 onboard WS2812 (muhtemel GPIO 48 — sprint başında doğrula).
+
+**Firmware (color):**
+- [ ] `Adafruit_NeoPixel` lib_deps eklensin.
+- [ ] `rgb_led.h`: `setOff()` / `setStatic(r,g,b)` / `setEventColor(name)` / `update()` (fade ~150ms).
+- [ ] State: `LED_MODE_OFF` / `LED_MODE_STATIC` / `LED_MODE_DYNAMIC`.
+- [ ] ASCII komutlar: `LED:OFF`, `LED:STATIC:RRGGBB`, `LED:DYNAMIC`, `LED:EVENT:<name>`.
+- [ ] NVS persist: ilk turda atla — app her bağlantıda yeniden gönderir.
+
+**App (settings, color-only):**
+- [ ] Settings → Personalization → **RGB LED** kartı, `variant === 'color'` guard'lı.
+- [ ] Üç seçenek: Kapalı / Sabit (color picker) / Dinamik.
+- [ ] Dinamik: preset mod kart renkleriyle hardcoded eşleştirme; custom mod seçilen renge göre. Edit ettirme YOK (sonraki iterasyon).
+- [ ] App event geçişlerinde `LED:EVENT:<name>` yollar.
 
 ---
 
