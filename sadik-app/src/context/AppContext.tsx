@@ -716,9 +716,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const handshakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync deviceVariant (declared before useAnimationEngine) from connectedDevice.
+  // Also send APP_CONNECTED to mini firmware once the variant is confirmed.
+  // Bug 5 fix: APP_CONNECTED must NOT be sent here — it is sent AFTER connectedDevice
+  // arrives so the variant guard fires correctly (no race with 'mini' default).
+  // Color firmware must never receive APP_CONNECTED — it activates codec_feed()
+  // which silently swallows subsequent ASCII commands (PLAY_LOCAL, etc.).
   useEffect(() => {
-    setDeviceVariant(connectedDevice?.variant ?? 'mini');
-  }, [connectedDevice]);
+    const variant = connectedDevice?.variant ?? 'mini';
+    setDeviceVariant(variant);
+    if (connectedDevice && deviceStatus.connected && variant !== 'color') {
+      deviceApi.sendCommand('APP_CONNECTED').catch(() => {});
+    }
+  }, [connectedDevice, deviceStatus.connected]);
 
   // ── DND state ──────────────────────────────────────────────────────────────
   const [dndActive, setDndActiveState] = useState(false);

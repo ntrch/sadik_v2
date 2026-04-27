@@ -200,19 +200,12 @@ export function useAnimationEngine(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Notify firmware of app authority changes so it can suppress or restore
-  // its autonomous idle orchestration (blink / look timers) accordingly.
-  // Color variant: do NOT send APP_CONNECTED — color firmware uses ASCII command
-  // path (serialCmd.hasCommand) which is gated on !appConnected. Sending
-  // APP_CONNECTED would route all bytes through codec_feed(), breaking PLAY_LOCAL.
-  useEffect(() => {
-    if (deviceConnected && deviceVariant !== 'color') {
-      deviceApi.sendCommand('APP_CONNECTED').catch(() => {});
-    }
-    // APP_DISCONNECTED is sent by the backend disconnect endpoint before closing
-    // the serial port, so the firmware receives it while the link is still open.
-    // For color, we don't need APP_DISCONNECTED either (appConnected was never set).
-  }, [deviceConnected, deviceVariant]);
+  // NOTE: APP_CONNECTED is intentionally NOT sent here.
+  // It is sent by AppContext after connectedDevice (and therefore the variant) has
+  // been confirmed via the device_profile WebSocket handshake.  Sending it here
+  // would race the handshake — deviceVariant is still 'mini' (default) when
+  // deviceConnected first becomes true, causing APP_CONNECTED to reach a color
+  // device before the variant guard can fire.  AppContext owns the timing now.
 
   // ── Focus-look wiring ────────────────────────────────────────────────────────
   // Tracks window focus state via Electron IPC when available, falling back to

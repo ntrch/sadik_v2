@@ -231,15 +231,18 @@ async def lifespan(app: FastAPI):
                     await _ws_monitor.broadcast({"type": "device_profile", "data": {"line": None}})
                     continue
                 # Try a lightweight read to probe liveness; SerialException/OSError = disconnected
+                # Bug 7 fix: also catch TypeError/AttributeError — Windows pyserial raises
+                # TypeError("byref() argument must be a ctypes instance, not 'NoneType'")
+                # when in_waiting is probed on an already-closed NULL handle.
                 loop = asyncio.get_event_loop()
                 try:
                     def _probe():
                         s = _ss_monitor._serial
                         if s is None or not s.is_open:
                             raise serial.SerialException("port not open")
-                        _ = s.in_waiting  # raises OSError/SerialException if USB pulled
+                        _ = s.in_waiting  # raises OSError/SerialException/TypeError if USB pulled
                     await loop.run_in_executor(None, _probe)
-                except (serial.SerialException, OSError) as exc:
+                except (serial.SerialException, OSError, TypeError, AttributeError) as exc:
                     logger.warning(f"USB disconnect detected: {exc}")
                     # Clean up state
                     try:

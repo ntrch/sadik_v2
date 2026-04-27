@@ -147,6 +147,7 @@ async def send_frame(body: FrameData):
 
 @router.post("/command")
 async def send_command(body: DeviceCommand):
+    logger.info(f"Device command: {body.command}")
     ok, error = await device_manager.send_command(body.command)
     await ws_manager.broadcast({"type": "device_command", "data": {"command": body.command}})
     if not ok:

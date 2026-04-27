@@ -300,6 +300,8 @@ class SerialService:
             return True
         except Exception as e:
             logger.error(f"Serial send error: {e}")
+            self._serial = None
+            self._active_port = None
             return False
 
     async def read_line(self) -> Optional[str]:
@@ -308,8 +310,11 @@ class SerialService:
         loop = asyncio.get_event_loop()
         try:
             def _read():
-                if self._serial.in_waiting > 0:
-                    return self._serial.readline().decode("utf-8", errors="replace").strip()
+                s = self._serial
+                if s is None or not s.is_open:
+                    return None
+                if s.in_waiting > 0:
+                    return s.readline().decode("utf-8", errors="replace").strip()
                 return None
             return await loop.run_in_executor(None, _read)
         except Exception as e:
@@ -336,18 +341,36 @@ class SerialService:
             loop = asyncio.get_event_loop()
 
             def _exchange() -> Optional[str]:
+                s = self._serial
+                # Bug 7 fix: guard against None/closed port — Windows ctypes
+                # raises TypeError("byref() argument must be a ctypes instance,
+                # not 'NoneType'") when in_waiting is probed on a closed handle.
+                if s is None or not s.is_open:
+                    return None
                 # 1. Drain any stale input that arrived since the last command.
-                self._serial.reset_input_buffer()
+                s.reset_input_buffer()
                 # 2. Write command and flush the OS TX buffer immediately.
-                self._serial.write((command + "\n").encode("utf-8"))
-                self._serial.flush()
+                s.write((command + "\n").encode("utf-8"))
+                s.flush()
 
                 deadline = time.monotonic() + read_timeout
                 while time.monotonic() < deadline:
                     try:
+                        # Re-check inside loop — port may close mid-exchange
+                        if self._serial is None or not self._serial.is_open:
+                            logger.warning("Serial port closed mid-exchange")
+                            return None
                         raw = self._serial.readline()
-                    except Exception as e:
+                    except (serial.SerialException, OSError, TypeError, AttributeError) as e:
                         logger.error(f"Serial readline error: {e}")
+                        # Ensure state is cleaned up so is_connected returns False
+                        try:
+                            if self._serial and self._serial.is_open:
+                                self._serial.close()
+                        except Exception:
+                            pass
+                        self._serial = None
+                        self._active_port = None
                         return None
                     # readline() returns b"" when the per-character timeout
                     # elapses without a newline — just retry until deadline.
