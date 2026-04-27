@@ -123,6 +123,10 @@ void setup() {
     // sleep fires exactly sleepTimeoutMs after boot, not from time 0.
     markActivity("BOOT");
 
+    // ── Device profile publish (Multi-device Sprint-1 handshake) ────────────
+    // App-side parser reads the first N serial lines and extracts DeviceProfile.
+    Serial.println("DEVICE:variant=mini hw=esp32-wroom32 display=128x64_mono fw=2.0.0 caps=raw_frame_stream,progmem_clips");
+
     Serial.println("SADIK:READY");
 }
 

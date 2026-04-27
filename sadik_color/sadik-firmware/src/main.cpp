@@ -132,6 +132,11 @@ void setup() {
     // Standalone mode: ACKs disabled (no host). begin() sets ack_enabled=false.
     animationEngine.begin();
 
+    // ── Device profile publish (Multi-device Sprint-1 handshake) ────────────
+    // App-side parser reads the first N serial lines and extracts DeviceProfile.
+    // Must come before MANIFEST: and SADIK:READY so the parser sees it early.
+    Serial.println("DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=0.6.0 caps=local_clips");
+
     // ── Manifest publish (Multi-device Sprint-1 handshake) ───────────────────
     // Boot'ta available clip listesini publish et; app parse edecek.
     {
