@@ -525,16 +525,16 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 
 ## Color Sprint-6: legacy clip mimarisi sökümü (color firmware tek render path)
 
-**Durum:** WIP başlamadı.
+**Durum:** Wave-1 ✅ DONE — Wave-2 başlamadı.
 
 **Amaç:** Color firmware'inde iki paralel render path'i (legacy 1-bit `ClipPlayer` 128×64 sub-region + codec full 160×128 RGB565) tek path'e indirgemek. Tüm clip'ler LittleFS'ten codec format ile oynar; idle/blink/variation timing in-firmware `AnimationEngine`'ine devredilir. Backend bağlıyken tek otorite app, değilken tek otorite firmware.
 
 **Why:** Çift path bug yüzeyini büyütüyor (LOCAL_CLIP→idle artifact bug'ı buradan çıktı). Color iki render mimarisini sürdürmenin uzun vadeli maliyeti yok — color sadece codec format kullanmalı. Flash + RAM kazancı bonus.
 
-**Wave-1 — yeni AnimationEngine, legacy yan yana**
-- [ ] `animation_engine.h` modülü (color firmware): `play(name)`, `playLoop(name)`, `onFinished()` event, idle state machine (idle → random blink → idle, idle_alt variation timing). LocalClipPlayer'ı altında kullanır. `idle_orchestrator` mantığı port edilir; legacy `ClipPlayer` çağrıları korunur (yan yana).
-- [ ] main.cpp'de runtime flag (`USE_NEW_ANIMATION_ENGINE`) — donanımda A/B test edilebilir.
-- [ ] Smoke test: idle loop + blink + variation + LOCAL_CLIP event'leri yeni engine üzerinden bir tur dönsün.
+**Wave-1 — yeni AnimationEngine, legacy yan yana** ✅ DONE (2026-04-27)
+- [x] `animation_engine.h` modülü (color firmware): `AE_IDLE/AE_PLAYING_ONESHOT/AE_PLAYING_BLINK/AE_PLAYING_VARIATION/AE_STOPPED` state machine. LocalClipPlayer altında kullanır. `idle_orchestrator` mantığı port edilir; blink 12-30s, variation 5-8dk (orijinal config.h değerleri korundu). Variation: `idle_alt_left_look`, `idle_alt_look_down`, `idle_alt_right_look` (manifest isimlerinden).
+- [x] main.cpp'de compile-time flag (`USE_NEW_ANIMATION_ENGINE=1 default`) — `#if` guard'ları ile A/B test edilebilir; legacy path tamamen korundu.
+- [ ] Smoke test: idle loop + blink + variation + LOCAL_CLIP event'leri yeni engine üzerinden bir tur dönsün. (Donanım upload sonrası kullanıcıda).
 
 **Wave-2 — legacy söküm**
 - [ ] Legacy `ClipPlayer` instance'ı, `clip_player.h`, `clip_registry.h`, `include/clips/` (PROGMEM mono frame'ler) silinsin.

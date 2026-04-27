@@ -14,6 +14,16 @@
 #include "local_clip_player.h"   // LittleFS local clip playback
 #include "rtos_tasks.h"          // Sprint-5 W2A: FreeRTOS task split foundation
 
+// ── Color Sprint-6 W1: AnimationEngine (codec/LittleFS render path) ──────────
+// Set to 1 to activate new engine; set to 0 to fall back to legacy ClipPlayer.
+// Wave-2 will remove legacy and this flag entirely.
+#ifndef USE_NEW_ANIMATION_ENGINE
+#define USE_NEW_ANIMATION_ENGINE 1
+#endif
+#if USE_NEW_ANIMATION_ENGINE
+#include "animation_engine.h"
+#endif
+
 // ── Playback mode ─────────────────────────────────────────────────────────────
 
 enum PlaybackMode {
@@ -34,6 +44,9 @@ SerialCommander  serialCmd;
 TextRenderer     textRenderer(display);     // needs display
 LocalClipPlayer  localClipPlayer;           // LittleFS local clip playback
 PlaybackMode     currentMode = MODE_BOOT;
+#if USE_NEW_ANIMATION_ENGINE
+AnimationEngine  animationEngine(localClipPlayer); // Color S6-W1: codec idle engine
+#endif
 
 // ── OLED sleep state ──────────────────────────────────────────────────────────
 // sleepTimeoutMs: inactivity duration (ms) before the display is powered off.
@@ -102,7 +115,11 @@ void ensureAwake(const char* reason) {
     if (sleepPausedIdle) {
         sleepPausedIdle = false;
         if (currentMode == MODE_IDLE) {
+#if USE_NEW_ANIMATION_ENGINE
+            animationEngine.resume();
+#else
             idleOrchestrator.resume();
+#endif
         }
     }
 }
@@ -146,7 +163,14 @@ void setup() {
 
     // ── Enter idle mode ───────────────────────────────────────────────────────
     currentMode = MODE_IDLE;
+#if USE_NEW_ANIMATION_ENGINE
+    // Color S6-W1: new codec/LittleFS engine drives idle/blink/variation.
+    // Legacy idleOrchestrator kept but not started (Wave-2 removes it).
+    // appConnected defaults to false → firmware has authority from boot.
+    animationEngine.begin();
+#else
     idleOrchestrator.start();   // plays idle loop + arms blink/variation timers
+#endif
 
     // ── Sprint-5 W2A: spawn FreeRTOS task scaffolding (stubs) ────────────────
     rtos_init();
@@ -199,6 +223,14 @@ void processCommand(ParsedCommand& cmd) {
         // ── PLAY_LOCAL:<name> ─────────────────────────────────────────────────
         case CMD_PLAY_LOCAL: {
             const char* name = cmd.argument;
+#if USE_NEW_ANIMATION_ENGINE
+            // Color S6-W1: delegate to AnimationEngine; it calls localClipPlayer.play().
+            // ACKs disabled: no host waiting for binary ACKs on local clips.
+            codec_set_ack_enabled(false);
+            animationEngine.playEvent(name);
+            currentMode = MODE_LOCAL_CLIP;
+            markActivity("PLAY_LOCAL");
+#else
             // Stop any currently-playing legacy/codec content.
             clipPlayer.stop();
             idleOrchestrator.pause();
@@ -213,6 +245,7 @@ void processCommand(ParsedCommand& cmd) {
                 Serial.print("ERR:LOCAL_CLIP_FAILED name=");
                 Serial.println(name);
             }
+#endif
             break;
         }
 
@@ -228,7 +261,11 @@ void processCommand(ParsedCommand& cmd) {
                     // App is authority — restart idle loop; do not arm firmware timers.
                     clipPlayer.play(&CLIP_IDLE, /*forceLoop=*/true);
                 } else {
+#if USE_NEW_ANIMATION_ENGINE
+                    animationEngine.resume();
+#else
                     idleOrchestrator.resume();
+#endif
                 }
             }
             Serial.println("OK:STOPPED");
@@ -273,7 +310,11 @@ void processCommand(ParsedCommand& cmd) {
                 // App is authority — restart idle loop without arming firmware timers.
                 clipPlayer.play(&CLIP_IDLE, /*forceLoop=*/true);
             } else {
+#if USE_NEW_ANIMATION_ENGINE
+                animationEngine.resume();
+#else
                 idleOrchestrator.resume();
+#endif
             }
             Serial.println("OK:IDLE");
             break;
@@ -371,7 +412,11 @@ void processCommand(ParsedCommand& cmd) {
                 break;
             }
             if (currentMode == MODE_IDLE) {
+#if USE_NEW_ANIMATION_ENGINE
+                animationEngine.stop();
+#else
                 idleOrchestrator.pause();
+#endif
                 sleepPausedIdle = true;
             }
             Serial.println("DEBUG:SLEEP_TRIGGER elapsed=forced timeout=0 mode=FORCED");
@@ -388,9 +433,14 @@ void processCommand(ParsedCommand& cmd) {
         case CMD_APP_CONNECTED: {
             appConnected = true;
             if (currentMode == MODE_IDLE) {
+#if USE_NEW_ANIMATION_ENGINE
+                // Stop engine; app will drive clips directly via PLAY_LOCAL.
+                animationEngine.stop();
+#else
                 idleOrchestrator.pause();
                 // Restart idle loop under direct clip-player control (no timers).
                 clipPlayer.play(&CLIP_IDLE, /*forceLoop=*/true);
+#endif
             }
             Serial.println("OK:APP_CONNECTED");
             break;
@@ -412,12 +462,16 @@ void processCommand(ParsedCommand& cmd) {
         // the firmware autonomous idle orchestrator.
         case CMD_APP_DISCONNECTED: {
             appConnected = false;
-            // Always return to idle orchestra on disconnect, regardless of current mode.
+            // Always return to idle on disconnect, regardless of current mode.
             // Without this, a TEXT mode (e.g. "TOPLANTI") stays frozen on screen.
             clipPlayer.stop();
             textRenderer.clear();
             currentMode = MODE_IDLE;
+#if USE_NEW_ANIMATION_ENGINE
+            animationEngine.resume();
+#else
             idleOrchestrator.resume();
+#endif
             Serial.println("OK:APP_DISCONNECTED");
             break;
         }
@@ -541,8 +595,14 @@ void loop() {
         if (localClipPlayer.hasFinished()) {
             currentMode = MODE_IDLE;
             codec_set_ack_enabled(true);  // re-enable for backend codec stream mode
-            display.clearScreen();   // wipe codec's last full-screen frame; idle clip only covers 128×64
+            display.clearScreen();   // wipe codec's last full-screen frame
+#if USE_NEW_ANIMATION_ENGINE
+            // AnimationEngine handles its own state transition to idle internally
+            // via update() — no explicit resume() needed here.
+            // engine.update() runs below in step 4.
+#else
             idleOrchestrator.resume();
+#endif
             markActivity("LOCAL_CLIP_DONE");
             Serial.println("EVENT:LOCAL_CLIP_FINISHED");
         }
@@ -557,7 +617,11 @@ void loop() {
             // The app will send the next blink/variation/RETURN_TO_IDLE itself.
             clipPlayer.play(&CLIP_IDLE, /*forceLoop=*/true);
         } else {
+#if USE_NEW_ANIMATION_ENGINE
+            animationEngine.resume();
+#else
             idleOrchestrator.resume();
+#endif
         }
         markActivity("CLIP_FINISHED");   // clip ending is activity; reset the sleep countdown
         Serial.println("EVENT:CLIP_FINISHED");
@@ -566,9 +630,19 @@ void loop() {
     // 4. Drive idle orchestration (blink timer, variation timer, state machine).
     //    Only runs while the firmware is in idle mode, the display is awake,
     //    AND the app is not connected (app-connected mode suppresses autonomous idle).
+#if USE_NEW_ANIMATION_ENGINE
+    // Color S6-W1: AnimationEngine replaces IdleOrchestrator for codec path.
+    // Also ticks during MODE_LOCAL_CLIP so engine can catch hasFinished() and
+    // auto-return to idle after a PLAY_LOCAL one-shot completes.
+    if ((currentMode == MODE_IDLE || currentMode == MODE_LOCAL_CLIP) &&
+        !display.isSleeping() && !appConnected) {
+        animationEngine.update();
+    }
+#else
     if (currentMode == MODE_IDLE && !display.isSleeping() && !appConnected) {
         idleOrchestrator.update();
     }
+#endif
 
     // 5. OLED sleep check — only when:
     //    • a non-zero timeout is configured
@@ -595,7 +669,11 @@ void loop() {
 
             // Pause idle animations before sleeping to stop unnecessary work.
             if (currentMode == MODE_IDLE) {
+#if USE_NEW_ANIMATION_ENGINE
+                animationEngine.stop();
+#else
                 idleOrchestrator.pause();
+#endif
                 sleepPausedIdle = true;
             }
             display.sleepDisplay();
