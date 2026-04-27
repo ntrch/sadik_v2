@@ -59,7 +59,7 @@ export function useAnimationEngine(
   deviceConnected: boolean,
   sadikPosition: 'left' | 'right' | 'top' = 'left',
   personaSlug: string = 'sadik',
-  deviceVariant: 'mini' | 'color' = 'mini',
+  deviceVariant: 'mini' | 'color' | null = null,
 ) {
   const engine = getAnimationEngine();
   const rafRef = useRef<number | null>(null);

@@ -396,7 +396,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ── Device variant — updated from connectedDevice; declared here so it's
   //    available to useAnimationEngine before connectedDevice state is set up.
-  const [deviceVariant, setDeviceVariant] = useState<'mini' | 'color'>('mini');
+  // Starts as null — pump must NOT fire until device_profile WS confirms variant.
+  const [deviceVariant, setDeviceVariant] = useState<'mini' | 'color' | null>(null);
 
   // ── Weather state ────────────────────────────────────────────────────────────
   const [weatherEnabled, setWeatherEnabledState] = useState(false);
@@ -726,7 +727,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // (handshake not yet received), we do NOT send APP_CONNECTED at all.
   useEffect(() => {
     const variant = connectedDevice?.variant ?? null;
-    setDeviceVariant(variant ?? 'mini');
+    // Keep null until device_profile confirmed — pump guard relies on null meaning "unknown".
+    setDeviceVariant(variant);
     // Positive guard: only send when we KNOW it is a mini device.
     if (connectedDevice && deviceStatus.connected && variant === 'mini') {
       console.log('[AppContext] APP_CONNECTED → mini firmware (variant confirmed)');
