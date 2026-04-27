@@ -211,6 +211,16 @@ public:
         return _sleeping;
     }
 
+    // Force-clear the entire physical TFT to black. Used to wipe lingering
+    // pixels from the codec full-screen path before legacy ClipPlayer (which
+    // only paints a 128×64 sub-region) takes over.
+    void clearScreen() {
+        if (_sleeping) return;
+        TftLock _lock;
+        _tft.fillScreen(DM_BLACK);
+        _fbDirty = false;
+    }
+
     // ── Text helpers (used by TextRenderer) ──────────────────────────────────
     //
     // Text rendering uses Adafruit_GFX built-in fonts mapped to four sizes.

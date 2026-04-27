@@ -202,10 +202,14 @@ void processCommand(ParsedCommand& cmd) {
             // Stop any currently-playing legacy/codec content.
             clipPlayer.stop();
             idleOrchestrator.pause();
+            // Local clip: no host listening for ACKs; binary ACK bytes pollute
+            // USB-CDC monitor and cause backpressure → stall on first IFRAME.
+            codec_set_ack_enabled(false);
             if (localClipPlayer.play(name, /*loop=*/false)) {
                 currentMode = MODE_LOCAL_CLIP;
                 markActivity("PLAY_LOCAL");
             } else {
+                codec_set_ack_enabled(true);  // restore on failure
                 Serial.print("ERR:LOCAL_CLIP_FAILED name=");
                 Serial.println(name);
             }
@@ -464,9 +468,15 @@ void processCommand(ParsedCommand& cmd) {
 
 void onCodecFrameReady(uint16_t seq, uint8_t type) {
     ensureAwake("CODEC_FRAME");
-    markActivity("CODEC_FRAME");
+    // Per-frame activity update silent: USB-CDC backpressure'a sebep olan
+    // Serial.print spam'i kaldırıldı. Stream sırasında 50+ frame/sn print
+    // edilirse codec_feed 150ms STALL_RESET'e takılıyor.
+    lastActivityMs = millis();
 
-    if (currentMode != MODE_FRAME_STREAM) {
+    // LOCAL_CLIP mode kendi byte source'una sahip — callback mode'u
+    // FRAME_STREAM'a çevirirse main loop localClipPlayer.update()'i bir daha
+    // çağırmaz, ikinci chunk gelmeyince codec parser 150ms'de STALL_RESET olur.
+    if (currentMode != MODE_FRAME_STREAM && currentMode != MODE_LOCAL_CLIP) {
         idleOrchestrator.pause();
         clipPlayer.stop();
         textRenderer.clear();
@@ -530,6 +540,8 @@ void loop() {
         localClipPlayer.update();
         if (localClipPlayer.hasFinished()) {
             currentMode = MODE_IDLE;
+            codec_set_ack_enabled(true);  // re-enable for backend codec stream mode
+            display.clearScreen();   // wipe codec's last full-screen frame; idle clip only covers 128×64
             idleOrchestrator.resume();
             markActivity("LOCAL_CLIP_DONE");
             Serial.println("EVENT:LOCAL_CLIP_FINISHED");
