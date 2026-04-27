@@ -67,6 +67,15 @@ void codec_abort();
 // should be handed to SerialCommander for ASCII command parsing.
 bool codec_is_idle();
 
+// Monotonic counter of frames successfully applied since boot. Used by
+// LocalClipPlayer for playback pacing.
+uint32_t codec_frames_applied();
+
+// Enable/disable binary ACK + RESYNC emission over Serial. Default: enabled.
+// Disable during LittleFS local clip playback (no host listening for ACKs;
+// emitted bytes pollute USB-CDC monitor and cause backpressure).
+void codec_set_ack_enabled(bool enabled);
+
 // Call from the main loop. If a packet has been in flight (i.e. not idle) for
 // longer than the stall threshold, reset the parser so a truncated stream
 // (host crash, cable unplug mid-packet, stray 0xC5 in ASCII) cannot swallow

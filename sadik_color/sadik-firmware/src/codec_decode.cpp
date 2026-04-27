@@ -82,6 +82,12 @@ static uint32_t     _last_byte_ms       = 0;
 // without firing on merely slow streams.
 static const uint32_t CODEC_STALL_MS    = 150;
 
+// Gate for binary ACK + RESYNC emission. Disabled during local clip playback.
+static bool _ack_enabled = true;
+
+// Monotonic counter of frames successfully applied since boot.
+static uint32_t s_framesApplied = 0;
+
 // Small ASCII sniff buffer used inside STATE_HUNT_MAGIC. While the host is
 // appConnected, the main loop cannot safely call SerialCommander (racing the
 // UART driver semaphore crashes the system). The parser instead watches the
@@ -299,6 +305,10 @@ void codec_abort() {
     _reset_parser();
 }
 
+void codec_set_ack_enabled(bool enabled) {
+    _ack_enabled = enabled;
+}
+
 static void _ascii_try_handle() {
     _ascii_buf[_ascii_len] = '\0';
     if (strcmp(_ascii_buf, "ABORT_STREAM") == 0) {
@@ -310,6 +320,10 @@ static void _ascii_try_handle() {
 
 bool codec_is_idle() {
     return _state == STATE_HUNT_MAGIC;
+}
+
+uint32_t codec_frames_applied() {
+    return s_framesApplied;
 }
 
 void codec_tick() {
@@ -336,7 +350,7 @@ static void _emit_ack(uint16_t seq) {
     uint16_t crc = crc16_ccitt(hdr, 6);
     hdr[6] = (uint8_t)(crc & 0xFF);
     hdr[7] = (uint8_t)(crc >> 8);
-    Serial.write(hdr, 8);
+    if (_ack_enabled) Serial.write(hdr, 8);
 }
 
 // RESYNC packet: [0xC5][0x04][0x00][0x00][0x00][0x00][crc_lo][crc_hi]
@@ -351,8 +365,10 @@ static void _emit_resync() {
     uint16_t crc = crc16_ccitt(hdr, 6);
     hdr[6] = (uint8_t)(crc & 0xFF);
     hdr[7] = (uint8_t)(crc >> 8);
-    Serial.write(hdr, 8);
-    Serial.println("CODEC:RESYNC_SENT");
+    if (_ack_enabled) {
+        Serial.write(hdr, 8);
+        Serial.println("CODEC:RESYNC_SENT");
+    }
 }
 
 // IFRAME: payload is 40960 bytes of raw RGB565 LE. Copy into framebuffer and blit.
@@ -365,6 +381,7 @@ static void _apply_iframe() {
     _tft->setAddrWindow(0, 0, CODEC_WIDTH, CODEC_HEIGHT);
     _tft->writePixels(_fb, CODEC_WIDTH * CODEC_HEIGHT);
     _tft->endWrite();
+    s_framesApplied++;
 }
 
 // PFRAME: 40-byte dirty-tile bitmap + per-dirty-tile RLE chunks.
@@ -434,4 +451,5 @@ static void _apply_pframe() {
             _tft->endWrite();
         }
     }
+    s_framesApplied++;
 }

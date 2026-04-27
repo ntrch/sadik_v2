@@ -508,6 +508,7 @@ Wave-2 (kısmen tamamlandı 2026-04-26):
 - [x] **W2A foundation**: `rtos_tasks.h/.cpp` — `tftMutex`, `byteQueue` (depth 8, ByteChunk[256]), `eventQueue` (depth 16, RtosEvent), `g_abortRequested` flag. `xTaskCreatePinnedToCore` UartTask (core 0, prio 2, 4 KB) + CodecTask (core 1, prio 3, 6 KB) — body stub. `rtos_init()` setup() sonunda çağrılıyor. `build_src_filter` her iki env'de güncellendi.
 - [x] **W2B display_manager TFT mutex**: `TftLock` RAII helper (`if (tftMutex) xSemaphoreTake/Give` — early-boot mutex=null guard'lı). begin/sendBuffer/sleepDisplay/wakeDisplay/drawText (4 variant)/pushFrameRgb565 sarmalandı. setBrightness ledc-only, dokunulmadı.
 - [x] **W2C codec_decode TFT mutex**: `_apply_iframe` ve `_apply_pframe` içinde `TftLock` (anonim namespace). PFRAME tek lock per-frame (per-tile değil), atomicity korunur.
+- [x] **W2-fix local clip pacing**: codec_frames_applied() counter + 24fps gate + 256B chunk → fast-playback/last-frame-stuck/tearing fixed.
 - [ ] **W2D task body wiring** (ertelendi → donanım sonrası): UartTask serial drain + ASCII parse + byte producer; CodecTask byteQueue/file dual-source consumer + frame ready event; LocalClipPlayer ownership transfer; main loop event-consumer'a indirgeme. **Sebep**: serial-stream timing, SPI thread starvation, queue overflow donanımsız doğrulanamaz; smoke-test öncesi land etmek regression riski yüksek.
 - [ ] (opsiyonel) `CODEC_STALL_MS` ve sliding window pacing review — task split sonrası latency profili değişir.
 

@@ -17,7 +17,7 @@
 // begin() simply fails gracefully.
 // ─────────────────────────────────────────────────────────────────────────────
 
-static const size_t LOCAL_CLIP_READ_BUF_BYTES = 4096;
+static const size_t LOCAL_CLIP_READ_BUF_BYTES = 256;
 
 class LocalClipPlayer {
 public:
@@ -81,9 +81,11 @@ public:
         _fileSize = _file.size();
         strncpy(_clipName, safeName, sizeof(_clipName) - 1);
         _clipName[sizeof(_clipName) - 1] = '\0';
-        _loop       = loop;
-        _isPlaying  = true;
-        _isFinished = false;
+        _loop           = loop;
+        _isPlaying      = true;
+        _isFinished     = false;
+        _playStartMs    = millis();
+        _framesAtStart  = codec_frames_applied();
 
         Serial.print("LOCAL_CLIP:START name=");
         Serial.print(_clipName);
@@ -106,10 +108,16 @@ public:
     }
 
     // Pump bytes into codec_feed(); called every loop tick.
-    // No millis-based throttle — codec decode + SPI blit naturally pace playback.
+    // Paced to ~24fps via codec_frames_applied() counter; small (256B) chunks keep at-most-one frame applied per feed.
     inline void update() {
         if (!_isPlaying || !_file) return;
         if (!_readBuf) return;
+
+        const uint32_t TARGET_FPS = 24;
+        uint32_t elapsed = millis() - _playStartMs;
+        uint32_t targetFrames = (elapsed * TARGET_FPS) / 1000 + 1; // +1: izin biraz öne
+        uint32_t framesEmitted = codec_frames_applied() - _framesAtStart;
+        if (framesEmitted >= targetFrames) return; // schedule'un önündeyiz, bekle
 
         size_t n = _file.read(static_cast<uint8_t*>(_readBuf), LOCAL_CLIP_READ_BUF_BYTES);
 
@@ -148,12 +156,14 @@ public:
     }
 
 private:
-    bool   _ready;
-    bool   _isPlaying;
-    bool   _isFinished;
-    bool   _loop;
-    void*  _readBuf;
-    File   _file;
-    size_t _fileSize;
-    char   _clipName[64];
+    bool     _ready;
+    bool     _isPlaying;
+    bool     _isFinished;
+    bool     _loop;
+    void*    _readBuf;
+    File     _file;
+    size_t   _fileSize;
+    char     _clipName[64];
+    uint32_t _playStartMs   = 0;
+    uint32_t _framesAtStart = 0;
 };
