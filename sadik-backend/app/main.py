@@ -202,9 +202,76 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Startup auto-connect skipped: {e}")
 
+    # Bug 3 fix: USB disconnect monitor — polls every 2 s; when serial port
+    # disappears (SerialException / OSError / port closed unexpectedly), emits
+    # device_status and device_profile WS events so the app clears connection UI.
+    from app.services.device_manager import device_manager as _dm_monitor
+    from app.services.serial_service import serial_service as _ss_monitor
+    from app.services.ws_manager import ws_manager as _ws_monitor
+
+    async def _usb_disconnect_monitor():
+        import serial
+        while True:
+            try:
+                await asyncio.sleep(2.0)
+                # Only check when we believe a serial connection is active
+                if _dm_monitor._method != "serial":
+                    continue
+                if not _ss_monitor.is_connected:
+                    # Port already closed — state mismatch; clean up and notify
+                    logger.warning("USB disconnect monitor: serial port closed unexpectedly")
+                    _dm_monitor._method = None
+                    _dm_monitor._port = None
+                    _ss_monitor._serial = None
+                    _ss_monitor._active_port = None
+                    _ss_monitor.last_device_line = None
+                    await _ws_monitor.broadcast({"type": "device_status", "data": {
+                        "connected": False, "method": None, "port": None, "ip": None
+                    }})
+                    await _ws_monitor.broadcast({"type": "device_profile", "data": {"line": None}})
+                    continue
+                # Try a lightweight read to probe liveness; SerialException/OSError = disconnected
+                loop = asyncio.get_event_loop()
+                try:
+                    def _probe():
+                        s = _ss_monitor._serial
+                        if s is None or not s.is_open:
+                            raise serial.SerialException("port not open")
+                        _ = s.in_waiting  # raises OSError/SerialException if USB pulled
+                    await loop.run_in_executor(None, _probe)
+                except (serial.SerialException, OSError) as exc:
+                    logger.warning(f"USB disconnect detected: {exc}")
+                    # Clean up state
+                    try:
+                        if _ss_monitor._serial and _ss_monitor._serial.is_open:
+                            _ss_monitor._serial.close()
+                    except Exception:
+                        pass
+                    _ss_monitor._serial = None
+                    _ss_monitor._active_port = None
+                    _ss_monitor.last_device_line = None
+                    _dm_monitor._method = None
+                    _dm_monitor._port = None
+                    # Notify app
+                    await _ws_monitor.broadcast({"type": "device_status", "data": {
+                        "connected": False, "method": None, "port": None, "ip": None
+                    }})
+                    await _ws_monitor.broadcast({"type": "device_profile", "data": {"line": None}})
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"USB disconnect monitor error: {e}")
+
+    _monitor_task = asyncio.create_task(_usb_disconnect_monitor())
+
     yield
 
     # Shutdown
+    _monitor_task.cancel()
+    try:
+        await _monitor_task
+    except asyncio.CancelledError:
+        pass
     from app.services.pomodoro_service import pomodoro_service
     from app.services.device_manager import device_manager
     from app.services.mode_tracker import mode_tracker
