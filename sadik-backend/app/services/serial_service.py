@@ -56,42 +56,93 @@ class SerialService:
         return None
 
     def _try_open_and_verify_sync(self, port: str, baudrate: int) -> Optional[serial.Serial]:
-        """Open port, send PING, wait for PONG/SADIK:READY.
+        """Open port, send PING, wait for PONG/SADIK:READY, then query DEVICE?.
         Returns an open serial.Serial if verified, None otherwise.
         Caller owns the returned object and must close it when done.
 
-        Also captures any DEVICE: line seen during the handshake window and
-        stores it in self.last_device_line (Multi-device Sprint-1).
+        Handshake sequence (Bug 1 + Bug 2 fix):
+        1. Open port, settle 0.2 s, flush RX buffer.
+        2. Send PING — verify the device is a SADIK firmware.
+        3. After PONG/SADIK:READY: flush buffer again (discard stale PONG/boot noise),
+           then send DEVICE?\n to request device profile deterministically.
+        4. Capture the DEVICE: response in a tight 1.0 s window.
+        5. Store in self.last_device_line; discard trailing RX noise.
 
-        Hard budget: ~1.5 s total (0.2 s settle + 1.0 s response window).
-        write_timeout ensures s.write() never blocks indefinitely.
+        Hard budget: ~2.5 s total (0.2 s settle + 1.0 s PING window + 0.2 s flush
+        + 1.0 s DEVICE? window).  write_timeout ensures writes never block forever.
         """
         s = None
         captured_device_line: Optional[str] = None
         try:
             logger.debug(f"Trying port {port}")
-            # write_timeout prevents s.write() from blocking indefinitely
             s = serial.Serial(port, baudrate, timeout=1.0, write_timeout=1.0)
             logger.debug(f"Opened port {port}")
-            time.sleep(0.2)  # brief settle — reduced from 0.3 s
+            time.sleep(0.2)  # brief settle — DTR reset on Windows may trigger reboot
             s.reset_input_buffer()
+
+            # ── Phase 1: PING verification ────────────────────────────────────
             logger.debug(f"Sending PING to {port}")
             s.write(b"PING\n")
+            s.flush()
+            deadline = time.monotonic() + 1.0
+            verified = False
+            while time.monotonic() < deadline:
+                if s.in_waiting > 0:
+                    line = s.readline().decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    # Skip boot-time noise that may arrive before PONG
+                    if (line.startswith("DEVICE:") or
+                            line.startswith("MANIFEST:") or
+                            line.startswith("DEBUG:") or
+                            line.startswith("STATUS:")):
+                        logger.debug(f"Handshake skip during PING phase: {line!r}")
+                        continue
+                    if line in ("PONG", "SADIK:READY"):
+                        logger.info(f"Verification success on {port}: got '{line}'")
+                        verified = True
+                        break
+                time.sleep(0.02)
+
+            if not verified:
+                logger.debug(f"Verification fail on {port}: no SADIK response within deadline")
+                try:
+                    if s and s.is_open:
+                        s.close()
+                except Exception:
+                    pass
+                return None
+
+            # ── Phase 2: DEVICE? query — deterministic device profile ─────────
+            # Flush any remaining bytes (stale PONG copies, SADIK:READY, noise)
+            # so the DEVICE? response arrives clean.
+            time.sleep(0.05)
+            s.reset_input_buffer()
+            logger.debug(f"Sending DEVICE? to {port}")
+            s.write(b"DEVICE?\n")
             s.flush()
             deadline = time.monotonic() + 1.0
             while time.monotonic() < deadline:
                 if s.in_waiting > 0:
                     line = s.readline().decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
                     if line.startswith("DEVICE:"):
                         captured_device_line = line
                         logger.info(f"Device profile on {port}: {line}")
-                        continue
-                    if line in ("PONG", "SADIK:READY") or line.startswith("STATUS"):
-                        logger.info(f"Verification success on {port}: got '{line}'")
-                        self.last_device_line = captured_device_line
-                        return s  # verified — caller takes ownership
-                time.sleep(0.05)
-            logger.debug(f"Verification fail on {port}: no SADIK response within deadline")
+                        break
+                    # Skip other noise (MANIFEST:, DEBUG:, STATUS:)
+                    logger.debug(f"Handshake skip during DEVICE? phase: {line!r}")
+                time.sleep(0.02)
+
+            # Flush trailing RX noise so normal operation starts clean
+            time.sleep(0.05)
+            s.reset_input_buffer()
+
+            self.last_device_line = captured_device_line
+            if not captured_device_line:
+                logger.info(f"No DEVICE: line on {port} — will use fallback profile")
+            return s  # verified — caller takes ownership
         except Exception as e:
             logger.debug(f"Port {port} open/verify failed: {e}")
         # Verification failed — close cleanly
@@ -176,6 +227,13 @@ class SerialService:
             }
 
     async def open(self, port: str, baudrate: int = 460800) -> bool:
+        """Open serial port for manual (non-auto-detect) connection.
+
+        Bug 1 fix: adds settle + reset_input_buffer so boot-time noise (DEVICE:,
+        SADIK:READY) is not left in the RX buffer to confuse the frame writer.
+        Bug 2 fix: sends DEVICE?\n after open to capture device profile the same
+        way auto-detect does, enabling device_profile WS broadcast on manual connect.
+        """
         loop = asyncio.get_event_loop()
         try:
             if port == "auto":
@@ -184,13 +242,40 @@ class SerialService:
                     logger.error("No serial port found for auto detection")
                     return False
 
-            def _open():
-                return serial.Serial(port, baudrate, timeout=1, write_timeout=1)
+            def _open_and_query() -> bool:
+                s = serial.Serial(port, baudrate, timeout=1.0, write_timeout=1.0)
+                time.sleep(0.2)       # settle — DTR may reset the ESP32 on Windows
+                s.reset_input_buffer()  # discard boot-time DEVICE: / SADIK:READY noise
 
-            self._serial = await loop.run_in_executor(None, _open)
-            self._active_port = port
-            logger.info(f"Serial opened on {port} at {baudrate}")
-            return True
+                # Query device profile so device_profile WS broadcast works on manual connect
+                captured: Optional[str] = None
+                try:
+                    s.write(b"DEVICE?\n")
+                    s.flush()
+                    deadline = time.monotonic() + 1.0
+                    while time.monotonic() < deadline:
+                        if s.in_waiting > 0:
+                            raw = s.readline().decode("utf-8", errors="replace").strip()
+                            if raw.startswith("DEVICE:"):
+                                captured = raw
+                                logger.info(f"Device profile on {port}: {raw}")
+                                break
+                            logger.debug(f"Manual open DEVICE? skip: {raw!r}")
+                        time.sleep(0.02)
+                except Exception as eq:
+                    logger.debug(f"DEVICE? query failed on {port}: {eq}")
+
+                # Flush any remaining noise before normal operation
+                s.reset_input_buffer()
+                self.last_device_line = captured
+                self._serial = s
+                return True
+
+            ok = await loop.run_in_executor(None, _open_and_query)
+            if ok:
+                self._active_port = port
+                logger.info(f"Serial opened on {port} at {baudrate}")
+            return ok
         except Exception as e:
             logger.error(f"Failed to open serial: {e}")
             self._serial = None
@@ -272,7 +357,12 @@ class SerialService:
                     if not line:
                         continue
                     # Skip async firmware noise — these are never command responses.
-                    if line.startswith("DEBUG:") or line.startswith("EVENT:"):
+                    # DEVICE: and MANIFEST: can appear if firmware resets mid-session;
+                    # treat them the same as DEBUG:/EVENT: to avoid eating the ACK window.
+                    if (line.startswith("DEBUG:") or
+                            line.startswith("EVENT:") or
+                            line.startswith("DEVICE:") or
+                            line.startswith("MANIFEST:")):
                         logger.debug("Serial skipped line: %r", line)
                         continue
                     # Accept the first proper response token.
