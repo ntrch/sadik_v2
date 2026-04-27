@@ -113,11 +113,14 @@ public:
         if (!_isPlaying || !_file) return;
         if (!_readBuf) return;
 
+        // Rate-limit to ~24fps, but ONLY when the codec parser is idle (STATE_HUNT_MAGIC).
+        // Never hold back bytes mid-packet: doing so leaves the parser in a partial
+        // STATE_HEADER/STATE_PAYLOAD state until codec_tick() fires STALL_RESET (~150ms).
         const uint32_t TARGET_FPS = 24;
         uint32_t elapsed = millis() - _playStartMs;
         uint32_t targetFrames = (elapsed * TARGET_FPS) / 1000 + 1; // +1: izin biraz öne
         uint32_t framesEmitted = codec_frames_applied() - _framesAtStart;
-        if (framesEmitted >= targetFrames) return; // schedule'un önündeyiz, bekle
+        if (codec_is_idle() && framesEmitted >= targetFrames) return; // schedule'un önündeyiz, bekle
 
         size_t n = _file.read(static_cast<uint8_t*>(_readBuf), LOCAL_CLIP_READ_BUF_BYTES);
 

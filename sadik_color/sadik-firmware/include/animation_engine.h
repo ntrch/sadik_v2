@@ -55,6 +55,9 @@ public:
     void begin() {
         _state = AE_IDLE;
         _variationPending = false;
+        // Local-clip path: disable binary ACK packets (no host listening).
+        // ACKs are re-enabled when appConnected takes authority.
+        codec_set_ack_enabled(false);
         _player.play(AE_CLIP_IDLE, /*loop=*/true);
         _scheduleNextBlink();
         _scheduleNextVariation();
@@ -78,6 +81,8 @@ public:
     // Call when app disconnects and firmware reclaims authority.
     void resume() {
         _variationPending = false;
+        // Local-clip path: disable binary ACK packets (no host listening).
+        codec_set_ack_enabled(false);
         _player.play(AE_CLIP_IDLE, /*loop=*/true);
         _state = AE_IDLE;
         _scheduleNextBlink();
@@ -93,9 +98,7 @@ public:
 
         if (_state == AE_PLAYING_BLINK && _player.hasFinished()) {
             // Return to idle; fire any deferred variation.
-            _player.play(AE_CLIP_IDLE, /*loop=*/true);
-            _state = AE_IDLE;
-            _scheduleNextBlink();
+            _returnToIdle();
             if (_variationPending) {
                 _variationPending = false;
                 _playVariation();
@@ -104,9 +107,7 @@ public:
         }
 
         if (_state == AE_PLAYING_VARIATION && _player.hasFinished()) {
-            _player.play(AE_CLIP_IDLE, /*loop=*/true);
-            _state = AE_IDLE;
-            _scheduleNextVariation();
+            _returnToIdle();
             return;
         }
 
@@ -157,6 +158,8 @@ private:
     bool                 _variationPending;
 
     void _returnToIdle() {
+        // Ensure ACKs stay disabled for local-clip idle path.
+        codec_set_ack_enabled(false);
         _player.play(AE_CLIP_IDLE, /*loop=*/true);
         _state = AE_IDLE;
         _scheduleNextBlink();

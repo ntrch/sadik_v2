@@ -525,7 +525,7 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 
 ## Color Sprint-6: legacy clip mimarisi sökümü (color firmware tek render path)
 
-**Durum:** Wave-1 ✅ DONE — Wave-2 başlamadı.
+**Durum:** Wave-1 ✅ DONE — Wave-2 ✅ DONE (2026-04-27).
 
 **Amaç:** Color firmware'inde iki paralel render path'i (legacy 1-bit `ClipPlayer` 128×64 sub-region + codec full 160×128 RGB565) tek path'e indirgemek. Tüm clip'ler LittleFS'ten codec format ile oynar; idle/blink/variation timing in-firmware `AnimationEngine`'ine devredilir. Backend bağlıyken tek otorite app, değilken tek otorite firmware.
 
@@ -536,13 +536,13 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 - [x] main.cpp'de compile-time flag (`USE_NEW_ANIMATION_ENGINE=1 default`) — `#if` guard'ları ile A/B test edilebilir; legacy path tamamen korundu.
 - [x] Smoke test (görsel): donanım upload sonrası ekranda doğru renkli idle + blink doğrulandı (2026-04-27). ⚠️ Serial log spam tespit edildi (CODEC:STALL_RESET döngüsü + binary garbage) — W2 kapsamında çözülecek.
 
-**Wave-2 — legacy söküm + log spam fix**
-- [ ] Legacy `ClipPlayer` instance'ı, `clip_player.h`, `clip_registry.h`, `include/clips/` (PROGMEM mono frame'ler) silinsin.
-- [ ] DisplayManager 1-bit framebuffer (`_fb`, `drawFrame`, `sendBuffer`, `_rgbFrame` 16 KB BSS) silinsin. `text_renderer` dokunulmasın (drawText path ayrı).
-- [ ] UART byte streaming (`codec_feed` external source) — appConnected modu için kalsın ama LOCAL_CLIP path default. (Ya da tamamen ASCII-event'e indirgeme — sprint sonunda karar.)
-- [ ] **Log spam fix**: standalone modda (app bağlı değil) `CODEC:STALL_RESET state=2 …` döngüsü + binary garbage byte'lar Serial'e basılıyor. Kök neden bul (firmware self-print mi, paralel byte source mu) ve sustur. ASCII-only diagnostic kalsın.
-- [ ] Manifest publish (`MANIFEST:idle,blink,listening,...` boot'ta Serial'e) — Multi-device Sprint-1'de app tarafı kullanacak.
-- [ ] Flash/RAM ölçümü (öncesi vs. sonrası) commit mesajına yazılsın.
+**Wave-2 — legacy söküm + log spam fix** ✅ DONE (2026-04-27)
+- [x] Legacy `ClipPlayer`, `IdleOrchestrator`, `clip_player.h`, `clip_registry.h`, `idle_orchestrator.h`, `include/clips/` (PROGMEM mono frame'ler) silindi. `USE_NEW_ANIMATION_ENGINE` flag kaldırıldı.
+- [x] DisplayManager 1-bit framebuffer (`_fb`, `drawFrame`, `sendBuffer` 16KB `_rgbFrame`, `_fbDirty`) silindi. TextRenderer için `clear()/sendBuffer()` no-op stub korundu.
+- [x] UART byte streaming korundu (appConnected). Standalone modda `animationEngine.begin()/resume()/_returnToIdle()` `codec_set_ack_enabled(false)` çağırıyor; `APP_CONNECTED` handler `true` restore ediyor.
+- [x] **Log spam fix**: Kök neden: `_emit_ack()` binary ACK paketleri (`\x03 + LE counter + 3 byte = 8 byte`) idle.bin frame'lerinden sonra basılıyordu. Fix: AnimationEngine tüm idle geçişlerinde `codec_set_ack_enabled(false)` çağırıyor. STALL_RESET fix: pacing yalnızca `codec_is_idle()` true iken rate-limit yapıyor (mid-packet byte starvation önlendi).
+- [x] Manifest publish: boot'ta `MANIFEST:blink,idle,...` (21 clip) Serial'e basılıyor; LittleFS manifest.json parse, fallback static liste.
+- [x] Flash: 393 KB → 337 KB (-56 KB); RAM: 120 KB → 103 KB (-17 KB)
 
 **Bu sprint geçince color tek başına stable, tek render path. Sonra Multi-device.**
 

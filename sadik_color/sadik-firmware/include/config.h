@@ -3,10 +3,19 @@
 // ── TFT SPI pins (ST7735S, VSPI) ─────────────────────────────────────────────
 #define TFT_CS    5
 #define TFT_DC    4
+#if SADIK_COLOR_S3
+// ESP32-S3 N16R8 DevKitC-1: GPIO19/20 (USB), 22-25 yok, 26-32 OPI PSRAM rezerve.
+// Default Arduino SPI bus (FSPI) S3'te şu pinleri kullanır → TFT'yi bunlara lehimle.
+#define TFT_RST   8   // S3 free GPIO
+#define TFT_MOSI 11   // S3 default FSPI MOSI (= TFT SDA)
+#define TFT_SCK  12   // S3 default FSPI SCK  (= TFT SCL)
+#else
+// ESP32-WROOM-32: VSPI default
 #define TFT_RST  22
-#define TFT_MOSI 23   // VSPI MOSI
-#define TFT_SCK  18   // VSPI CLK
-#define TFT_BLK  16   // Backlight PWM (boot-strap-free GPIO)
+#define TFT_MOSI 23   // VSPI MOSI (= TFT SDA)
+#define TFT_SCK  18   // VSPI SCK
+#endif
+#define TFT_BLK  16   // Backlight PWM (her iki kartta da free)
 
 // ── Backlight PWM (ESP32 LEDC) ────────────────────────────────────────────────
 #define TFT_PWM_CHANNEL     0

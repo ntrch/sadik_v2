@@ -16,20 +16,11 @@ struct TftLock {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DisplayManager — Faz 1: ST7735S SPI TFT (160×128 landscape)
+// DisplayManager — Color Sprint-6 W2: ST7735S SPI TFT (160×128 landscape)
 //
-// Public API is identical to the original U8g2/OLED version so that
-// ClipPlayer, TextRenderer, IdleOrchestrator and SerialCommander compile
-// without any modification.
-//
-// Internal changes:
-//   • U8g2 replaced by Adafruit_ST7735
-//   • 128×64 monochrome framebuffer kept in RAM (1024 bytes)
-//   • drawFrame / drawXBM / drawPixel write to the internal buffer
-//   • sendBuffer() converts the 1-bit buffer to RGB565 and pushes it to
-//     the TFT, centred at offset (LEGACY_FB_OFFSET_X, LEGACY_FB_OFFSET_Y)
-//   • Text drawing uses Adafruit_GFX built-in fonts, mapping the same
-//     height-based font selection used by the OLED code
+// Single render path: RGB565 codec frames via pushFrameRgb565() / tile blits.
+// Legacy 1-bit framebuffer (drawFrame/sendBuffer/_fb/_rgbFrame) removed.
+// Text drawing uses Adafruit_GFX built-in fonts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // RGB565 colour constants used by the renderer
@@ -39,14 +30,11 @@ struct TftLock {
 class DisplayManager {
 public:
     DisplayManager()
-        // SPI bus: WROOM-32 uses VSPI (SPI3), S3 uses FSPI (SPI2). GPIO18/23 are valid on both — default Arduino SPI object handles the mapping.
-        : _tft(TFT_CS, TFT_DC, TFT_RST),   // 3-arg = hardware SPI (VSPI)
+        // SPI bus: WROOM-32 uses VSPI (SPI3), S3 uses FSPI (SPI2). GPIO18/23 are valid on both.
+        : _tft(TFT_CS, TFT_DC, TFT_RST),   // 3-arg = hardware SPI
           _currentBrightness(TFT_DEFAULT_BRIGHTNESS),
-          _sleeping(false),
-          _fbDirty(false)
-    {
-        memset(_fb, 0, sizeof(_fb));
-    }
+          _sleeping(false)
+    {}
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -78,82 +66,10 @@ public:
         Serial.println(_currentBrightness);
     }
 
-    // ── Buffer operations ─────────────────────────────────────────────────────
-
-    // Clear the internal 1-bit framebuffer and reset the dirty flag.
-    void clear() {
-        memset(_fb, 0, sizeof(_fb));
-        _fbDirty = false;
-    }
-
-    // Render a 1024-byte PROGMEM bitmap into the internal framebuffer.
-    // Format: horizontal byte order, MSB = leftmost pixel.
-    //   byteIndex = row * 16 + col / 8
-    //   bit       = 7 - (col % 8)
-    //   pixel on  = (byte >> bit) & 1
-    void drawFrame(const uint8_t* frameData) {
-        memset(_fb, 0, sizeof(_fb));
-        for (uint8_t row = 0; row < LEGACY_FB_HEIGHT; row++) {
-            for (uint8_t col = 0; col < LEGACY_FB_WIDTH; col++) {
-                uint16_t byteIndex = (uint16_t)row * 16 + col / 8;
-                uint8_t  bitIndex  = 7 - (col & 0x07);
-                uint8_t  byteVal   = pgm_read_byte(&frameData[byteIndex]);
-                if ((byteVal >> bitIndex) & 1) {
-                    _setPixelFB(col, row);
-                }
-            }
-        }
-        _fbDirty = true;
-    }
-
-    // Push the internal framebuffer to the physical TFT.
-    // Only executes if drawFrame() set the dirty flag; text-draw methods do NOT
-    // set the flag, so a sendBuffer() call after drawText/drawTwoLineText is a
-    // safe no-op (the text is already on the TFT from those methods directly).
-    //
-    // Implementation: keep the SPI transaction open for the entire frame
-    // (one startWrite / endWrite pair) and push pixels in 128-pixel row bursts
-    // via writePixels().  This avoids 8192 individual CS-toggle transactions
-    // that pushColor() would cause, which garbled the display.
-    void sendBuffer() {
-        if (_sleeping || !_fbDirty) return;
-        _fbDirty = false;
-        TftLock _lock;
-
-        // Full 128×64 RGB565 framebuffer (16 KB, static BSS — one-time alloc)
-        static uint16_t _rgbFrame[LEGACY_FB_WIDTH * LEGACY_FB_HEIGHT];
-
-        // Expand 1-bit → 16-bit in RAM first (tight CPU loop, ~100 µs on ESP32)
-        uint16_t* out = _rgbFrame;
-        for (uint16_t row = 0; row < LEGACY_FB_HEIGHT; row++) {
-            const uint8_t* rowPtr = _fb + row * 16;
-            for (uint16_t col = 0; col < LEGACY_FB_WIDTH; col++) {
-                uint8_t bitIndex = 7 - (col & 0x07);
-                *out++ = ((rowPtr[col >> 3] >> bitIndex) & 1) ? DM_WHITE : DM_BLACK;
-            }
-        }
-
-        // Single big SPI burst — one setAddrWindow, one writePixels, no gaps
-        static bool _blitTimingLogged = false;
-        uint32_t t0 = _blitTimingLogged ? 0 : micros();
-
-        _tft.startWrite();
-        _tft.setAddrWindow(
-            LEGACY_FB_OFFSET_X,
-            LEGACY_FB_OFFSET_Y,
-            LEGACY_FB_WIDTH,
-            LEGACY_FB_HEIGHT
-        );
-        _tft.writePixels(_rgbFrame, LEGACY_FB_WIDTH * LEGACY_FB_HEIGHT);
-        _tft.endWrite();
-
-        if (!_blitTimingLogged) {
-            uint32_t elapsed = micros() - t0;
-            Serial.print("DIAG:BLIT us=");
-            Serial.println(elapsed);
-            _blitTimingLogged = true;
-        }
-    }
+    // ── Compatibility stubs (used by TextRenderer; no-ops now that the 1-bit
+    //    framebuffer is removed — text methods write directly to TFT) ───────────
+    void clear() {}       // was: memset(_fb, 0) — safe no-op for text path
+    void sendBuffer() {}  // was: 1-bit→RGB565 blit — text draws direct to TFT
 
     // ── Brightness / power ────────────────────────────────────────────────────
 
@@ -211,14 +127,12 @@ public:
         return _sleeping;
     }
 
-    // Force-clear the entire physical TFT to black. Used to wipe lingering
-    // pixels from the codec full-screen path before legacy ClipPlayer (which
-    // only paints a 128×64 sub-region) takes over.
+    // Force-clear the entire physical TFT to black.
+    // Used to wipe codec frame residue between clips.
     void clearScreen() {
         if (_sleeping) return;
         TftLock _lock;
         _tft.fillScreen(DM_BLACK);
-        _fbDirty = false;
     }
 
     // ── Text helpers (used by TextRenderer) ──────────────────────────────────
@@ -403,18 +317,6 @@ public:
 private:
     Adafruit_ST7735 _tft;
 
-    // 1-bit framebuffer: 128 × 64 / 8 = 1024 bytes.
-    // Byte layout: byteIndex = row * 16 + col / 8; bit = 7 - (col % 8).
-    uint8_t _fb[LEGACY_FB_WIDTH * LEGACY_FB_HEIGHT / 8];
-
     uint8_t _currentBrightness;
     bool    _sleeping;
-    bool    _fbDirty;   // true after drawFrame(); sendBuffer() is a no-op otherwise
-
-    // Set a single pixel in the internal framebuffer.
-    inline void _setPixelFB(uint8_t col, uint8_t row) {
-        uint16_t byteIndex = (uint16_t)row * 16 + col / 8;
-        uint8_t  bitIndex  = 7 - (col & 0x07);
-        _fb[byteIndex] |= (1 << bitIndex);
-    }
 };
