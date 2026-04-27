@@ -7,23 +7,28 @@ import { deviceApi } from '../api/device';
 // Mini clip names (from eventMapping.ts / AnimationEngine) → color LittleFS names.
 // Color manifest.json clip names must match exactly what LittleFS has on device.
 const COLOR_CLIP_MAP: Record<string, string> = {
-  // Mini name          : Color LittleFS name
-  listening            : 'listening',
-  thinking             : 'thinking',
-  talking              : 'talking',
-  idle                 : 'idle',
-  blink                : 'blink',
-  idle_alt_left_look   : 'idle_alt_left_look',
-  idle_alt_right_look  : 'idle_alt_right_look',
-  idle_alt_look_down   : 'idle_alt_look_down',
-  return_to_idle       : 'return_to_idle',
-  confirming           : 'confirming',
-  understanding        : 'understanding',
-  didnt_hear           : 'didnthear',
-  waking               : 'wakeword',
-  mod_break            : 'mode_break',
-  mod_working          : 'mode_working',
-  mod_gaming           : 'mode_gaming',
+  // Engine clip name      : Color LittleFS name (must match /clips/<name>.bin)
+  listening               : 'listening',
+  thinking                : 'thinking',
+  talking                 : 'talking',
+  idle                    : 'idle',
+  blink                   : 'blink',
+  // Engine emits idle_alt_look_{left,right,down}; LittleFS uses idle_alt_{left,right}_look / idle_alt_look_down
+  idle_alt_look_left      : 'idle_alt_left_look',
+  idle_alt_look_right     : 'idle_alt_right_look',
+  idle_alt_look_down      : 'idle_alt_look_down',
+  return_to_idle          : 'return_to_idle',
+  confirming              : 'confirming',
+  understanding           : 'understanding',
+  didnt_hear              : 'didnthear',
+  waking                  : 'wakeword',
+  mod_break               : 'mode_break',
+  mod_break_text          : 'break_text',
+  mod_working             : 'mode_working',
+  mod_working_text        : 'mode_working_text',
+  mod_gaming              : 'mode_gaming',
+  mod_gaming_text         : 'mode_gaming_text',
+  mod_meeting_text        : 'mode_meeting_text',
 };
 
 /** Translate a mini/engine clip name to the color LittleFS clip name. Returns null if no mapping. */
