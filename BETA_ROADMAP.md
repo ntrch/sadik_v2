@@ -577,7 +577,7 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 
 ## Multi-device Sprint-2: AnimationEngine adapter pattern (app)
 
-**Durum:** WIP başlamadı.
+**Durum:** WIP — variant-based serial dispatch ✅ (2026-04-28): variant-based serial dispatch — color codec_feed kapalı, PLAY_LOCAL ASCII parse ediliyor; `mod_gaming_text` + `mod_meeting_text` COLOR_CLIP_MAP'e eklendi.
 
 - [ ] App'te `AnimationEngine` interface'i: `onEvent(event)`, `onIdle()`, `destroy()`.
 - [ ] `MiniAnimationEngine` — mevcut SADIK_mini animation kodu bu sınıfa kapsüllensin.

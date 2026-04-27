@@ -468,11 +468,23 @@ void onCodecFrameReady(uint16_t seq, uint8_t type) {
 // =============================================================================
 
 void loop() {
-    // 0. Codec byte router — when appConnected, route ALL incoming bytes to
-    //    codec_feed().  codec_feed() itself recognises ASCII commands (ABORT_STREAM)
-    //    while in STATE_HUNT_MAGIC so the host can still reset a stuck parser.
-    //    SerialCommander must stay gated on !appConnected to avoid UART semaphore
-    //    race under codec streaming rates.
+    // 0. Serial dispatch — variant-aware.
+    //
+    // SADIK_COLOR: firmware plays LittleFS clips; no codec stream expected from
+    //   the host.  SerialCommander handles ALL ASCII commands (PLAY_LOCAL,
+    //   ABORT_STREAM, handshake, etc.) regardless of appConnected state.
+    //
+    // Mini (else): when appConnected, route all bytes to codec_feed() for binary
+    //   frame streaming.  SerialCommander is gated on !appConnected to avoid a
+    //   UART semaphore race under high codec streaming rates.
+#ifdef SADIK_COLOR
+    codec_tick();
+    // Always process ASCII commands on color variant — no codec byte stream.
+    if (serialCmd.hasCommand()) {
+        ParsedCommand cmd = serialCmd.getCommand();
+        processCommand(cmd);
+    }
+#else
     codec_tick();
     if (appConnected && Serial.available() > 0) {
         size_t avail = (size_t)Serial.available();
@@ -486,11 +498,12 @@ void loop() {
         return;
     }
 
-    // 1. Non-blocking serial command check.
+    // 1. Non-blocking serial command check (mini, not connected).
     if (!appConnected && serialCmd.hasCommand()) {
         ParsedCommand cmd = serialCmd.getCommand();
         processCommand(cmd);
     }
+#endif
 
     // 2. Advance local clip playback (LittleFS → codec_feed).
     //    Runs in MODE_IDLE (idle.bin looping via AnimationEngine) and
