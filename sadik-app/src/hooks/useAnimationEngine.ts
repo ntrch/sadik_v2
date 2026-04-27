@@ -73,6 +73,16 @@ export function useAnimationEngine(
   const deviceVariantRef = useRef(deviceVariant);
   // Last color clip name sent — avoid re-sending duplicate PLAY_LOCAL commands
   const lastColorClipSentRef = useRef<string | null>(null);
+  // Timestamp of last PLAY_LOCAL send — used for min-gap enforcement
+  const lastColorClipSentAtRef = useRef<number>(0);
+  // Pending clip to send after min-gap expires (latest wins)
+  const pendingColorClipRef = useRef<string | null>(null);
+  const pendingColorClipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clips that bypass the min-gap (high-priority interrupts)
+  const COLOR_CLIP_FORCE_SET = new Set(['wakeword']);
+  // TODO: derive from manifest when available (manifest has fps+bytes but no frame count)
+  const COLOR_CLIP_MIN_GAP_MS = 700;
 
   // Keep refs in sync
   useEffect(() => {
@@ -80,6 +90,12 @@ export function useAnimationEngine(
     if (!deviceConnected) {
       // Reset last clip so next connection sends a fresh PLAY_LOCAL command
       lastColorClipSentRef.current = null;
+      lastColorClipSentAtRef.current = 0;
+      if (pendingColorClipTimerRef.current) {
+        clearTimeout(pendingColorClipTimerRef.current);
+        pendingColorClipTimerRef.current = null;
+      }
+      pendingColorClipRef.current = null;
     }
   }, [deviceConnected]);
 
@@ -88,6 +104,12 @@ export function useAnimationEngine(
     // When variant changes to non-color, reset last clip tracking
     if (deviceVariant !== 'color') {
       lastColorClipSentRef.current = null;
+      lastColorClipSentAtRef.current = 0;
+      if (pendingColorClipTimerRef.current) {
+        clearTimeout(pendingColorClipTimerRef.current);
+        pendingColorClipTimerRef.current = null;
+      }
+      pendingColorClipRef.current = null;
     }
   }, [deviceVariant]);
 
@@ -166,6 +188,14 @@ export function useAnimationEngine(
     };
     pump();
 
+    // Helper: actually send a PLAY_LOCAL command and update tracking state.
+    const sendColorClip = (colorClip: string) => {
+      lastColorClipSentRef.current = colorClip;
+      lastColorClipSentAtRef.current = Date.now();
+      deviceApi.sendCommand(`PLAY_LOCAL:${colorClip}`).catch(() => {});
+      console.log(`[ColorClip] PLAY_LOCAL:${colorClip}`);
+    };
+
     // Register state change listener — also drives color PLAY_LOCAL dispatch.
     engine.onStateChange((state) => {
       setEngineState(state);
@@ -173,14 +203,42 @@ export function useAnimationEngine(
       // The firmware (color) manages its own LittleFS playback; we just tell it which clip.
       if (deviceVariantRef.current === 'color' && deviceConnectedRef.current) {
         const colorClip = toColorClipName(state.currentClipName);
-        if (colorClip && colorClip !== lastColorClipSentRef.current) {
-          lastColorClipSentRef.current = colorClip;
-          deviceApi.sendCommand(`PLAY_LOCAL:${colorClip}`).catch(() => {});
-          console.log(`[ColorClip] PLAY_LOCAL:${colorClip}`);
+        if (colorClip) {
+          // Dedupe: same clip already playing — skip
+          if (colorClip === lastColorClipSentRef.current) return;
+
+          const now = Date.now();
+          const elapsed = now - lastColorClipSentAtRef.current;
+          const isForce = COLOR_CLIP_FORCE_SET.has(colorClip);
+
+          if (isForce || elapsed >= COLOR_CLIP_MIN_GAP_MS) {
+            // Cancel any pending deferred send — this takes priority
+            if (pendingColorClipTimerRef.current) {
+              clearTimeout(pendingColorClipTimerRef.current);
+              pendingColorClipTimerRef.current = null;
+            }
+            pendingColorClipRef.current = null;
+            sendColorClip(colorClip);
+          } else {
+            // Within min-gap: defer; latest clip wins
+            pendingColorClipRef.current = colorClip;
+            if (!pendingColorClipTimerRef.current) {
+              const delay = COLOR_CLIP_MIN_GAP_MS - elapsed;
+              pendingColorClipTimerRef.current = setTimeout(() => {
+                pendingColorClipTimerRef.current = null;
+                const next = pendingColorClipRef.current;
+                pendingColorClipRef.current = null;
+                if (next && next !== lastColorClipSentRef.current && deviceConnectedRef.current) {
+                  sendColorClip(next);
+                }
+              }, delay);
+            }
+          }
         } else if (!state.currentClipName && state.playbackMode === 'idle') {
           // Returning to idle — firmware resumes its own idle orchestration
           if (lastColorClipSentRef.current !== '__idle__') {
             lastColorClipSentRef.current = '__idle__';
+            lastColorClipSentAtRef.current = Date.now();
             deviceApi.sendCommand('RETURN_TO_IDLE').catch(() => {});
             console.log('[ColorClip] RETURN_TO_IDLE');
           }
@@ -203,6 +261,10 @@ export function useAnimationEngine(
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       pumpAlive = false;
+      if (pendingColorClipTimerRef.current) {
+        clearTimeout(pendingColorClipTimerRef.current);
+        pendingColorClipTimerRef.current = null;
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

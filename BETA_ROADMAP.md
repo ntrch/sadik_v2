@@ -586,7 +586,7 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 - [ ] `ColorAnimationEngine` — yeni, sadece `PLAY_LOCAL:<name>` ASCII komutu yollar; firmware kendi AnimationEngine'iyle (Color Sprint-6 W1) idle/blink yönetir.
 - [ ] Connection açıldığında `deviceProfile.variant`'a göre doğru engine instantiate edilir.
 - [ ] Backend variant-aware OLMASIN — semantik event üretsin, app çevirsin.
-- [ ] **Backlog (Sprint-1 polish'ten)**: `useAnimationEngine` `onStateChange` callback'te mode toggle sırasında 4-5 PLAY_LOCAL art arda gidiyor (`mode_working`, `idle_alt_look_right` vb.). AnimationEngine state machine'e throttle/debounce ekle — aynı clip adı tekrar gönderilmesin (zaten `lastColorClipSentRef` var ama state transition burst'ü var). İncelenecek: engine'in intermediate state geçişleri suppress edilebilir mi yoksa transition queue serialize mi edilmeli.
+- [x] **Color clip dedupe + min-gap** (`fix(app): color clip dedupe + min-gap to prevent TFT flash [session-A]`): `useAnimationEngine.ts` — aynı clip tekrar gönderilmez (`lastColorClipSentRef`); farklı clip gönderildikten sonra 700ms içinde yeni clip gelirse `pendingColorClipRef`'e yazılır, timer dolunca son istek gönderilir; `wakeword` force-bypass ile min-gap'i atlar. Mini variant'a dokunulmadı.
 
 ---
 
