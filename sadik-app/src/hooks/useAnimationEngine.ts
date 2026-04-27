@@ -123,9 +123,11 @@ export function useAnimationEngine(
     let pumpAlive = true;
     const pump = async () => {
       while (pumpAlive) {
-        // Color variant: no frame streaming — firmware plays LittleFS clips via PLAY_LOCAL.
-        // Frame pump is skipped; preview still updates from onFrameReady (disconnected branch).
-        if (deviceVariantRef.current === 'color') {
+        // Frame streaming is ONLY active when variant is confirmed 'mini'.
+        // 'color' → firmware handles LittleFS clips via PLAY_LOCAL, no frames needed.
+        // null/'unknown' → variant not yet resolved; hold off to avoid sending frames
+        //   to a color device before the device_profile WS arrives (race condition fix).
+        if (deviceVariantRef.current !== 'mini') {
           await new Promise((r) => setTimeout(r, 30));
           continue;
         }
