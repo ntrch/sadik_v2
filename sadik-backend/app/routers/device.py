@@ -148,6 +148,19 @@ async def send_frame(body: FrameData):
 @router.post("/command")
 async def send_command(body: DeviceCommand):
     logger.info(f"Device command: {body.command}")
+
+    # Hard defensive guard: APP_CONNECTED must never reach a color device.
+    # Color firmware interprets it as a codec_feed() trigger which silently
+    # swallows subsequent ASCII commands (PLAY_LOCAL, etc.).
+    if body.command == "APP_CONNECTED":
+        device_line = serial_service.last_device_line or ""
+        if "variant=color" in device_line:
+            logger.warning(
+                f"APP_CONNECTED BLOCKED — color device detected (last_device_line={device_line!r}). "
+                "Frontend guard should have prevented this; check AppContext useEffect."
+            )
+            return {"success": False, "error": "APP_CONNECTED rejected for color variant"}
+
     ok, error = await device_manager.send_command(body.command)
     await ws_manager.broadcast({"type": "device_command", "data": {"command": body.command}})
     if not ok:

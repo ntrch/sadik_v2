@@ -716,16 +716,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const handshakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync deviceVariant (declared before useAnimationEngine) from connectedDevice.
-  // Also send APP_CONNECTED to mini firmware once the variant is confirmed.
-  // Bug 5 fix: APP_CONNECTED must NOT be sent here — it is sent AFTER connectedDevice
-  // arrives so the variant guard fires correctly (no race with 'mini' default).
-  // Color firmware must never receive APP_CONNECTED — it activates codec_feed()
+  // APP_CONNECTED send rules (hard guards):
+  //   1. connectedDevice MUST be non-null (variant confirmed via handshake — no default-mini fallback).
+  //   2. variant MUST be explicitly 'mini' (positive check, not negative).
+  //   3. deviceStatus.connected MUST be true.
+  // Color firmware must NEVER receive APP_CONNECTED — it activates codec_feed()
   // which silently swallows subsequent ASCII commands (PLAY_LOCAL, etc.).
+  // Race condition fix: ?? 'mini' fallback removed — if connectedDevice is null
+  // (handshake not yet received), we do NOT send APP_CONNECTED at all.
   useEffect(() => {
-    const variant = connectedDevice?.variant ?? 'mini';
-    setDeviceVariant(variant);
-    if (connectedDevice && deviceStatus.connected && variant !== 'color') {
+    const variant = connectedDevice?.variant ?? null;
+    setDeviceVariant(variant ?? 'mini');
+    // Positive guard: only send when we KNOW it is a mini device.
+    if (connectedDevice && deviceStatus.connected && variant === 'mini') {
+      console.log('[AppContext] APP_CONNECTED → mini firmware (variant confirmed)');
       deviceApi.sendCommand('APP_CONNECTED').catch(() => {});
+    } else if (connectedDevice && variant === 'color') {
+      console.log('[AppContext] APP_CONNECTED SKIPPED — color device, would corrupt codec path');
     }
   }, [connectedDevice, deviceStatus.connected]);
 

@@ -22,6 +22,13 @@ class SerialService:
         self._active_port: Optional[str] = None
         # Last DEVICE: line received at connect time — Multi-device Sprint-1
         self.last_device_line: Optional[str] = None
+        # Write error backoff state: consecutive failures → backoff → port close
+        self._write_fail_count: int = 0
+        self._write_backoff_until: float = 0.0
+        _WRITE_MAX_FAILS = 5       # close port after this many consecutive errors
+        _WRITE_BACKOFF_MS = 500    # wait 500 ms after each failure before next write
+        self._WRITE_MAX_FAILS = _WRITE_MAX_FAILS
+        self._WRITE_BACKOFF_MS = _WRITE_BACKOFF_MS
 
     @property
     def is_connected(self) -> bool:
@@ -293,15 +300,47 @@ class SerialService:
     async def send(self, command: str) -> bool:
         if not self.is_connected:
             return False
+
+        # Backoff gate: if recent writes were failing, honour the cooldown window.
+        now = time.monotonic()
+        if now < self._write_backoff_until:
+            remaining_ms = int((self._write_backoff_until - now) * 1000)
+            logger.warning(
+                f"Serial write backoff active — skipping '{command}' "
+                f"({remaining_ms} ms remaining, consecutive_fails={self._write_fail_count})"
+            )
+            return False
+
         loop = asyncio.get_event_loop()
         try:
             data = (command + "\n").encode("utf-8")
             await loop.run_in_executor(None, self._serial.write, data)
+            # Success — reset consecutive fail counter.
+            self._write_fail_count = 0
             return True
         except Exception as e:
-            logger.error(f"Serial send error: {e}")
-            self._serial = None
-            self._active_port = None
+            self._write_fail_count += 1
+            logger.error(
+                f"Serial send error (consecutive_fails={self._write_fail_count}): {e}"
+            )
+            # Apply per-failure backoff so callers cannot storm-write the port.
+            self._write_backoff_until = time.monotonic() + self._WRITE_BACKOFF_MS / 1000.0
+
+            if self._write_fail_count >= self._WRITE_MAX_FAILS:
+                logger.error(
+                    f"Serial write failed {self._write_fail_count} times in a row — "
+                    "closing port and triggering auto-reconnect path."
+                )
+                try:
+                    if self._serial and self._serial.is_open:
+                        self._serial.close()
+                except Exception:
+                    pass
+                self._serial = None
+                self._active_port = None
+                self._write_fail_count = 0
+                self._write_backoff_until = 0.0
+
             return False
 
     async def read_line(self) -> Optional[str]:
@@ -350,8 +389,22 @@ class SerialService:
                 # 1. Drain any stale input that arrived since the last command.
                 s.reset_input_buffer()
                 # 2. Write command and flush the OS TX buffer immediately.
-                s.write((command + "\n").encode("utf-8"))
-                s.flush()
+                # PermissionError (WinError 13) means the port is busy/closed —
+                # treat it identically to SerialException so the caller sees a
+                # clean failure rather than an unhandled exception storm.
+                try:
+                    s.write((command + "\n").encode("utf-8"))
+                    s.flush()
+                except (serial.SerialException, OSError, PermissionError) as write_err:
+                    logger.error(f"Serial write error in exchange: {write_err}")
+                    try:
+                        if self._serial and self._serial.is_open:
+                            self._serial.close()
+                    except Exception:
+                        pass
+                    self._serial = None
+                    self._active_port = None
+                    return None
 
                 deadline = time.monotonic() + read_timeout
                 while time.monotonic() < deadline:
