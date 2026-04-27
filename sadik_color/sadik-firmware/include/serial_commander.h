@@ -15,6 +15,7 @@ enum CommandType {
     CMD_SHOW_TEXT,        // SHOW_TEXT:<text>
     CMD_RETURN_TO_IDLE,   // RETURN_TO_IDLE
     CMD_PING,             // PING  → firmware replies "PONG"
+    CMD_DEVICE_QUERY,     // DEVICE?  → firmware re-emits DEVICE: line (Bug 2 fix)
     CMD_STATUS,           // STATUS → firmware replies with state summary
     CMD_SET_BRIGHTNESS,       // SET_BRIGHTNESS:<0-255>
     CMD_SET_SLEEP_TIMEOUT,    // SET_SLEEP_TIMEOUT_MS:<milliseconds>  (0 = disabled)
@@ -183,6 +184,9 @@ private:
 
         } else if (strcmp(_buf, "PING") == 0) {
             _parsed.type = CMD_PING;
+
+        } else if (strcmp(_buf, "DEVICE?") == 0) {
+            _parsed.type = CMD_DEVICE_QUERY;
 
         } else if (strcmp(_buf, "STATUS") == 0) {
             _parsed.type = CMD_STATUS;

@@ -556,13 +556,15 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 
 ## Multi-device Sprint-1: handshake protokolü + DeviceProfile (app)
 
-**Durum:** ✅ DONE (2026-04-27)
+**Durum:** ✅ DONE (2026-04-27) — post-ship bug fixes: ✅ DONE (2026-04-27)
 
 - [x] Color firmware boot'ta publish: `DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=0.6.0 caps=local_clips`
 - [x] Mini firmware'e aynı satır: `DEVICE:variant=mini hw=esp32-wroom32 display=128x64_mono fw=2.0.0 caps=raw_frame_stream,progmem_clips` (backwards-compatible — eski app ignore eder)
 - [x] App connection handshake: backend `serial_service.py` DEVICE: satırını handshake penceresinde yakalar; `device_profile` WS eventi yayar. App 3s içinde event gelmezse `variant=mini` fallback uygular.
 - [x] App'te `DeviceProfile` katmanı (TS types `sadik-app/src/types/device.ts`): `{ variant, display, capabilities, fwVersion, hw }`. Connection drop'ta null'lanır. `parseDeviceLine()` parser + `FALLBACK_DEVICE_PROFILE` sabiti.
 - [x] **Dashboard preview RGB badge**: `variant === 'color'` iken `OledPreview` sağ üst köşede şeffaf çerçeve + R→G→B lineer gradient text "RGB".
+- [x] **Bug fix — mini frame stream regression** (`fix(backend): mini frame stream regression — handshake reader kept blocking writer`): `send_and_read` artık `DEVICE:` ve `MANIFEST:` satırlarını `DEBUG:`/`EVENT:` gibi skip ediyor (mid-session firmware reset'te 250ms frame timeout'u yemesin). `open()` metoduna 0.2s settle + `reset_input_buffer()` eklendi (boot-time buffer noise frame writer'a sızmıyor). `_try_open_and_verify_sync` PING verify + DEVICE? query iki ayrı aşama olarak yeniden yazıldı.
+- [x] **Bug fix — DEVICE? query for deterministic detection** (`feat(handshake): DEVICE? query for deterministic device detection`): Backend port açtıktan ~200ms sonra `DEVICE?\n` gönderir, firmware DEVICE: satırını re-emit eder. Hem mini hem color `serial_commander.h`'a `CMD_DEVICE_QUERY` + `processCommand` handler eklendi. `open()` (manual connect) da aynı query akışını kullanır → device_profile WS broadcast her iki connect path'te çalışır.
 
 ---
 

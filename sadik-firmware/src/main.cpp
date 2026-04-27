@@ -237,6 +237,16 @@ void processCommand(ParsedCommand& cmd) {
             break;
         }
 
+        // ── DEVICE? ───────────────────────────────────────────────────────────
+        // Host queries device profile at any time (e.g. after reset or when the
+        // boot-time DEVICE: line was missed).  Re-emit the same line so the
+        // backend can capture it and broadcast device_profile to the app.
+        // Bug 2 fix: deterministic handshake independent of connection timing.
+        case CMD_DEVICE_QUERY: {
+            Serial.println("DEVICE:variant=mini hw=esp32-wroom32 display=128x64_mono fw=2.0.0 caps=raw_frame_stream,progmem_clips");
+            break;
+        }
+
         // ── STATUS ────────────────────────────────────────────────────────────
         case CMD_STATUS: {
             uint8_t       brightness   = display.getBrightness();
