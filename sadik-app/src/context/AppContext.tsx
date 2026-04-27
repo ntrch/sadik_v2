@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { PomodoroState } from '../api/pomodoro';
 import { DeviceStatus } from '../api/device';
+import { DeviceProfile, parseDeviceLine, FALLBACK_DEVICE_PROFILE } from '../types/device';
 import { modesApi } from '../api/modes';
 import { deviceApi } from '../api/device';
 import { pomodoroApi } from '../api/pomodoro';
@@ -95,6 +96,8 @@ interface AppContextType {
   /** True when ChatPage's voice tab is active — drives persistent VoiceAssistant visibility. */
   voiceUiVisible: boolean;
   setVoiceUiVisible: (visible: boolean) => void;
+  // Connected device profile (Multi-device Sprint-1)
+  connectedDevice: DeviceProfile | null;
   // DND
   dndActive: boolean;
   setDndActive: (v: boolean) => void;
@@ -217,6 +220,7 @@ export const AppContext = createContext<AppContextType>({
   voiceAssistantActive: false,
   voiceUiVisible: false,
   setVoiceUiVisible: () => {},
+  connectedDevice: null,
   dndActive: false,
   setDndActive: () => {},
   sadikPosition: 'left',
@@ -698,6 +702,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     voiceAssistantActiveRef.current = active;
     setVoiceAssistantActiveState(active);
   }, []);
+
+  // ── Connected device profile (Multi-device Sprint-1) ──────────────────────
+  // null until the DEVICE: line is received from firmware; cleared on disconnect.
+  // Falls back to mini profile after handshake window if no DEVICE: line seen.
+  const [connectedDevice, setConnectedDevice] = useState<DeviceProfile | null>(null);
+  // Track handshake timeout: after 3 s of being connected without a DEVICE:
+  // line, fall back to mini-default so existing mini behavior is preserved.
+  const handshakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── DND state ──────────────────────────────────────────────────────────────
   const [dndActive, setDndActiveState] = useState(false);
@@ -1847,11 +1859,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [refreshAudioDevices]);
 
   // Apply saved brightness and sleep timeout whenever the device connects.
+  // Also arm the handshake fallback timer: if no DEVICE: line arrives within
+  // 3 s of connection, assume mini (backwards-compatible default).
   const prevConnectedRef = useRef(false);
   useEffect(() => {
     if (deviceStatus.connected && !prevConnectedRef.current) {
       deviceApi.setBrightness(oledBrightnessRef.current).catch(() => {});
       deviceApi.setSleepTimeout(oledSleepTimeoutRef.current).catch(() => {});
+      // Arm handshake fallback: apply mini default if no device_profile WS arrives
+      if (handshakeTimerRef.current) clearTimeout(handshakeTimerRef.current);
+      handshakeTimerRef.current = setTimeout(() => {
+        handshakeTimerRef.current = null;
+        setConnectedDevice((cur) => cur ?? FALLBACK_DEVICE_PROFILE);
+      }, 3000);
+    }
+    if (!deviceStatus.connected && prevConnectedRef.current) {
+      // Clear device profile on disconnect
+      if (handshakeTimerRef.current) {
+        clearTimeout(handshakeTimerRef.current);
+        handshakeTimerRef.current = null;
+      }
+      setConnectedDevice(null);
     }
     prevConnectedRef.current = deviceStatus.connected;
   }, [deviceStatus.connected]);
@@ -1930,6 +1958,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
         case 'device_status':
           setDeviceStatus(msg.data as unknown as DeviceStatus);
           break;
+        case 'device_profile': {
+          // Multi-device Sprint-1: firmware's DEVICE: line broadcast by backend
+          const rawLine = msg.data.line as string | null | undefined;
+          if (!rawLine) {
+            // null line = disconnect cleared it
+            setConnectedDevice(null);
+          } else {
+            const profile = parseDeviceLine(rawLine);
+            if (profile) {
+              // Cancel the fallback timer — we got a real profile
+              if (handshakeTimerRef.current) {
+                clearTimeout(handshakeTimerRef.current);
+                handshakeTimerRef.current = null;
+              }
+              setConnectedDevice(profile);
+            }
+          }
+          break;
+        }
         case 'pomodoro_completed':
           // Work phase finished — backend immediately starts the break phase.
           // Transition to break mode, play the mod_break intro fully, then let
@@ -2167,6 +2214,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         voiceAssistantActive,
         voiceUiVisible,
         setVoiceUiVisible,
+        connectedDevice,
         dndActive,
         setDndActive,
         sadikPosition,

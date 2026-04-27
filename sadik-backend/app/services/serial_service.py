@@ -20,6 +20,8 @@ class SerialService:
         self._serial: Optional[serial.Serial] = None
         self._lock = asyncio.Lock()
         self._active_port: Optional[str] = None
+        # Last DEVICE: line received at connect time — Multi-device Sprint-1
+        self.last_device_line: Optional[str] = None
 
     @property
     def is_connected(self) -> bool:
@@ -58,10 +60,14 @@ class SerialService:
         Returns an open serial.Serial if verified, None otherwise.
         Caller owns the returned object and must close it when done.
 
+        Also captures any DEVICE: line seen during the handshake window and
+        stores it in self.last_device_line (Multi-device Sprint-1).
+
         Hard budget: ~1.5 s total (0.2 s settle + 1.0 s response window).
         write_timeout ensures s.write() never blocks indefinitely.
         """
         s = None
+        captured_device_line: Optional[str] = None
         try:
             logger.debug(f"Trying port {port}")
             # write_timeout prevents s.write() from blocking indefinitely
@@ -76,8 +82,13 @@ class SerialService:
             while time.monotonic() < deadline:
                 if s.in_waiting > 0:
                     line = s.readline().decode("utf-8", errors="replace").strip()
+                    if line.startswith("DEVICE:"):
+                        captured_device_line = line
+                        logger.info(f"Device profile on {port}: {line}")
+                        continue
                     if line in ("PONG", "SADIK:READY") or line.startswith("STATUS"):
                         logger.info(f"Verification success on {port}: got '{line}'")
+                        self.last_device_line = captured_device_line
                         return s  # verified — caller takes ownership
                 time.sleep(0.05)
             logger.debug(f"Verification fail on {port}: no SADIK response within deadline")

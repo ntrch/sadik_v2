@@ -9,7 +9,7 @@ const DISPLAY_H = 90;
 export default function OledPreview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageDataRef = useRef<ImageData | null>(null);
-  const { frameBuffer, frameVersion, engineState } = useContext(AppContext);
+  const { frameBuffer, frameVersion, engineState, connectedDevice } = useContext(AppContext);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -48,15 +48,45 @@ export default function OledPreview() {
     ctx.putImageData(imgData, 0, 0);
   }, [frameVersion, frameBuffer]);
 
+  const isColor = connectedDevice?.variant === 'color';
+
   return (
     <div
-      className="border border-border rounded-lg overflow-hidden bg-black oled-glow"
+      className="relative border border-border rounded-lg overflow-hidden bg-black oled-glow"
       style={{ width: `${DISPLAY_W}px`, height: `${DISPLAY_H}px` }}
     >
       <canvas
         ref={canvasRef}
         style={{ width: '100%', height: '100%', imageRendering: 'pixelated' }}
       />
+      {isColor && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            padding: '1px 5px',
+            borderRadius: 4,
+            border: '1px solid rgba(255,255,255,0.25)',
+            background: 'rgba(0,0,0,0.45)',
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: '0.05em',
+            lineHeight: 1,
+          }}
+        >
+          <span
+            style={{
+              background: 'linear-gradient(90deg, #ff3b30 0%, #34c759 50%, #007aff 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}
+          >
+            RGB
+          </span>
+        </div>
+      )}
     </div>
   );
 }

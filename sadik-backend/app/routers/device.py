@@ -29,6 +29,10 @@ async def connect_device(body: DeviceConnect):
     await ws_manager.broadcast({"type": "device_status", "data": status})
     if not ok:
         raise HTTPException(status_code=400, detail="Could not connect to device")
+    # Broadcast device profile if captured during handshake (Multi-device Sprint-1)
+    device_line = serial_service.last_device_line
+    if device_line:
+        await ws_manager.broadcast({"type": "device_profile", "data": {"line": device_line}})
     return status
 
 @router.post("/disconnect")
@@ -40,8 +44,10 @@ async def disconnect_device():
     except Exception:
         pass
     await device_manager.disconnect()
+    serial_service.last_device_line = None
     status = device_manager.get_status()
     await ws_manager.broadcast({"type": "device_status", "data": status})
+    await ws_manager.broadcast({"type": "device_profile", "data": {"line": None}})
     return status
 
 @router.post("/auto-connect", response_model=AutoConnectResult)
@@ -55,6 +61,10 @@ async def auto_connect_device():
     if result["connected"]:
         status = device_manager.get_status()
         await ws_manager.broadcast({"type": "device_status", "data": status})
+        # Broadcast device profile if captured during handshake (Multi-device Sprint-1)
+        device_line = serial_service.last_device_line
+        if device_line:
+            await ws_manager.broadcast({"type": "device_profile", "data": {"line": device_line}})
     return result
 
 @router.get("/ports")

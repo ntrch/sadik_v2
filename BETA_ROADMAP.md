@@ -556,13 +556,13 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 
 ## Multi-device Sprint-1: handshake protokolü + DeviceProfile (app)
 
-**Durum:** WIP başlamadı.
+**Durum:** ✅ DONE (2026-04-27)
 
-- [ ] Color firmware boot'ta publish: `DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=<ver> caps=local_clips`
-- [ ] Mini firmware'e aynı satır: `DEVICE:variant=mini hw=esp32-wroom32 display=128x64_mono fw=<ver> caps=raw_frame_stream,progmem_clips` (backwards-compatible — eski app ignore eder)
-- [ ] App connection handshake: ilk N satır içinde `DEVICE:` parse edilir → `connectedDevice` state'ine yazılır. Yoksa `variant=mini` default (mevcut davranış).
-- [ ] App'te `DeviceProfile` katmanı (TS types): `{ variant, display, capabilities, fwVersion }`. Connection drop'ta null'lanır.
-- [ ] **Dashboard preview RGB badge**: `variant === 'color'` iken sağ üst köşede şeffaf çerçeve içinde renkli "RGB" yazısı (lineer R→G→B gradient text).
+- [x] Color firmware boot'ta publish: `DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=0.6.0 caps=local_clips`
+- [x] Mini firmware'e aynı satır: `DEVICE:variant=mini hw=esp32-wroom32 display=128x64_mono fw=2.0.0 caps=raw_frame_stream,progmem_clips` (backwards-compatible — eski app ignore eder)
+- [x] App connection handshake: backend `serial_service.py` DEVICE: satırını handshake penceresinde yakalar; `device_profile` WS eventi yayar. App 3s içinde event gelmezse `variant=mini` fallback uygular.
+- [x] App'te `DeviceProfile` katmanı (TS types `sadik-app/src/types/device.ts`): `{ variant, display, capabilities, fwVersion, hw }`. Connection drop'ta null'lanır. `parseDeviceLine()` parser + `FALLBACK_DEVICE_PROFILE` sabiti.
+- [x] **Dashboard preview RGB badge**: `variant === 'color'` iken `OledPreview` sağ üst köşede şeffaf çerçeve + R→G→B lineer gradient text "RGB".
 
 ---
 
