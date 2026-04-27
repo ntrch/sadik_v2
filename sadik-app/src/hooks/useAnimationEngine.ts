@@ -3,6 +3,35 @@ import { getAnimationEngine } from '../engine/AnimationEngine';
 import { EngineState, AnimationEventType } from '../engine/types';
 import { deviceApi } from '../api/device';
 
+// ── Color variant clip name mapping ──────────────────────────────────────────
+// Mini clip names (from eventMapping.ts / AnimationEngine) → color LittleFS names.
+// Color manifest.json clip names must match exactly what LittleFS has on device.
+const COLOR_CLIP_MAP: Record<string, string> = {
+  // Mini name          : Color LittleFS name
+  listening            : 'listening',
+  thinking             : 'thinking',
+  talking              : 'talking',
+  idle                 : 'idle',
+  blink                : 'blink',
+  idle_alt_left_look   : 'idle_alt_left_look',
+  idle_alt_right_look  : 'idle_alt_right_look',
+  idle_alt_look_down   : 'idle_alt_look_down',
+  return_to_idle       : 'return_to_idle',
+  confirming           : 'confirming',
+  understanding        : 'understanding',
+  didnt_hear           : 'didnthear',
+  waking               : 'wakeword',
+  mod_break            : 'mode_break',
+  mod_working          : 'mode_working',
+  mod_gaming           : 'mode_gaming',
+};
+
+/** Translate a mini/engine clip name to the color LittleFS clip name. Returns null if no mapping. */
+function toColorClipName(miniName: string | null): string | null {
+  if (!miniName) return null;
+  return COLOR_CLIP_MAP[miniName] ?? miniName; // fall back to same name if not in map
+}
+
 /** Map sadik_position setting → clip direction for focus-look. */
 function positionToClipDirection(pos: 'left' | 'right' | 'top'): 'left' | 'right' | 'down' {
   if (pos === 'left')  return 'right'; // Sadık is left  → looks right (toward user)
@@ -25,6 +54,7 @@ export function useAnimationEngine(
   deviceConnected: boolean,
   sadikPosition: 'left' | 'right' | 'top' = 'left',
   personaSlug: string = 'sadik',
+  deviceVariant: 'mini' | 'color' = 'mini',
 ) {
   const engine = getAnimationEngine();
   const rafRef = useRef<number | null>(null);
@@ -35,11 +65,26 @@ export function useAnimationEngine(
 
   // Track frame streaming state with refs to avoid stale closures
   const deviceConnectedRef = useRef(deviceConnected);
+  const deviceVariantRef = useRef(deviceVariant);
+  // Last color clip name sent — avoid re-sending duplicate PLAY_LOCAL commands
+  const lastColorClipSentRef = useRef<string | null>(null);
 
-  // Keep ref in sync
+  // Keep refs in sync
   useEffect(() => {
     deviceConnectedRef.current = deviceConnected;
+    if (!deviceConnected) {
+      // Reset last clip so next connection sends a fresh PLAY_LOCAL command
+      lastColorClipSentRef.current = null;
+    }
   }, [deviceConnected]);
+
+  useEffect(() => {
+    deviceVariantRef.current = deviceVariant;
+    // When variant changes to non-color, reset last clip tracking
+    if (deviceVariant !== 'color') {
+      lastColorClipSentRef.current = null;
+    }
+  }, [deviceVariant]);
 
   useEffect(() => {
     // Register device command handler (control commands only: APP_CONNECTED, APP_DISCONNECTED, SET_BRIGHTNESS, SLEEP, WAKE)
@@ -73,6 +118,12 @@ export function useAnimationEngine(
     let pumpAlive = true;
     const pump = async () => {
       while (pumpAlive) {
+        // Color variant: no frame streaming — firmware plays LittleFS clips via PLAY_LOCAL.
+        // Frame pump is skipped; preview still updates from onFrameReady (disconnected branch).
+        if (deviceVariantRef.current === 'color') {
+          await new Promise((r) => setTimeout(r, 30));
+          continue;
+        }
         const buf = latestPendingBuffer.current;
         if (!buf || !deviceConnectedRef.current) {
           await new Promise((r) => setTimeout(r, 30));
@@ -108,9 +159,26 @@ export function useAnimationEngine(
     };
     pump();
 
-    // Register state change listener (throttled in the RAF loop instead)
+    // Register state change listener — also drives color PLAY_LOCAL dispatch.
     engine.onStateChange((state) => {
       setEngineState(state);
+      // Color variant: translate clip changes to PLAY_LOCAL:<name> ASCII commands.
+      // The firmware (color) manages its own LittleFS playback; we just tell it which clip.
+      if (deviceVariantRef.current === 'color' && deviceConnectedRef.current) {
+        const colorClip = toColorClipName(state.currentClipName);
+        if (colorClip && colorClip !== lastColorClipSentRef.current) {
+          lastColorClipSentRef.current = colorClip;
+          deviceApi.sendCommand(`PLAY_LOCAL:${colorClip}`).catch(() => {});
+          console.log(`[ColorClip] PLAY_LOCAL:${colorClip}`);
+        } else if (!state.currentClipName && state.playbackMode === 'idle') {
+          // Returning to idle — firmware resumes its own idle orchestration
+          if (lastColorClipSentRef.current !== '__idle__') {
+            lastColorClipSentRef.current = '__idle__';
+            deviceApi.sendCommand('RETURN_TO_IDLE').catch(() => {});
+            console.log('[ColorClip] RETURN_TO_IDLE');
+          }
+        }
+      }
     });
 
     // Load clips on mount (per active persona)
@@ -134,13 +202,17 @@ export function useAnimationEngine(
 
   // Notify firmware of app authority changes so it can suppress or restore
   // its autonomous idle orchestration (blink / look timers) accordingly.
+  // Color variant: do NOT send APP_CONNECTED — color firmware uses ASCII command
+  // path (serialCmd.hasCommand) which is gated on !appConnected. Sending
+  // APP_CONNECTED would route all bytes through codec_feed(), breaking PLAY_LOCAL.
   useEffect(() => {
-    if (deviceConnected) {
+    if (deviceConnected && deviceVariant !== 'color') {
       deviceApi.sendCommand('APP_CONNECTED').catch(() => {});
     }
     // APP_DISCONNECTED is sent by the backend disconnect endpoint before closing
     // the serial port, so the firmware receives it while the link is still open.
-  }, [deviceConnected]);
+    // For color, we don't need APP_DISCONNECTED either (appConnected was never set).
+  }, [deviceConnected, deviceVariant]);
 
   // ── Focus-look wiring ────────────────────────────────────────────────────────
   // Tracks window focus state via Electron IPC when available, falling back to

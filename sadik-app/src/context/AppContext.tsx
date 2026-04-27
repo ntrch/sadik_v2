@@ -394,6 +394,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ── Persona slug — selects animation pack under /animations/personas/<slug>/ ──
   const [personaSlug] = useState<string>('sadik');
 
+  // ── Device variant — updated from connectedDevice; declared here so it's
+  //    available to useAnimationEngine before connectedDevice state is set up.
+  const [deviceVariant, setDeviceVariant] = useState<'mini' | 'color'>('mini');
+
   // ── Weather state ────────────────────────────────────────────────────────────
   const [weatherEnabled, setWeatherEnabledState] = useState(false);
   const [weatherApiKey, setWeatherApiKeyState]   = useState('');
@@ -487,7 +491,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     playModSequenceWithCallback,
     playModIntroOnce,
     getLoadedClipNames,
-  } = useAnimationEngine(deviceStatus.connected, sadikPosition, personaSlug);
+  } = useAnimationEngine(deviceStatus.connected, sadikPosition, personaSlug, deviceVariant);
 
   // ── Wake word functions ────────────────────────────────────────────────────
 
@@ -710,6 +714,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Track handshake timeout: after 3 s of being connected without a DEVICE:
   // line, fall back to mini-default so existing mini behavior is preserved.
   const handshakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync deviceVariant (declared before useAnimationEngine) from connectedDevice.
+  useEffect(() => {
+    setDeviceVariant(connectedDevice?.variant ?? 'mini');
+  }, [connectedDevice]);
 
   // ── DND state ──────────────────────────────────────────────────────────────
   const [dndActive, setDndActiveState] = useState(false);
