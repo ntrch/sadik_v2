@@ -1891,12 +1891,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (deviceStatus.connected && !prevConnectedRef.current) {
       deviceApi.setBrightness(oledBrightnessRef.current).catch(() => {});
       deviceApi.setSleepTimeout(oledSleepTimeoutRef.current).catch(() => {});
-      // Arm handshake fallback: apply mini default if no device_profile WS arrives
-      if (handshakeTimerRef.current) clearTimeout(handshakeTimerRef.current);
-      handshakeTimerRef.current = setTimeout(() => {
+      // No fallback timer: backend always runs DEVICE? on connect/reconnect.
+      // FALLBACK_DEVICE_PROFILE (mini) must NOT be applied here — doing so would
+      // race the device_profile WS broadcast and send APP_CONNECTED to a color
+      // device before the real variant is confirmed.  connectedDevice stays null
+      // until the device_profile message arrives; APP_CONNECTED is blocked until then.
+      if (handshakeTimerRef.current) {
+        clearTimeout(handshakeTimerRef.current);
         handshakeTimerRef.current = null;
-        setConnectedDevice((cur) => cur ?? FALLBACK_DEVICE_PROFILE);
-      }, 3000);
+      }
     }
     if (!deviceStatus.connected && prevConnectedRef.current) {
       // Clear device profile on disconnect
