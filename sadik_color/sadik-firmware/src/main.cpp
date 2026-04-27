@@ -530,7 +530,15 @@ void onCodecFrameReady(uint16_t seq, uint8_t type) {
     // LOCAL_CLIP mode kendi byte source'una sahip — callback mode'u
     // FRAME_STREAM'a çevirirse main loop localClipPlayer.update()'i bir daha
     // çağırmaz, ikinci chunk gelmeyince codec parser 150ms'de STALL_RESET olur.
+    // With USE_NEW_ANIMATION_ENGINE, MODE_IDLE also uses localClipPlayer (idle.bin
+    // loops via AnimationEngine) — do NOT clobber mode in that case either.
+#if USE_NEW_ANIMATION_ENGINE
+    if (currentMode != MODE_FRAME_STREAM &&
+        currentMode != MODE_LOCAL_CLIP  &&
+        currentMode != MODE_IDLE) {
+#else
     if (currentMode != MODE_FRAME_STREAM && currentMode != MODE_LOCAL_CLIP) {
+#endif
         idleOrchestrator.pause();
         clipPlayer.stop();
         textRenderer.clear();
@@ -590,9 +598,20 @@ void loop() {
 
     // 2b. Advance local clip playback (LittleFS source → codec_feed).
     //     Runs independently of appConnected — localClipPlayer feeds codec itself.
+    //     With USE_NEW_ANIMATION_ENGINE, AnimationEngine drives localClipPlayer
+    //     from MODE_IDLE too (idle.bin loops while state machine is AE_IDLE),
+    //     so we must also pump bytes in that mode — not only MODE_LOCAL_CLIP.
+#if USE_NEW_ANIMATION_ENGINE
+    if ((currentMode == MODE_IDLE || currentMode == MODE_LOCAL_CLIP) && !display.isSleeping()) {
+#else
     if (currentMode == MODE_LOCAL_CLIP && !display.isSleeping()) {
+#endif
         localClipPlayer.update();
-        if (localClipPlayer.hasFinished()) {
+        // hasFinished() only matters for explicit one-shot clips launched from
+        // MODE_LOCAL_CLIP (PLAY_LOCAL command).  In MODE_IDLE the AnimationEngine
+        // itself watches hasFinished() inside update() and handles transitions —
+        // let the engine do that rather than interfering here.
+        if (currentMode == MODE_LOCAL_CLIP && localClipPlayer.hasFinished()) {
             currentMode = MODE_IDLE;
             codec_set_ack_enabled(true);  // re-enable for backend codec stream mode
             display.clearScreen();   // wipe codec's last full-screen frame
