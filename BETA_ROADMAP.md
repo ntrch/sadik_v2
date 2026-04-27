@@ -534,12 +534,13 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 **Wave-1 — yeni AnimationEngine, legacy yan yana** ✅ DONE (2026-04-27)
 - [x] `animation_engine.h` modülü (color firmware): `AE_IDLE/AE_PLAYING_ONESHOT/AE_PLAYING_BLINK/AE_PLAYING_VARIATION/AE_STOPPED` state machine. LocalClipPlayer altında kullanır. `idle_orchestrator` mantığı port edilir; blink 12-30s, variation 5-8dk (orijinal config.h değerleri korundu). Variation: `idle_alt_left_look`, `idle_alt_look_down`, `idle_alt_right_look` (manifest isimlerinden).
 - [x] main.cpp'de compile-time flag (`USE_NEW_ANIMATION_ENGINE=1 default`) — `#if` guard'ları ile A/B test edilebilir; legacy path tamamen korundu.
-- [ ] Smoke test: idle loop + blink + variation + LOCAL_CLIP event'leri yeni engine üzerinden bir tur dönsün. (Donanım upload sonrası kullanıcıda).
+- [x] Smoke test (görsel): donanım upload sonrası ekranda doğru renkli idle + blink doğrulandı (2026-04-27). ⚠️ Serial log spam tespit edildi (CODEC:STALL_RESET döngüsü + binary garbage) — W2 kapsamında çözülecek.
 
-**Wave-2 — legacy söküm**
+**Wave-2 — legacy söküm + log spam fix**
 - [ ] Legacy `ClipPlayer` instance'ı, `clip_player.h`, `clip_registry.h`, `include/clips/` (PROGMEM mono frame'ler) silinsin.
 - [ ] DisplayManager 1-bit framebuffer (`_fb`, `drawFrame`, `sendBuffer`, `_rgbFrame` 16 KB BSS) silinsin. `text_renderer` dokunulmasın (drawText path ayrı).
 - [ ] UART byte streaming (`codec_feed` external source) — appConnected modu için kalsın ama LOCAL_CLIP path default. (Ya da tamamen ASCII-event'e indirgeme — sprint sonunda karar.)
+- [ ] **Log spam fix**: standalone modda (app bağlı değil) `CODEC:STALL_RESET state=2 …` döngüsü + binary garbage byte'lar Serial'e basılıyor. Kök neden bul (firmware self-print mi, paralel byte source mu) ve sustur. ASCII-only diagnostic kalsın.
 - [ ] Manifest publish (`MANIFEST:idle,blink,listening,...` boot'ta Serial'e) — Multi-device Sprint-1'de app tarafı kullanacak.
 - [ ] Flash/RAM ölçümü (öncesi vs. sonrası) commit mesajına yazılsın.
 
