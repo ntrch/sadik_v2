@@ -149,6 +149,12 @@
 
 **Halka açık release ertelendi**: Cert + Apple Developer alınana kadar herkese açık değil; sadece arkadaş çevresi beta.
 
+### Color Sprint-6 KAPANDI ✅ (2026-04-27)
+- W1 ✅ AnimationEngine + idle/blink/variation in-firmware (görsel smoke geçti)
+- W2 ✅ Legacy söküm + log spam fix (`1574937`): ClipPlayer/PROGMEM/1-bit framebuffer kaldırıldı, ACK gating + pacing fix → temiz ASCII log, Flash −56 KB / RAM −17 KB, MANIFEST publish
+- Donanım smoke: idle→blink→idle döngüsü temiz, garbage yok, STALL_RESET yok ✅
+
+**Sırada: Multi-device Sprint-1** (handshake `DEVICE:variant=color ...` + app-side `DeviceProfile`).
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
