@@ -402,6 +402,11 @@ static void _apply_pframe() {
     // Tile scratch buffer (64 pixels = 128 bytes)
     uint16_t tile_buf[CODEC_PIXELS_PER_TILE];
 
+    // Hoist startWrite() outside the tile loop: one CS assert/deassert per
+    // P-frame instead of one per dirty tile.  Each tile only calls
+    // setAddrWindow+writePixels (no SPI CS toggle overhead between tiles).
+    if (_tft) _tft->startWrite();
+
     for (uint16_t tile_idx = 0; tile_idx < CODEC_TILE_COUNT; tile_idx++) {
         // Check dirty bit: MSB-first within each byte
         uint16_t byte_idx = tile_idx / 8;
@@ -411,6 +416,7 @@ static void _apply_pframe() {
         // Decode RLE for this tile
         if (rle >= rle_end) {
             Serial.println("CODEC:PFRAME rle_overrun");
+            if (_tft) _tft->endWrite();
             return;
         }
 
@@ -420,6 +426,7 @@ static void _apply_pframe() {
         for (uint8_t r = 0; r < run_count; r++) {
             if (rle + 3 > rle_end) {
                 Serial.println("CODEC:PFRAME rle_data_overrun");
+                if (_tft) _tft->endWrite();
                 return;
             }
             uint8_t  run_len = *rle++;
@@ -443,13 +450,13 @@ static void _apply_pframe() {
             }
         }
 
-        // Partial push: draw only this 8×8 tile
+        // Partial push: draw only this 8×8 tile (startWrite already asserted above)
         if (_tft) {
-            _tft->startWrite();
             _tft->setAddrWindow(tx, ty, CODEC_TILE_W, CODEC_TILE_H);
             _tft->writePixels(tile_buf, CODEC_PIXELS_PER_TILE);
-            _tft->endWrite();
         }
     }
+
+    if (_tft) _tft->endWrite();
     s_framesApplied++;
 }
