@@ -1,15 +1,13 @@
 #pragma once
 
 #include <Arduino.h>
-#include "local_clip_player.h"
+#include "mjpeg_player.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AnimationEngine — Color Sprint-6 Wave-1
+// AnimationEngine — Color Sprint-6 Wave-1 (MJPEG backend)
 //
-// Ports IdleOrchestrator behaviour to the codec/LittleFS render path.
-// Drives idle.bin (loop), blink, and idle_alt_* variation scheduling via
-// LocalClipPlayer.  Legacy ClipPlayer + IdleOrchestrator remain untouched
-// (Wave-2 will remove them).  Activated with USE_NEW_ANIMATION_ENGINE=1.
+// Drives idle.mjpeg (loop), blink, and idle_alt_* variation scheduling via
+// MjpegPlayer.  Replaces the legacy codec/LocalClipPlayer render path.
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum AnimationEngineState {
@@ -20,11 +18,11 @@ enum AnimationEngineState {
     AE_PLAYING_VARIATION,
 };
 
-// LittleFS clip names (must match manifest.json / /clips/*.bin)
+// LittleFS clip names (must match manifest.json / /clips/*.mjpeg)
 static const char* AE_CLIP_IDLE              = "idle";
 static const char* AE_CLIP_BLINK             = "blink";
 
-// Variation clips — names from manifest.json (note: different from PROGMEM registry names)
+// Variation clips — names from manifest.json
 static const char* AE_VARIATION_CLIPS[]      = {
     "idle_alt_left_look",
     "idle_alt_look_down",
@@ -41,7 +39,7 @@ static const unsigned long AE_VARIATION_MAX_MS  = 480000UL;
 
 class AnimationEngine {
 public:
-    explicit AnimationEngine(LocalClipPlayer& player)
+    explicit AnimationEngine(MjpegPlayer& player)
         : _player(player),
           _state(AE_STOPPED),
           _lastBlinkAtMs(0),
@@ -51,13 +49,10 @@ public:
           _lastVariationIdx(255),
           _variationPending(false) {}
 
-    // Start idle.bin loop; arm blink + variation timers.
+    // Start idle.mjpeg loop; arm blink + variation timers.
     void begin() {
         _state = AE_IDLE;
         _variationPending = false;
-        // Local-clip path: disable binary ACK packets (no host listening).
-        // ACKs are re-enabled when appConnected takes authority.
-        codec_set_ack_enabled(false);
         _player.play(AE_CLIP_IDLE, /*loop=*/true);
         _scheduleNextBlink();
         _scheduleNextVariation();
@@ -82,8 +77,6 @@ public:
     // Call when app disconnects and firmware reclaims authority.
     void resume() {
         _variationPending = false;
-        // Local-clip path: disable binary ACK packets (no host listening).
-        codec_set_ack_enabled(false);
         _player.play(AE_CLIP_IDLE, /*loop=*/true);
         _state = AE_IDLE;
         _scheduleNextBlink();
@@ -149,7 +142,7 @@ public:
     AnimationEngineState state() const { return _state; }
 
 private:
-    LocalClipPlayer&     _player;
+    MjpegPlayer&         _player;
     AnimationEngineState _state;
     unsigned long        _lastBlinkAtMs;
     unsigned long        _nextBlinkInMs;
@@ -159,8 +152,6 @@ private:
     bool                 _variationPending;
 
     void _returnToIdle() {
-        // Ensure ACKs stay disabled for local-clip idle path.
-        codec_set_ack_enabled(false);
         _player.play(AE_CLIP_IDLE, /*loop=*/true);
         _state = AE_IDLE;
         _scheduleNextBlink();
@@ -189,7 +180,7 @@ private:
                 idx = (uint8_t)random(AE_VARIATION_CLIP_COUNT);
             } while (idx == _lastVariationIdx);
         }
-        _lastVariationIdx = idx;
+        _lastVariationIdx  = idx;
         _lastVariationAtMs = millis();
         _state = AE_PLAYING_VARIATION;
         _player.play(AE_VARIATION_CLIPS[idx], /*loop=*/false);

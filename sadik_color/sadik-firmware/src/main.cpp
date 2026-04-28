@@ -1,28 +1,28 @@
 // =============================================================================
 // SADIK Firmware — main.cpp
-// ESP32-S3 N16R8 + ST7735S 160×128 SPI TFT (Color, single render path)
+// ESP32-S3 N16R8 + ST7735S 160×128 SPI TFT (Color, MJPEG playback)
 // =============================================================================
 //
-// Color Sprint-6 Wave-2: legacy ClipPlayer/IdleOrchestrator path removed.
-// Single render path: AnimationEngine → LocalClipPlayer → codec_feed → TFT.
+// Color Sprint-7: codec/CRC/packet streaming removed.
+// Single render path: AnimationEngine → MjpegPlayer → TJpgDec → TFT.
+// Clips stored on LittleFS as /clips/<name>.mjpeg (MJPEG container).
 // =============================================================================
 
 #include "config.h"
 #include "display_manager.h"
 #include "serial_commander.h"
 #include "text_renderer.h"
-#include "codec_decode.h"        // streaming codec decoder
-#include "local_clip_player.h"   // LittleFS local clip playback
-#include "rtos_tasks.h"          // Sprint-5 W2A: FreeRTOS task split foundation
-#include "animation_engine.h"    // Color S6-W1: codec/LittleFS idle engine
+#include "mjpeg_player.h"       // MJPEG playback (replaces codec + local_clip_player)
+#include "rtos_tasks.h"         // Sprint-5 W2A: FreeRTOS task split foundation
+#include "animation_engine.h"   // Color S6-W1: idle orchestration engine
 
 // ── Playback mode ─────────────────────────────────────────────────────────────
 
 enum PlaybackMode {
     MODE_BOOT,
     MODE_IDLE,
-    MODE_EXPLICIT_CLIP,    // kept for CMD_PLAY_CLIP legacy command (no-op path)
-    MODE_LOCAL_CLIP,       // playing a clip from LittleFS via LocalClipPlayer
+    MODE_EXPLICIT_CLIP,    // kept for CMD_PLAY_CLIP legacy command (routes to PLAY_LOCAL)
+    MODE_LOCAL_CLIP,       // playing a clip from LittleFS via MjpegPlayer
     MODE_TEXT,
     MODE_FRAME_STREAM,     // app is streaming raw frames via FRAME: command
 };
@@ -31,12 +31,12 @@ enum PlaybackMode {
 
 DisplayManager   display;
 SerialCommander  serialCmd;
-TextRenderer     textRenderer(display);     // needs display
-LocalClipPlayer  localClipPlayer;           // LittleFS local clip playback
+TextRenderer     textRenderer(display);   // needs display
+MjpegPlayer      mjpegPlayer;             // LittleFS MJPEG playback
 PlaybackMode     currentMode = MODE_BOOT;
-AnimationEngine  animationEngine(localClipPlayer); // Color S6-W1: codec idle engine
+AnimationEngine  animationEngine(mjpegPlayer);  // idle orchestration
 
-// ── OLED sleep state ──────────────────────────────────────────────────────────
+// ── Sleep state ───────────────────────────────────────────────────────────────
 // sleepTimeoutMs: inactivity duration (ms) before the display is powered off.
 //   0 = disabled — the display never sleeps automatically.
 // lastActivityMs: millis() timestamp of the last meaningful visual command.
@@ -49,8 +49,8 @@ bool          sleepPausedIdle = false;
 
 // ── App-connection authority flag ─────────────────────────────────────────────
 // appConnected: true while the desktop app is connected and acting as the sole
-//   animation authority.  Firmware autonomous idle orchestration (blink / look
-//   timers) is suppressed; the app drives every clip change via serial commands.
+//   animation authority.  Firmware autonomous idle orchestration is suppressed;
+//   the app drives every clip change via serial commands.
 // Cleared on reboot so the device always starts in standalone autonomous mode.
 
 bool appConnected = false;
@@ -60,15 +60,6 @@ bool appConnected = false;
 void processCommand(ParsedCommand& cmd);
 void markActivity(const char* reason);
 void ensureAwake(const char* reason);
-void onCodecFrameReady(uint16_t seq, uint8_t type);
-
-// ── Codec byte-routing ────────────────────────────────────────────────────────
-// When 0xC5 magic byte arrives, route raw bytes to codec_feed() instead of
-// SerialCommander.  Both paths are active simultaneously; codec_feed() hunts
-// for 0xC5 itself, so we simply drain all available bytes into it when a
-// codec stream is in flight (appConnected must be true).
-// Scratch buffer for batched Serial.readBytes() → codec_feed() calls.
-static uint8_t _codecScratch[256];
 
 // =============================================================================
 // markActivity
@@ -107,14 +98,11 @@ void ensureAwake(const char* reason) {
 // =============================================================================
 
 void setup() {
-    serialCmd.begin();      // Serial.begin(SERIAL_BAUD) + reset parser state
-    display.begin();        // SPI init + TFT controller init (prints BOOT:OK to serial)
+    serialCmd.begin();   // Serial.begin(SERIAL_BAUD) + reset parser state
+    display.begin();     // SPI init + TFT controller init (prints BOOT:OK to serial)
 
-    // ── Codec decoder init ────────────────────────────────────────────────────
-    codec_init(display.tft());
-    codec_on_frame_ready(onCodecFrameReady);
-
-    localClipPlayer.begin();     // mount LittleFS
+    // ── MJPEG player init ─────────────────────────────────────────────────────
+    mjpegPlayer.begin(display.tft());   // mounts LittleFS, inits TJpgDec
 
     // ── Boot splash ───────────────────────────────────────────────────────────
     display.drawRainbowText("COLOR");
@@ -128,22 +116,18 @@ void setup() {
 
     // ── Enter idle mode ───────────────────────────────────────────────────────
     currentMode = MODE_IDLE;
-    // AnimationEngine drives idle/blink/variation via codec/LittleFS path.
-    // Standalone mode: ACKs disabled (no host). begin() sets ack_enabled=false.
+    // AnimationEngine drives idle/blink/variation via MjpegPlayer.
     animationEngine.begin();
 
     // ── Device profile publish (Multi-device Sprint-1 handshake) ────────────
     // App-side parser reads the first N serial lines and extracts DeviceProfile.
-    // Must come before MANIFEST: and SADIK:READY so the parser sees it early.
-    Serial.println("DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=0.6.0 caps=local_clips");
+    Serial.println("DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=0.7.0 caps=local_clips,mjpeg");
 
-    // ── Manifest publish (Multi-device Sprint-1 handshake) ───────────────────
+    // ── Manifest publish ─────────────────────────────────────────────────────
     // Boot'ta available clip listesini publish et; app parse edecek.
     {
-        // LittleFS manifest.json'dan clip isimlerini oku ve virgüllü liste bas.
-        // Fallback: sabit liste (LittleFS mount fail durumunda).
         bool published = false;
-        if (localClipPlayer.isReady()) {
+        if (mjpegPlayer.isReady()) {
             File mf = LittleFS.open("/manifest.json", "r");
             if (mf) {
                 // Simple JSON name extraction — find all "name":"..." pairs.
@@ -171,7 +155,7 @@ void setup() {
             }
         }
         if (!published) {
-            // Fallback static list (matches current manifest.json clip set)
+            // Fallback static list (matches manifest.json clip set)
             Serial.println("MANIFEST:blink,break_text,confirming,didnthear,done,idle,"
                            "idle_alt_left_look,idle_alt_look_down,idle_alt_right_look,"
                            "listening,mode_break,mode_gaming,mode_gaming_text,"
@@ -198,11 +182,10 @@ void processCommand(ParsedCommand& cmd) {
     switch (cmd.type) {
 
         // ── PLAY_CLIP:<name> ──────────────────────────────────────────────────
-        // Legacy command kept for backwards-compat. Routes to PLAY_LOCAL.
+        // Legacy command — routes to PLAY_LOCAL logic.
         case CMD_PLAY_CLIP: {
             ensureAwake("PLAY_CLIP");
             markActivity("PLAY_CLIP");
-            codec_set_ack_enabled(false);
             animationEngine.playEvent(cmd.argument);
             currentMode = MODE_LOCAL_CLIP;
             snprintf(resp, sizeof(resp), "OK:PLAYING:%s", cmd.argument);
@@ -212,11 +195,7 @@ void processCommand(ParsedCommand& cmd) {
 
         // ── PLAY_LOCAL:<name> ─────────────────────────────────────────────────
         case CMD_PLAY_LOCAL: {
-            codec_set_ack_enabled(false);
-
             // Clips known to be looping (loop:true in manifest.json).
-            // These must be played with loop=true so they keep running until
-            // the app sends STOP_CLIP or the next PLAY_LOCAL.
             static const char* LOOP_CLIPS[] = {
                 "idle", "break_text",
                 "mode_working_text", "mode_gaming_text", "mode_meeting_text",
@@ -251,7 +230,6 @@ void processCommand(ParsedCommand& cmd) {
             if (currentMode == MODE_EXPLICIT_CLIP || currentMode == MODE_LOCAL_CLIP) {
                 currentMode = MODE_IDLE;
                 if (appConnected) {
-                    // App is authority — will send next PLAY_LOCAL itself.
                     animationEngine.stop();
                 } else {
                     animationEngine.resume();
@@ -269,8 +247,8 @@ void processCommand(ParsedCommand& cmd) {
             animationEngine.stop();
             currentMode = MODE_TEXT;
 
-            size_t argLen       = strlen(cmd.argument);
-            bool   isTimerStr   = (argLen <= 5 && strchr(cmd.argument, ':') != nullptr);
+            size_t argLen     = strlen(cmd.argument);
+            bool   isTimerStr = (argLen <= 5 && strchr(cmd.argument, ':') != nullptr);
 
             if (isTimerStr) {
                 textRenderer.showTimer(cmd.argument);
@@ -291,7 +269,6 @@ void processCommand(ParsedCommand& cmd) {
             textRenderer.clear();
             currentMode = MODE_IDLE;
             if (appConnected) {
-                // App is authority — will send next PLAY_LOCAL itself.
                 animationEngine.stop();
             } else {
                 animationEngine.resume();
@@ -307,12 +284,8 @@ void processCommand(ParsedCommand& cmd) {
         }
 
         // ── DEVICE? ───────────────────────────────────────────────────────────
-        // Host queries device profile at any time (e.g. after reset or when the
-        // boot-time DEVICE: line was missed).  Re-emit the same line so the
-        // backend can capture it and broadcast device_profile to the app.
-        // Bug 2 fix: deterministic handshake independent of connection timing.
         case CMD_DEVICE_QUERY: {
-            Serial.println("DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=0.6.0 caps=local_clips");
+            Serial.println("DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=0.7.0 caps=local_clips,mjpeg");
             break;
         }
 
@@ -389,7 +362,7 @@ void processCommand(ParsedCommand& cmd) {
             break;
         }
 
-        // ── FORCE_SLEEP (debug aid) ───────────────────────────────────────────
+        // ── FORCE_SLEEP ───────────────────────────────────────────────────────
         case CMD_FORCE_SLEEP: {
             if (display.isSleeping()) {
                 Serial.println("OK:FORCE_SLEEP already_sleeping");
@@ -409,8 +382,6 @@ void processCommand(ParsedCommand& cmd) {
         // ── APP_CONNECTED ─────────────────────────────────────────────────────
         case CMD_APP_CONNECTED: {
             appConnected = true;
-            // App streaming path uses binary ACK packets — re-enable them.
-            codec_set_ack_enabled(true);
             if (currentMode == MODE_IDLE) {
                 // Stop engine; app will drive clips directly via PLAY_LOCAL.
                 animationEngine.stop();
@@ -420,8 +391,8 @@ void processCommand(ParsedCommand& cmd) {
         }
 
         // ── ABORT_STREAM ──────────────────────────────────────────────────────
+        // No-op in MJPEG mode (no codec stream), kept for protocol compat.
         case CMD_ABORT_STREAM: {
-            codec_abort();
             Serial.println("OK:ABORTED");
             break;
         }
@@ -431,12 +402,12 @@ void processCommand(ParsedCommand& cmd) {
             appConnected = false;
             textRenderer.clear();
             currentMode = MODE_IDLE;
-            animationEngine.resume();  // also calls codec_set_ack_enabled(false)
+            animationEngine.resume();
             Serial.println("OK:APP_DISCONNECTED");
             break;
         }
 
-        // ── FRAME:<hex data> ─────────────────────────────────────────────────
+        // ── FRAME:<binary data> ───────────────────────────────────────────────
         case CMD_FRAME_DATA: {
             if (!appConnected) {
                 Serial.println("ERR:APP_NOT_CONNECTED");
@@ -467,86 +438,31 @@ void processCommand(ParsedCommand& cmd) {
 }
 
 // =============================================================================
-// onCodecFrameReady
-// Called by codec_decode after each successfully applied frame packet.
-// =============================================================================
-
-void onCodecFrameReady(uint16_t seq, uint8_t type) {
-    ensureAwake("CODEC_FRAME");
-    lastActivityMs = millis();
-
-    // LOCAL_CLIP and IDLE modes both use localClipPlayer as byte source.
-    // Do NOT clobber mode to FRAME_STREAM for those paths.
-    if (currentMode != MODE_FRAME_STREAM &&
-        currentMode != MODE_LOCAL_CLIP  &&
-        currentMode != MODE_IDLE) {
-        animationEngine.stop();
-        textRenderer.clear();
-        currentMode = MODE_FRAME_STREAM;
-    }
-    (void)seq; (void)type;
-}
-
-// =============================================================================
 // loop
 // =============================================================================
 
 void loop() {
-    // 0. Serial dispatch — variant-aware.
-    //
-    // SADIK_COLOR: firmware plays LittleFS clips; no codec stream expected from
-    //   the host.  SerialCommander handles ALL ASCII commands (PLAY_LOCAL,
-    //   ABORT_STREAM, handshake, etc.) regardless of appConnected state.
-    //
-    // Mini (else): when appConnected, route all bytes to codec_feed() for binary
-    //   frame streaming.  SerialCommander is gated on !appConnected to avoid a
-    //   UART semaphore race under high codec streaming rates.
-#ifdef SADIK_COLOR
-    codec_tick();
-    // Always process ASCII commands on color variant — no codec byte stream.
+    // 0. Serial dispatch — SADIK_COLOR: always ASCII commands, no codec stream.
     if (serialCmd.hasCommand()) {
         ParsedCommand cmd = serialCmd.getCommand();
         processCommand(cmd);
     }
-#else
-    codec_tick();
-    if (appConnected && Serial.available() > 0) {
-        size_t avail = (size_t)Serial.available();
-        while (avail > 0) {
-            size_t chunk = (avail < sizeof(_codecScratch)) ? avail : sizeof(_codecScratch);
-            size_t got   = Serial.readBytes(_codecScratch, chunk);
-            if (got == 0) break;
-            codec_feed(_codecScratch, got);
-            avail = (size_t)Serial.available();
-        }
-        return;
-    }
 
-    // 1. Non-blocking serial command check (mini, not connected).
-    if (!appConnected && serialCmd.hasCommand()) {
-        ParsedCommand cmd = serialCmd.getCommand();
-        processCommand(cmd);
-    }
-#endif
-
-    // 2. Advance local clip playback (LittleFS → codec_feed).
-    //    Runs in MODE_IDLE (idle.bin looping via AnimationEngine) and
-    //    MODE_LOCAL_CLIP (explicit one-shot event clips).
+    // 1. Advance MJPEG playback (LittleFS → TJpgDec → TFT).
+    //    Runs in MODE_IDLE and MODE_LOCAL_CLIP.
     if ((currentMode == MODE_IDLE || currentMode == MODE_LOCAL_CLIP) && !display.isSleeping()) {
-        localClipPlayer.update();
+        mjpegPlayer.update();
         // hasFinished() only matters for explicit one-shot clips (MODE_LOCAL_CLIP).
         // In MODE_IDLE, AnimationEngine.update() handles transitions internally.
-        if (currentMode == MODE_LOCAL_CLIP && localClipPlayer.hasFinished()) {
+        if (currentMode == MODE_LOCAL_CLIP && mjpegPlayer.hasFinished()) {
             currentMode = MODE_IDLE;
-            display.clearScreen();   // wipe codec's last full-screen frame
-            // AnimationEngine handles its own state transition to idle internally
-            // via update() — no explicit resume() needed here.
+            display.clearScreen();
             markActivity("LOCAL_CLIP_DONE");
             Serial.println("EVENT:LOCAL_CLIP_FINISHED");
         }
     }
 
-    // 3. Drive idle orchestration (AnimationEngine state machine).
+    // 2. Drive idle orchestration (AnimationEngine state machine).
     //    Ticks during MODE_LOCAL_CLIP so engine catches hasFinished() and
     //    auto-returns to idle after a PLAY_LOCAL one-shot completes.
     if ((currentMode == MODE_IDLE || currentMode == MODE_LOCAL_CLIP) &&
@@ -554,7 +470,7 @@ void loop() {
         animationEngine.update();
     }
 
-    // 4. OLED sleep check.
+    // 3. OLED sleep check.
     if (sleepTimeoutMs > 0 &&
         !display.isSleeping() &&
         currentMode != MODE_EXPLICIT_CLIP &&
@@ -582,6 +498,6 @@ void loop() {
         }
     }
 
-    // 5. Yield to the ESP32 RTOS scheduler and reset the watchdog timer.
+    // 4. Yield to the ESP32 RTOS scheduler and reset the watchdog timer.
     yield();
 }
