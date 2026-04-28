@@ -660,6 +660,7 @@ Her sprint içinde **zone A** ve **zone B** ayrıldı. Aynı anda iki hesap:
 5. **TR-only**: İlk beta Türkçe. i18n altyapısı kurulmayacak (gereksiz iş).
 6. **Backend embedded (öneri)**: PyInstaller ile tek binary, user friction sıfır. Sonnet'e delege edildiğinde bunu net brief'le.
 7. **ESP32 WiFi şimdilik yok**: Serial yeter (bkz `memory/project_wifi_transport_deferred.md`).
+8. **Color 24fps gating reverted**: vTaskDelay-in-apply-callback yaklaşımı codec STALL_RESET veriyor. Tüm fps-gating denemeleri (ce7cfd2, 1ec14f7, c8378f6) revert edildi. Çözüm: codec async/double-buffer mimari refactor gerekiyor.
 
 ---
 
