@@ -114,8 +114,7 @@ void setup() {
     codec_init(display.tft());
     codec_on_frame_ready(onCodecFrameReady);
 
-    localClipPlayer.begin();     // mount LittleFS + allocate PSRAM framebuffers
-    localClipPlayer.setTft(display.tft());  // inject TFT for front-buffer blit
+    localClipPlayer.begin();     // mount LittleFS
 
     // ── Boot splash ───────────────────────────────────────────────────────────
     display.drawRainbowText("COLOR");

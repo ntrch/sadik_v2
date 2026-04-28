@@ -76,27 +76,6 @@ uint32_t codec_frames_applied();
 // emitted bytes pollute USB-CDC monitor and cause backpressure).
 void codec_set_ack_enabled(bool enabled);
 
-// ---------------------------------------------------------------------------
-// Double-buffer support (PSRAM back/front playback mode)
-// ---------------------------------------------------------------------------
-
-// Set the back buffer pointer.  When non-null, _apply_iframe / _apply_pframe
-// write decoded pixels here instead of the internal static framebuffer and do
-// NOT push to TFT.  The caller is responsible for allocating 40960 bytes
-// (CODEC_FRAME_BYTES) in PSRAM via heap_caps_malloc(MALLOC_CAP_SPIRAM).
-// Pass nullptr to revert to the single-buffer direct-blit mode.
-void codec_set_back_buffer(uint16_t* back);
-
-// Returns true if a complete frame has been decoded into the back buffer since
-// the last codec_clear_render_pending() call.
-bool codec_is_render_pending();
-
-// Clear the render-pending flag (call after the front buffer has been blitted).
-void codec_clear_render_pending();
-
-// Return the back buffer pointer (may be nullptr in single-buffer mode).
-uint16_t* codec_get_back_buffer();
-
 // Call from the main loop. If a packet has been in flight (i.e. not idle) for
 // longer than the stall threshold, reset the parser so a truncated stream
 // (host crash, cable unplug mid-packet, stray 0xC5 in ASCII) cannot swallow
