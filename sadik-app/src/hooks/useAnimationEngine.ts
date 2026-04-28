@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { getAnimationEngine } from '../engine/AnimationEngine';
 import { EngineState, AnimationEventType } from '../engine/types';
 import { deviceApi } from '../api/device';
+import { COLOR_CLIP_DURATION_MS, COLOR_CLIP_FALLBACK_MS } from '../assets/colorClipManifest';
 
 // ── Color variant clip name mapping ──────────────────────────────────────────
 // Mini clip names (from eventMapping.ts / AnimationEngine) → color LittleFS names.
@@ -81,8 +82,10 @@ export function useAnimationEngine(
 
   // Clips that bypass the min-gap (high-priority interrupts)
   const COLOR_CLIP_FORCE_SET = new Set(['wakeword']);
-  // TODO: derive from manifest when available (manifest has fps+bytes but no frame count)
-  const COLOR_CLIP_MIN_GAP_MS = 700;
+
+  /** Return the min-gap for a given color clip name (its actual playback duration). */
+  const getClipGapMs = (colorClip: string): number =>
+    COLOR_CLIP_DURATION_MS[colorClip] ?? COLOR_CLIP_FALLBACK_MS;
 
   // Keep refs in sync
   useEffect(() => {
@@ -210,8 +213,11 @@ export function useAnimationEngine(
           const now = Date.now();
           const elapsed = now - lastColorClipSentAtRef.current;
           const isForce = COLOR_CLIP_FORCE_SET.has(colorClip);
+          // Use actual duration of the previously sent clip as the min-gap.
+          // This prevents a new clip from interrupting a clip that is still playing.
+          const minGapMs = getClipGapMs(lastColorClipSentRef.current ?? '');
 
-          if (isForce || elapsed >= COLOR_CLIP_MIN_GAP_MS) {
+          if (isForce || elapsed >= minGapMs) {
             // Cancel any pending deferred send — this takes priority
             if (pendingColorClipTimerRef.current) {
               clearTimeout(pendingColorClipTimerRef.current);
@@ -223,7 +229,7 @@ export function useAnimationEngine(
             // Within min-gap: defer; latest clip wins
             pendingColorClipRef.current = colorClip;
             if (!pendingColorClipTimerRef.current) {
-              const delay = COLOR_CLIP_MIN_GAP_MS - elapsed;
+              const delay = minGapMs - elapsed;
               pendingColorClipTimerRef.current = setTimeout(() => {
                 pendingColorClipTimerRef.current = null;
                 const next = pendingColorClipRef.current;

@@ -587,6 +587,7 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 - [ ] Connection açıldığında `deviceProfile.variant`'a göre doğru engine instantiate edilir.
 - [ ] Backend variant-aware OLMASIN — semantik event üretsin, app çevirsin.
 - [x] **Color clip dedupe + min-gap** (`fix(app): color clip dedupe + min-gap to prevent TFT flash [session-A]`): `useAnimationEngine.ts` — aynı clip tekrar gönderilmez (`lastColorClipSentRef`); farklı clip gönderildikten sonra 700ms içinde yeni clip gelirse `pendingColorClipRef`'e yazılır, timer dolunca son istek gönderilir; `wakeword` force-bypass ile min-gap'i atlar. Mini variant'a dokunulmadı.
+- [x] **Manifest-driven clip gap** (`fix(app): manifest-driven clip gap + clip name reconciliation [session-A]`): `useAnimationEngine.ts` sabit 700ms gap → clip-spesifik duration'a geçirildi. `sadik-app/src/assets/colorClipManifest.ts` oluşturuldu: her LittleFS clip için .bin packet parse'dan türetilen gerçek frame count / 24fps = duration_ms map. `getClipGapMs(lastClip)` helper — gönderilen önceki clip'in gerçek süresi kadar bekler, bilinmiyorsa 1500ms fallback. Force-interrupt (wakeword) davranışı korundu. `mode_meeting` intro clip'i manifest + LittleFS'te yok — sadece `mode_meeting_text` mevcut; asset üretimi Eren kararına bırakıldı.
 
 ---
 
