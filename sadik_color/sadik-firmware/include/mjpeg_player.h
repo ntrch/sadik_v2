@@ -19,7 +19,7 @@ public:
         }
         // TJpgDec render callback: write decoded MCU into TFT
         TJpgDec.setJpgScale(1);
-        TJpgDec.setSwapBytes(false);
+        TJpgDec.setSwapBytes(true);
         TJpgDec.setCallback(_tjpg_cb);
         _ready = true;
     }
@@ -81,12 +81,13 @@ public:
 
         // Decode + blit
         s_active_tft = _tft;
-        JRESULT rc = TJpgDec.drawJpg(0, 0, _buf + soi, frame_len);
-        if (rc != JDR_OK && _frameIdx < 3) {
-            // Log first few failures only (avoid spam on streaming corruption)
-            Serial.printf("MJPEG:DECODE_FAIL frame=%lu rc=%d soi=%u len=%u\n",
-                          (unsigned long)_frameIdx, (int)rc,
-                          (unsigned)soi, (unsigned)frame_len);
+        uint32_t cb_before = s_cb_count;
+        bool ok = TJpgDec.drawJpg(0, 0, _buf + soi, frame_len);
+        uint32_t cb_calls = s_cb_count - cb_before;
+        if (_frameIdx < 3) {
+            Serial.printf("MJPEG:DBG frame=%lu ok=%d cb_calls=%lu soi=%u len=%u tft=%d\n",
+                          (unsigned long)_frameIdx, (int)ok, (unsigned long)cb_calls,
+                          (unsigned)soi, (unsigned)frame_len, _tft ? 1 : 0);
         }
         _frameIdx++;
         _pos = eoi + 2;
@@ -94,7 +95,9 @@ public:
 
 private:
     static Adafruit_ST7735* s_active_tft;
+    static uint32_t s_cb_count;
     static bool _tjpg_cb(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) {
+        s_cb_count++;
         if (!s_active_tft) return false;
         if (y >= 128) return true;
         s_active_tft->drawRGBBitmap(x, y, bitmap, w, h);
@@ -140,3 +143,4 @@ private:
 
 // Out-of-line static
 inline Adafruit_ST7735* MjpegPlayer::s_active_tft = nullptr;
+inline uint32_t MjpegPlayer::s_cb_count = 0;
