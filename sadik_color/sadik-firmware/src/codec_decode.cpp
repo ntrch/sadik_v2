@@ -88,6 +88,11 @@ static bool _ack_enabled = true;
 // Monotonic counter of frames successfully applied since boot.
 static uint32_t s_framesApplied = 0;
 
+// Monotonic counter of frames attempted (success + CRC fail) since boot.
+// Incremented on every complete packet boundary regardless of CRC outcome so
+// that LocalClipPlayer's deadline gate advances even when frames are corrupt.
+static uint32_t s_framesAttempted = 0;
+
 // Small ASCII sniff buffer used inside STATE_HUNT_MAGIC. While the host is
 // appConnected, the main loop cannot safely call SerialCommander (racing the
 // UART driver semaphore crashes the system). The parser instead watches the
@@ -246,6 +251,7 @@ void codec_feed(const uint8_t* bytes, size_t n) {
                 if (crc_calc != _pkt_crc) {
                     Serial.printf("CODEC:CRC_FAIL seq=%u expected=0x%04X got=0x%04X\n",
                                   _pkt_seq, _pkt_crc, crc_calc);
+                    s_framesAttempted++;  // advance gating counter even on failure
                     _emit_resync();
                     _reset_parser();
                     break;
@@ -271,6 +277,7 @@ void codec_feed(const uint8_t* bytes, size_t n) {
                 }
 
                 _last_seq = _pkt_seq;
+                s_framesAttempted++;  // successful packet also counts as attempted
                 _emit_ack(_pkt_seq);
 
                 if (_cb) _cb(_pkt_seq, _pkt_type);
@@ -324,6 +331,10 @@ bool codec_is_idle() {
 
 uint32_t codec_frames_applied() {
     return s_framesApplied;
+}
+
+uint32_t codec_frames_attempted() {
+    return s_framesAttempted;
 }
 
 void codec_tick() {

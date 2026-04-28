@@ -68,8 +68,14 @@ void codec_abort();
 bool codec_is_idle();
 
 // Monotonic counter of frames successfully applied since boot. Used by
-// LocalClipPlayer for playback pacing.
+// LocalClipPlayer for progress logging (real render count).
 uint32_t codec_frames_applied();
+
+// Monotonic counter of frames attempted (success + CRC fail) since boot.
+// Used by LocalClipPlayer for 24fps deadline gating: even a CRC-failed packet
+// consumed wall-clock time and must advance the deadline, otherwise a cascade
+// of CRC failures locks the gate open and pumps data at full speed.
+uint32_t codec_frames_attempted();
 
 // Enable/disable binary ACK + RESYNC emission over Serial. Default: enabled.
 // Disable during LittleFS local clip playback (no host listening for ACKs;

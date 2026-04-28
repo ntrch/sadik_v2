@@ -157,6 +157,11 @@
 
 **Sırada: Multi-device Sprint-1** (handshake `DEVICE:variant=color ...` + app-side `DeviceProfile`).
 
+### Color Sprint-7: 24fps gating CRC-fail kaskadı fix (2026-04-28)
+- [x] **Root cause**: `LocalClipPlayer::update()` deadline sadece `codec_frames_applied()` artınca ilerletiyordu. CRC fail → applied counter sabit → gate açık kalıyor → full-speed pump → daha fazla CRC fail kaskadı.
+- [x] **Fix** (`fix(color-firmware): 24fps gating CRC-fail kaskadında kilitleniyor [session-B]`): `codec_frames_attempted()` sayacı eklendi (`success + crc_fail`). Player gating bu sayaca bağlandı; progress log gerçek render sayısını göstermeye devam ediyor. Build SUCCESS, compile error yok.
+- Donanım smoke: ESP32-S3 N16R8 üzerinde `LOCAL_CLIP_PLAY blink` komutuyla CRC_FAIL kaskadı + fast-playback doğrulanacak.
+
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
 ---
@@ -660,7 +665,7 @@ Her sprint içinde **zone A** ve **zone B** ayrıldı. Aynı anda iki hesap:
 5. **TR-only**: İlk beta Türkçe. i18n altyapısı kurulmayacak (gereksiz iş).
 6. **Backend embedded (öneri)**: PyInstaller ile tek binary, user friction sıfır. Sonnet'e delege edildiğinde bunu net brief'le.
 7. **ESP32 WiFi şimdilik yok**: Serial yeter (bkz `memory/project_wifi_transport_deferred.md`).
-8. **Color 24fps gating reverted**: vTaskDelay-in-apply-callback yaklaşımı codec STALL_RESET veriyor. Tüm fps-gating denemeleri (ce7cfd2, 1ec14f7, c8378f6) revert edildi. Çözüm: codec async/double-buffer mimari refactor gerekiyor.
+8. **Color 24fps gating**: vTaskDelay/double-buffer yaklaşımları revert edildi (ce7cfd2, 1ec14f7, c8378f6, 4464053). CRC-fail kaskadı fix: `codec_frames_attempted()` sayacı ile deadline CRC fail durumunda da ilerler — async/double-buffer refactor gerekmeden tek-buffer path korundu (session-B). ✅ DONE
 
 ---
 

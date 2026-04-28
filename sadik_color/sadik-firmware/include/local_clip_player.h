@@ -24,7 +24,7 @@ public:
     LocalClipPlayer()
         : _ready(false), _isPlaying(false), _isFinished(false), _loop(false),
           _readBuf(nullptr), _fileSize(0), _loopCount(0), _lastLoggedFrame(0),
-          _nextFrameDeadlineMs(0), _lastGatedFrames(0) {
+          _nextFrameDeadlineMs(0), _lastGatedFrames(0), _attemptsAtStart(0) {
         _clipName[0] = '\0';
     }
 
@@ -87,6 +87,7 @@ public:
         _isFinished          = false;
         _playStartMs         = millis();
         _framesAtStart       = codec_frames_applied();
+        _attemptsAtStart     = codec_frames_attempted();
         _loopCount           = 0;
         _lastLoggedFrame     = 0;
         _lastGatedFrames     = 0;
@@ -115,10 +116,17 @@ public:
     // Pump bytes into codec_feed(); called every loop tick.
     // Paced to TARGET_FPS via millis()-deadline gating. Each frame gets a fixed
     // time slot: _nextFrameDeadlineMs advances by (1000/TARGET_FPS) ms after each
-    // frame the codec applies.  While the codec is in-flight (mid-packet) we keep
-    // feeding so the packet completes quickly; we only gate at frame boundaries
-    // (codec_is_idle()) to avoid the 150ms STALL_RESET latency.
-    // Buffer is 4KB so most compressed frames complete in 1-2 reads.
+    // packet boundary (success OR CRC fail). Using codec_frames_attempted() for
+    // gating ensures that a cascade of CRC failures still advances the deadline
+    // at the correct wall-clock rate, breaking the positive-feedback loop:
+    //   CRC fail → applied counter stalls → gate never closes → full-speed pump
+    //   → more CRC fails → …
+    // Progress logging uses codec_frames_applied() (real render count) so the
+    // user sees actual frames on screen, not corrupted-packet attempts.
+    // Buffer is 4KB so most compressed frames complete in 1-2 reads. While the
+    // codec is in-flight (mid-packet) we keep feeding so the packet completes
+    // quickly; we only gate at frame boundaries (codec_is_idle()) to avoid the
+    // 150ms STALL_RESET latency.
     inline void update() {
         if (!_isPlaying || !_file) return;
         if (!_readBuf) return;
@@ -128,7 +136,8 @@ public:
 
         uint32_t now           = millis();
         uint32_t elapsed       = now - _playStartMs;
-        uint32_t framesEmitted = codec_frames_applied() - _framesAtStart;
+        uint32_t framesEmitted = codec_frames_applied()   - _framesAtStart;   // real renders
+        uint32_t framesAttempted = codec_frames_attempted() - _attemptsAtStart; // success+fail
 
         // Progress log every 10 frames (only for non-looping clips to avoid spam).
         if (!_loop && framesEmitted > 0 && (framesEmitted % 10) == 0 && framesEmitted != _lastLoggedFrame) {
@@ -139,11 +148,13 @@ public:
             Serial.println(buf);
         }
 
-        // Advance deadline when the codec has applied the frame we were waiting for.
-        // This keeps the deadline tracking in sync with actual rendered frames.
-        if (framesEmitted > _lastGatedFrames) {
-            uint32_t delta = framesEmitted - _lastGatedFrames;
-            _lastGatedFrames = framesEmitted;
+        // Advance deadline based on attempted packets (success + CRC fail).
+        // This prevents the gate from staying permanently open when frames are
+        // corrupt: each packet boundary — regardless of outcome — consumes one
+        // ~41ms time slot and the deadline advances accordingly.
+        if (framesAttempted > _lastGatedFrames) {
+            uint32_t delta = framesAttempted - _lastGatedFrames;
+            _lastGatedFrames = framesAttempted;
             _nextFrameDeadlineMs += delta * FRAME_INTERVAL_MS;
             // Safety: if deadline has fallen far behind (e.g. after a long stall),
             // clamp so we don't burst to catch up.
@@ -209,9 +220,10 @@ private:
     size_t   _fileSize;
     char     _clipName[64];
     uint32_t _playStartMs        = 0;
-    uint32_t _framesAtStart      = 0;
+    uint32_t _framesAtStart      = 0;  // codec_frames_applied() snapshot at play()
+    uint32_t _attemptsAtStart    = 0;  // codec_frames_attempted() snapshot at play()
     uint32_t _loopCount          = 0;
     uint32_t _lastLoggedFrame    = 0;
     uint32_t _nextFrameDeadlineMs = 0; // millis() target for next frame feed
-    uint32_t _lastGatedFrames    = 0;  // framesEmitted at last deadline advance
+    uint32_t _lastGatedFrames    = 0;  // framesAttempted at last deadline advance
 };
