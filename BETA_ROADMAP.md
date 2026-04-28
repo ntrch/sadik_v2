@@ -153,6 +153,7 @@
 - W1 ✅ AnimationEngine + idle/blink/variation in-firmware (görsel smoke geçti)
 - W2 ✅ Legacy söküm + log spam fix (`1574937`): ClipPlayer/PROGMEM/1-bit framebuffer kaldırıldı, ACK gating + pacing fix → temiz ASCII log, Flash −56 KB / RAM −17 KB, MANIFEST publish
 - Donanım smoke: idle→blink→idle döngüsü temiz, garbage yok, STALL_RESET yok ✅
+- **Post-sprint fix (2026-04-28):** 24fps gate bypass düzeltildi (`local_clip_player.h`): eski delta-deadline yaklaşımı 4KB chunk içinde N frame birden decode edince bypass oluyordu; yeni absolute-deadline (`_clipStartMs + framesEmitted*1000/24`) ile sabit 24fps → build ✅
 - [session-A] ✅ Clip atlaması fix: app-side 300ms state-stable hold + diagnostic logs (`[ColorClip] dispatch …`); firmware P-frame SPI tighten (startWrite/endWrite tile loop dışına alındı, SPI 40MHz zaten OK)
 
 **Sırada: Multi-device Sprint-1** (handshake `DEVICE:variant=color ...` + app-side `DeviceProfile`).
