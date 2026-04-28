@@ -157,12 +157,13 @@
 
 **Sırada: Multi-device Sprint-1** (handshake `DEVICE:variant=color ...` + app-side `DeviceProfile`).
 
-### Color Sprint-7: 24fps gating CRC-fail kaskadı fix (2026-04-28)
+### Color Sprint-7: 24fps gating CRC-fail kaskadı fix (2026-04-28) — DONE
+
 - [x] **Root cause**: `LocalClipPlayer::update()` deadline sadece `codec_frames_applied()` artınca ilerletiyordu. CRC fail → applied counter sabit → gate açık kalıyor → full-speed pump → daha fazla CRC fail kaskadı.
-- [x] **Fix** (`fix(color-firmware): 24fps gating CRC-fail kaskadında kilitleniyor [session-B]`): `codec_frames_attempted()` sayacı eklendi (`success + crc_fail`). Player gating bu sayaca bağlandı; progress log gerçek render sayısını göstermeye devam ediyor. Build SUCCESS, compile error yok.
-- Donanım smoke: ESP32-S3 N16R8 üzerinde `LOCAL_CLIP_PLAY blink` komutuyla CRC_FAIL kaskadı + fast-playback doğrulanacak.
-- [x] Fix2: read buffer 4KB→512 (anti-burst) — 1 read = mid-packet for typical PFRAME, burst ortadan kalkar
-- WIP: gate diagnostic log korunuyor, Fix2 sonrası log doğrulaması bekleniyor
+- [x] **24fps gating CRC-fail kaskadı**: `codec_frames_attempted()` sayacı eklendi (`success + crc_fail`). Player gating bu sayaca bağlandı; progress log gerçek render sayısını göstermeye devam ediyor. Build SUCCESS, compile error yok.
+- [x] **read buffer 4KB→512 anti-burst**: 1 read = mid-packet for typical PFRAME, burst ortadan kalkar
+- [x] **encode.py target_fps=24 downsample + asset re-encode**: `--target-fps` CLI arg eklendi; 22 clip 60fps→24fps downsampled, wakeword fallback (fps=0 WARN). Build SUCCESS.
+- [x] **[session-B] debug log temizliği + clamp 10→3 restore**: `[gate]` diagnostic loglar kaldırıldı, clamp eşiği 3'e döndürüldü.
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 

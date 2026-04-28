@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 SADIK Color Codec Encoder
-Usage: python encode.py input.mp4 output.bin [--keyframe-interval 48]
+Usage: python encode.py input.mp4 output.bin [--keyframe-interval 48] [--target-fps 24]
 
 Converts an mp4 to a SADIK .bin packet stream:
   - IFRAME (type 0x01): raw RGB565 40960 bytes, every N frames
   - PFRAME (type 0x02): dirty-tile bitmap + per-tile RLE
 
-Deps: numpy, imageio, imageio-ffmpeg (pip install imageio imageio-ffmpeg)
+Deps: numpy, imageio, imageio-ffmpeg, Pillow (pip install imageio imageio-ffmpeg Pillow)
 """
 import argparse
 import struct
@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import imageio.v3 as iio
+import imageio
 import numpy as np
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -135,7 +136,7 @@ def encode_pframe(curr: np.ndarray, prev: np.ndarray) -> bytes:
 
 
 # ── Main encoder ─────────────────────────────────────────────────────────────
-def encode(input_path: str, output_path: str, keyframe_interval: int = 48):
+def encode(input_path: str, output_path: str, keyframe_interval: int = 48, target_fps: int = 24):
     input_p  = Path(input_path)
     output_p = Path(output_path)
 
@@ -145,8 +146,31 @@ def encode(input_path: str, output_path: str, keyframe_interval: int = 48):
 
     print(f"Encoding: {input_p.name} -> {output_p.name}  (keyframe every {keyframe_interval} frames)")
 
-    # Read all frames via imageio-ffmpeg at 160×128, 24fps
-    frames_rgb = list(iio.imiter(str(input_p)))
+    # Detect source fps from metadata; fall back to writing all frames if unavailable.
+    source_fps = 0
+    try:
+        meta = imageio.v3.immeta(str(input_p), plugin="pyav")
+        source_fps = float(meta.get("fps", 0) or 0)
+    except Exception as e:
+        pass
+    if source_fps <= 0:
+        try:
+            meta = imageio.v3.immeta(str(input_p))
+            source_fps = float(meta.get("fps", 0) or 0)
+        except Exception:
+            pass
+
+    if source_fps <= 0:
+        print(f"WARN: could not detect source fps for {input_p.name} — writing all frames (no downsample)", file=sys.stderr)
+        step = 1
+    else:
+        step = max(1, round(source_fps / target_fps))
+
+    # Read all frames via imageio-ffmpeg
+    all_frames = list(iio.imiter(str(input_p)))
+    frames_rgb = all_frames[::step]
+
+    print(f"  source_fps={source_fps:.2f} target_fps={target_fps} step={step} output_frames={len(frames_rgb)}")
 
     if not frames_rgb:
         print("ERROR: no frames extracted", file=sys.stderr)
@@ -217,5 +241,7 @@ if __name__ == '__main__':
     parser.add_argument('output', help='Output .bin file')
     parser.add_argument('--keyframe-interval', type=int, default=48,
                         help='IFRAME every N frames (default: 48)')
+    parser.add_argument('--target-fps', type=int, default=24,
+                        help='Target playback FPS; source frames are downsampled to match (default: 24)')
     args = parser.parse_args()
-    encode(args.input, args.output, args.keyframe_interval)
+    encode(args.input, args.output, args.keyframe_interval, args.target_fps)

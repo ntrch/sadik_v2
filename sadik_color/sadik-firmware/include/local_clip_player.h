@@ -114,20 +114,7 @@ public:
     }
 
     // Pump bytes into codec_feed(); called every loop tick.
-    // Paced to TARGET_FPS via millis()-deadline gating. Each frame gets a fixed
-    // time slot: _nextFrameDeadlineMs advances by (1000/TARGET_FPS) ms after each
-    // packet boundary (success OR CRC fail). Using codec_frames_attempted() for
-    // gating ensures that a cascade of CRC failures still advances the deadline
-    // at the correct wall-clock rate, breaking the positive-feedback loop:
-    //   CRC fail → applied counter stalls → gate never closes → full-speed pump
-    //   → more CRC fails → …
-    // Progress logging uses codec_frames_applied() (real render count) so the
-    // user sees actual frames on screen, not corrupted-packet attempts.
-    // Buffer is 512 bytes (< typical PFRAME ~600-1200 B) so each read is
-    // mid-packet (codec_is_idle()==false) until the packet completes, keeping
-    // the gate closed between frames. While mid-packet we keep feeding so the
-    // packet completes quickly; we only gate at frame boundaries
-    // (codec_is_idle()) to avoid the 150ms STALL_RESET latency.
+    // 24fps gating uses codec_frames_attempted() — CRC fails still advance the deadline.
     inline void update() {
         if (!_isPlaying || !_file) return;
         if (!_readBuf) return;
@@ -159,32 +146,14 @@ public:
             _nextFrameDeadlineMs += delta * FRAME_INTERVAL_MS;
             // Safety: if deadline has fallen far behind (e.g. after a long stall),
             // clamp so we don't burst to catch up.
-            if ((int32_t)(_nextFrameDeadlineMs - now) < -(int32_t)(10 * FRAME_INTERVAL_MS)) {
+            if ((int32_t)(_nextFrameDeadlineMs - now) < -(int32_t)(3 * FRAME_INTERVAL_MS)) {
                 _nextFrameDeadlineMs = now;
             }
         }
 
-        // Diagnostic log every 30 update() calls (not every frame — update() fires
-        // every loop tick which is much faster than 24fps).
-        {
-            static uint32_t s_dbg_counter = 0;
-            if ((++s_dbg_counter % 30) == 0) {
-                Serial.printf("[gate] now=%lu deadline=%lu attempted=%lu lastGated=%lu emitted=%lu idle=%d\n",
-                    (unsigned long)now, (unsigned long)_nextFrameDeadlineMs,
-                    (unsigned long)framesAttempted, (unsigned long)_lastGatedFrames,
-                    (unsigned long)framesEmitted, codec_is_idle() ? 1 : 0);
-            }
-        }
-
-        // Gate: if we're at a frame boundary AND the next deadline hasn't arrived,
-        // skip this tick. While mid-packet (!codec_is_idle()), always keep feeding
-        // so the in-flight packet completes without a STALL_RESET.
+        // Gate: skip this tick if at a frame boundary and next deadline hasn't arrived.
+        // While mid-packet, keep feeding so the in-flight packet completes without STALL_RESET.
         if (codec_is_idle() && (int32_t)(now - _nextFrameDeadlineMs) < 0) {
-            // Gate hit log (rare, only when actually gating).
-            static uint32_t s_gate_hit = 0;
-            if ((++s_gate_hit % 10) == 0) {
-                Serial.printf("[gate] HIT remaining_ms=%ld\n", (long)((int32_t)_nextFrameDeadlineMs - (int32_t)now));
-            }
             return;
         }
 
