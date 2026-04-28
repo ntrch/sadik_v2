@@ -17,7 +17,7 @@
 // begin() simply fails gracefully.
 // ─────────────────────────────────────────────────────────────────────────────
 
-static const size_t LOCAL_CLIP_READ_BUF_BYTES = 4096;
+static const size_t LOCAL_CLIP_READ_BUF_BYTES = 512;
 
 class LocalClipPlayer {
 public:
@@ -123,10 +123,11 @@ public:
     //   → more CRC fails → …
     // Progress logging uses codec_frames_applied() (real render count) so the
     // user sees actual frames on screen, not corrupted-packet attempts.
-    // Buffer is 4KB so most compressed frames complete in 1-2 reads. While the
-    // codec is in-flight (mid-packet) we keep feeding so the packet completes
-    // quickly; we only gate at frame boundaries (codec_is_idle()) to avoid the
-    // 150ms STALL_RESET latency.
+    // Buffer is 512 bytes (< typical PFRAME ~600-1200 B) so each read is
+    // mid-packet (codec_is_idle()==false) until the packet completes, keeping
+    // the gate closed between frames. While mid-packet we keep feeding so the
+    // packet completes quickly; we only gate at frame boundaries
+    // (codec_is_idle()) to avoid the 150ms STALL_RESET latency.
     inline void update() {
         if (!_isPlaying || !_file) return;
         if (!_readBuf) return;

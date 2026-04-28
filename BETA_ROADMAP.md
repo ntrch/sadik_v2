@@ -161,7 +161,8 @@
 - [x] **Root cause**: `LocalClipPlayer::update()` deadline sadece `codec_frames_applied()` artınca ilerletiyordu. CRC fail → applied counter sabit → gate açık kalıyor → full-speed pump → daha fazla CRC fail kaskadı.
 - [x] **Fix** (`fix(color-firmware): 24fps gating CRC-fail kaskadında kilitleniyor [session-B]`): `codec_frames_attempted()` sayacı eklendi (`success + crc_fail`). Player gating bu sayaca bağlandı; progress log gerçek render sayısını göstermeye devam ediyor. Build SUCCESS, compile error yok.
 - Donanım smoke: ESP32-S3 N16R8 üzerinde `LOCAL_CLIP_PLAY blink` komutuyla CRC_FAIL kaskadı + fast-playback doğrulanacak.
-- WIP: gate diagnostic log eklendi, runtime teşhis bekleniyor
+- [x] Fix2: read buffer 4KB→512 (anti-burst) — 1 read = mid-packet for typical PFRAME, burst ortadan kalkar
+- WIP: gate diagnostic log korunuyor, Fix2 sonrası log doğrulaması bekleniyor
 
 Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığında bu bölümü güncelle.
 
