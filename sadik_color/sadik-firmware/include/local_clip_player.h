@@ -24,7 +24,7 @@ public:
     LocalClipPlayer()
         : _ready(false), _isPlaying(false), _isFinished(false), _loop(false),
           _readBuf(nullptr), _fileSize(0), _loopCount(0), _lastLoggedFrame(0),
-          _clipStartMs(0), _framesAtStart(0) {
+          _nextFrameDeadlineMs(0), _lastGatedFrames(0) {
         _clipName[0] = '\0';
     }
 
@@ -85,11 +85,12 @@ public:
         _loop                = loop;
         _isPlaying           = true;
         _isFinished          = false;
-        _clipStartMs         = millis();
-        _playStartMs         = _clipStartMs;
+        _playStartMs         = millis();
         _framesAtStart       = codec_frames_applied();
         _loopCount           = 0;
         _lastLoggedFrame     = 0;
+        _lastGatedFrames     = 0;
+        _nextFrameDeadlineMs = millis(); // first frame is due immediately
 
         Serial.print("LOCAL_CLIP:START name=");
         Serial.print(_clipName);
@@ -112,20 +113,18 @@ public:
     }
 
     // Pump bytes into codec_feed(); called every loop tick.
-    //
-    // FPS gate strategy (absolute-deadline, 24 fps hard):
-    //   target_ms = _clipStartMs + framesEmitted * 1000 / 24
-    //   - codec_is_idle(): frame boundary — gate until target_ms arrives.
-    //   - mid-packet (!codec_is_idle()): keep feeding so the in-flight packet
-    //     completes without hitting the 150 ms STALL_RESET.
-    //   - Catch-up: if we are 3+ frames behind (burst/stall recovery), render
-    //     immediately and clamp _clipStartMs so we don't burst forever.
+    // Paced to TARGET_FPS via millis()-deadline gating. Each frame gets a fixed
+    // time slot: _nextFrameDeadlineMs advances by (1000/TARGET_FPS) ms after each
+    // frame the codec applies.  While the codec is in-flight (mid-packet) we keep
+    // feeding so the packet completes quickly; we only gate at frame boundaries
+    // (codec_is_idle()) to avoid the 150ms STALL_RESET latency.
+    // Buffer is 4KB so most compressed frames complete in 1-2 reads.
     inline void update() {
         if (!_isPlaying || !_file) return;
         if (!_readBuf) return;
 
-        const uint32_t TARGET_FPS        = 24;
-        const uint32_t FRAME_INTERVAL_MS = 1000u / TARGET_FPS; // 41 ms
+        const uint32_t TARGET_FPS       = 24;
+        const uint32_t FRAME_INTERVAL_MS = 1000 / TARGET_FPS; // ~41ms
 
         uint32_t now           = millis();
         uint32_t elapsed       = now - _playStartMs;
@@ -140,23 +139,23 @@ public:
             Serial.println(buf);
         }
 
-        // Only gate at frame boundaries — keep feeding mid-packet to avoid STALL_RESET.
-        if (codec_is_idle()) {
-            // Absolute target: when should the (framesEmitted+1)-th frame start?
-            uint32_t targetMs = _clipStartMs + (framesEmitted * 1000u / TARGET_FPS);
-
-            // Catch-up guard: if we are 3+ frames behind, clamp start reference
-            // so we don't burst endlessly trying to recover.
-            int32_t behindMs = (int32_t)(now - targetMs);
-            if (behindMs > (int32_t)(3 * FRAME_INTERVAL_MS)) {
-                // Re-anchor: treat 'now' as the target for the current frame count.
-                _clipStartMs = now - (framesEmitted * 1000u / TARGET_FPS);
-                targetMs     = now;
+        // Advance deadline when the codec has applied the frame we were waiting for.
+        // This keeps the deadline tracking in sync with actual rendered frames.
+        if (framesEmitted > _lastGatedFrames) {
+            uint32_t delta = framesEmitted - _lastGatedFrames;
+            _lastGatedFrames = framesEmitted;
+            _nextFrameDeadlineMs += delta * FRAME_INTERVAL_MS;
+            // Safety: if deadline has fallen far behind (e.g. after a long stall),
+            // clamp so we don't burst to catch up.
+            if ((int32_t)(_nextFrameDeadlineMs - now) < -(int32_t)(3 * FRAME_INTERVAL_MS)) {
+                _nextFrameDeadlineMs = now;
             }
-
-            // Not yet time for next frame — skip this tick.
-            if ((int32_t)(now - targetMs) < 0) return;
         }
+
+        // Gate: if we're at a frame boundary AND the next deadline hasn't arrived,
+        // skip this tick. While mid-packet (!codec_is_idle()), always keep feeding
+        // so the in-flight packet completes without a STALL_RESET.
+        if (codec_is_idle() && (int32_t)(now - _nextFrameDeadlineMs) < 0) return;
 
         size_t n = _file.read(static_cast<uint8_t*>(_readBuf), LOCAL_CLIP_READ_BUF_BYTES);
 
@@ -169,10 +168,6 @@ public:
             if (_loop) {
                 _file.seek(0);
                 _loopCount++;
-                // Re-anchor clip start for the new loop iteration so the gate
-                // stays accurate across loop boundaries.
-                _framesAtStart = codec_frames_applied();
-                _clipStartMs   = millis();
                 // Continue on next tick; nothing else to do here.
             } else {
                 _file.close();
@@ -214,8 +209,9 @@ private:
     size_t   _fileSize;
     char     _clipName[64];
     uint32_t _playStartMs        = 0;
-    uint32_t _clipStartMs        = 0;  // millis() anchor for absolute-deadline gate
     uint32_t _framesAtStart      = 0;
     uint32_t _loopCount          = 0;
     uint32_t _lastLoggedFrame    = 0;
+    uint32_t _nextFrameDeadlineMs = 0; // millis() target for next frame feed
+    uint32_t _lastGatedFrames    = 0;  // framesEmitted at last deadline advance
 };
