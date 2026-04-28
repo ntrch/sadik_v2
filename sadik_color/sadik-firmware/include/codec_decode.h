@@ -62,6 +62,11 @@ uint16_t codec_last_seq();
 // from the previous clip does not corrupt the next stream's IFRAME.
 void codec_abort();
 
+// Reset the 24fps gate time-origin and frame counter.
+// Must be called at clip start (and loop restart) so vTaskDelay in
+// _apply_iframe/_apply_pframe uses the correct time reference.
+void codec_fps_reset();
+
 // True when the parser is waiting for a magic byte (no packet in flight).
 // Main loop uses this to decide whether raw bytes belong to the codec or
 // should be handed to SerialCommander for ASCII command parsing.

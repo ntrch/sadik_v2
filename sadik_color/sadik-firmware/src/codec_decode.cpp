@@ -88,6 +88,17 @@ static bool _ack_enabled = true;
 // Monotonic counter of frames successfully applied since boot.
 static uint32_t s_framesApplied = 0;
 
+// ---------------------------------------------------------------------------
+// 24 fps cooperative gate — vTaskDelay inside _apply_iframe/_apply_pframe.
+// _fpsClipStartMs  : millis() at clip start (set by codec_fps_reset()).
+// _fpsFrameCount   : frames emitted since last reset (increments per apply).
+// Both are reset by codec_fps_reset() which LocalClipPlayer calls in play().
+// ---------------------------------------------------------------------------
+static uint32_t _fpsClipStartMs  = 0;
+static uint32_t _fpsFrameCount   = 0;
+static const uint32_t FPS_TARGET = 24;
+static const uint32_t FPS_INTERVAL_MS = 1000u / FPS_TARGET;  // 41 ms
+
 // Small ASCII sniff buffer used inside STATE_HUNT_MAGIC. While the host is
 // appConnected, the main loop cannot safely call SerialCommander (racing the
 // UART driver semaphore crashes the system). The parser instead watches the
@@ -305,6 +316,13 @@ void codec_abort() {
     _reset_parser();
 }
 
+// Reset the 24fps gate counters.  Call at clip start (and loop boundary) so
+// the vTaskDelay in _apply_iframe/_apply_pframe uses the correct time origin.
+void codec_fps_reset() {
+    _fpsClipStartMs = millis();
+    _fpsFrameCount  = 0;
+}
+
 void codec_set_ack_enabled(bool enabled) {
     _ack_enabled = enabled;
 }
@@ -372,25 +390,62 @@ static void _emit_resync() {
 }
 
 // IFRAME: payload is 40960 bytes of raw RGB565 LE. Copy into framebuffer and blit.
+// FPS gate: cooperative vTaskDelay at callback entry so we yield to other tasks
+// while waiting for the next 24fps deadline.  Catch-up: if 3+ frames behind,
+// re-anchor _fpsClipStartMs to now so we don't burst indefinitely.
 static void _apply_iframe() {
     if (_payload_len != CODEC_FRAME_BYTES) return;
+
+    // ── 24fps cooperative wait ────────────────────────────────────────────────
+    {
+        uint32_t now = millis();
+        uint32_t targetMs = _fpsClipStartMs + _fpsFrameCount * 1000u / FPS_TARGET;
+        int32_t  waitMs   = (int32_t)(targetMs - now);
+
+        // Catch-up: if 3+ frames behind, re-anchor so we stop trying to catch up.
+        if (waitMs < -(int32_t)(3 * FPS_INTERVAL_MS)) {
+            _fpsClipStartMs = now - (_fpsFrameCount * 1000u / FPS_TARGET);
+            waitMs = 0;
+        }
+        if (waitMs > 0) {
+            vTaskDelay(pdMS_TO_TICKS((uint32_t)waitMs));
+        }
+    }
+
     memcpy(_fb, _payload, CODEC_FRAME_BYTES);
-    if (!_tft) return;
+    if (!_tft) { _fpsFrameCount++; s_framesApplied++; return; }
     TftLock _lock;
     _tft->startWrite();
     _tft->setAddrWindow(0, 0, CODEC_WIDTH, CODEC_HEIGHT);
     _tft->writePixels(_fb, CODEC_WIDTH * CODEC_HEIGHT);
     _tft->endWrite();
+    _fpsFrameCount++;
     s_framesApplied++;
 }
 
 // PFRAME: 40-byte dirty-tile bitmap + per-dirty-tile RLE chunks.
 // For each dirty tile: decode RLE into a local 8×8 tile buffer, patch the
 // framebuffer, then push only that tile via setAddrWindow (partial update).
+// FPS gate: same cooperative vTaskDelay as _apply_iframe.
 static void _apply_pframe() {
     if (_payload_len < CODEC_DIRTY_BITMAP_BYTES) {
         Serial.printf("CODEC:PFRAME too_short=%lu\n", _payload_len);
         return;
+    }
+
+    // ── 24fps cooperative wait ────────────────────────────────────────────────
+    {
+        uint32_t now = millis();
+        uint32_t targetMs = _fpsClipStartMs + _fpsFrameCount * 1000u / FPS_TARGET;
+        int32_t  waitMs   = (int32_t)(targetMs - now);
+
+        if (waitMs < -(int32_t)(3 * FPS_INTERVAL_MS)) {
+            _fpsClipStartMs = now - (_fpsFrameCount * 1000u / FPS_TARGET);
+            waitMs = 0;
+        }
+        if (waitMs > 0) {
+            vTaskDelay(pdMS_TO_TICKS((uint32_t)waitMs));
+        }
     }
 
     const uint8_t* dirty = _payload;
@@ -458,5 +513,6 @@ static void _apply_pframe() {
     }
 
     if (_tft) _tft->endWrite();
+    _fpsFrameCount++;
     s_framesApplied++;
 }

@@ -117,6 +117,7 @@
 - **Sprint 4 T4.1 tamamlandı ✅ — Notion provider (OAuth + DB select + page→task sync, 5dk scheduler)**
   - ⚠️ Notion public integration credential gerekiyor: `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` env. Env boşsa `/notion/start` 500 döner — T4.3'te card disabled göstermeli.
 - **Sprint 4 T4.3 (Notion kısmı) tamamlandı ✅ — SettingsPage Entegrasyonlar'da Notion kartı (bağlan/DB seç/disconnect)**
+- **[Color] 24fps fix ✅ (2026-04-28)** — 1ec14f7+ce7cfd2 revert (pending-flag/codec_feed gate kırıyordu); yeni yaklaşım: `codec_fps_reset()` + `vTaskDelay` in `_apply_iframe/_apply_pframe` callback başında; catch-up 3-frame guard. Parser STATE MACHINE dokunulmadı.
 - [DONE: session-A] Sprint 4 ara-iş — Task icon sistemi + Notion/GCal brand logoları (TaskCard + Agenda)
 - **Sprint 4 T4.2 tamamlandı ✅ — Google Meet active-conference detection (scope + poll + state + endpoint)**
   - ⚠️ Mevcut Google Calendar kullanıcıları Meet scope için reconnect gerektirir (scope_granted=false dönecek)
