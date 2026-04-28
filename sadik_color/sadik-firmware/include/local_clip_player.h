@@ -24,7 +24,7 @@ public:
     LocalClipPlayer()
         : _ready(false), _isPlaying(false), _isFinished(false), _loop(false),
           _readBuf(nullptr), _fileSize(0), _loopCount(0), _lastLoggedFrame(0),
-          _nextFrameDeadlineMs(0), _lastGatedFrames(0), _attemptsAtStart(0) {
+          _attemptsAtStart(0) {
         _clipName[0] = '\0';
     }
 
@@ -90,8 +90,6 @@ public:
         _attemptsAtStart     = codec_frames_attempted();
         _loopCount           = 0;
         _lastLoggedFrame     = 0;
-        _lastGatedFrames     = 0;
-        _nextFrameDeadlineMs = millis(); // first frame is due immediately
 
         Serial.print("LOCAL_CLIP:START name=");
         Serial.print(_clipName);
@@ -113,21 +111,22 @@ public:
         Serial.println("LOCAL_CLIP:STOP");
     }
 
-    // Pump bytes into codec_feed(); called every loop tick.
-    // 24fps gating uses codec_frames_attempted() — CRC fails still advance the deadline.
+    // Absolute-time gating: framesAttempted vs elapsed/FRAME_INTERVAL_MS.
+    // CRC fails count, so a fail cascade still progresses.
+    // Replaces delta-accumulation (which drifted runtime: mode_working 127 frames in 203ms).
     inline void update() {
         if (!_isPlaying || !_file) return;
         if (!_readBuf) return;
 
-        const uint32_t TARGET_FPS       = 24;
+        const uint32_t TARGET_FPS        = 24;
         const uint32_t FRAME_INTERVAL_MS = 1000 / TARGET_FPS; // ~41ms
 
-        uint32_t now           = millis();
-        uint32_t elapsed       = now - _playStartMs;
-        uint32_t framesEmitted = codec_frames_applied()   - _framesAtStart;   // real renders
-        uint32_t framesAttempted = codec_frames_attempted() - _attemptsAtStart; // success+fail
+        uint32_t now             = millis();
+        uint32_t elapsed         = now - _playStartMs;
+        uint32_t framesEmitted   = codec_frames_applied()   - _framesAtStart;
+        uint32_t framesAttempted = codec_frames_attempted() - _attemptsAtStart;
 
-        // Progress log every 10 frames (only for non-looping clips to avoid spam).
+        // Progress log (unchanged)
         if (!_loop && framesEmitted > 0 && (framesEmitted % 10) == 0 && framesEmitted != _lastLoggedFrame) {
             _lastLoggedFrame = framesEmitted;
             char buf[80];
@@ -136,39 +135,25 @@ public:
             Serial.println(buf);
         }
 
-        // Advance deadline based on attempted packets (success + CRC fail).
-        // This prevents the gate from staying permanently open when frames are
-        // corrupt: each packet boundary — regardless of outcome — consumes one
-        // ~41ms time slot and the deadline advances accordingly.
-        if (framesAttempted > _lastGatedFrames) {
-            uint32_t delta = framesAttempted - _lastGatedFrames;
-            _lastGatedFrames = framesAttempted;
-            _nextFrameDeadlineMs += delta * FRAME_INTERVAL_MS;
-            // Safety: if deadline has fallen far behind (e.g. after a long stall),
-            // clamp so we don't burst to catch up.
-            if ((int32_t)(_nextFrameDeadlineMs - now) < -(int32_t)(3 * FRAME_INTERVAL_MS)) {
-                _nextFrameDeadlineMs = now;
-            }
-        }
-
-        // Gate: skip this tick if at a frame boundary and next deadline hasn't arrived.
-        // While mid-packet, keep feeding so the in-flight packet completes without STALL_RESET.
-        if (codec_is_idle() && (int32_t)(now - _nextFrameDeadlineMs) < 0) {
+        // Absolute-time gate: at frame boundary, only proceed if wall-clock has caught up.
+        // expectedFrames = how many frames *should* have been attempted by now at TARGET_FPS.
+        // If we've already attempted >= expected, wait. Otherwise we're behind, keep feeding.
+        // While mid-packet (codec_is_idle()=false), always feed so the in-flight packet completes.
+        uint32_t expectedFrames = elapsed / FRAME_INTERVAL_MS;
+        if (codec_is_idle() && framesAttempted >= expectedFrames) {
             return;
         }
 
+        // Read + feed (unchanged from current code)
         size_t n = _file.read(static_cast<uint8_t*>(_readBuf), LOCAL_CLIP_READ_BUF_BYTES);
-
         if (n > 0) {
             codec_feed(static_cast<const uint8_t*>(_readBuf), n);
         }
-
         if (n < LOCAL_CLIP_READ_BUF_BYTES) {
-            // EOF reached (short read).
+            // EOF — same as current code
             if (_loop) {
                 _file.seek(0);
                 _loopCount++;
-                // Continue on next tick; nothing else to do here.
             } else {
                 _file.close();
                 _isPlaying  = false;
@@ -213,6 +198,4 @@ private:
     uint32_t _attemptsAtStart    = 0;  // codec_frames_attempted() snapshot at play()
     uint32_t _loopCount          = 0;
     uint32_t _lastLoggedFrame    = 0;
-    uint32_t _nextFrameDeadlineMs = 0; // millis() target for next frame feed
-    uint32_t _lastGatedFrames    = 0;  // framesAttempted at last deadline advance
 };
