@@ -100,7 +100,11 @@ private:
         s_cb_count++;
         if (!s_active_tft) return false;
         if (y >= 128) return true;
-        s_active_tft->drawRGBBitmap(x, y, bitmap, w, h);
+        // SPI-CHAIN PROOF: paint each MCU as solid white. If the screen turns
+        // white during playback the TFT pipeline is alive and the issue lies
+        // in pixel format / bitmap content. If the screen stays dark, SPI/TFT
+        // path itself is broken.
+        s_active_tft->fillRect(x, y, w, h, 0xFFFF);
         return true;
     }
 
