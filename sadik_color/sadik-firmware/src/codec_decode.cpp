@@ -88,6 +88,11 @@ static bool _ack_enabled = true;
 // Monotonic counter of frames successfully applied since boot.
 static uint32_t s_framesApplied = 0;
 
+// Double-buffer support: when non-null, apply functions write here instead of
+// _fb and skip TFT push.  Set via codec_set_back_buffer().
+static uint16_t* _fb_back        = nullptr;
+static bool      _renderPending  = false;
+
 // Small ASCII sniff buffer used inside STATE_HUNT_MAGIC. While the host is
 // appConnected, the main loop cannot safely call SerialCommander (racing the
 // UART driver semaphore crashes the system). The parser instead watches the
@@ -309,6 +314,23 @@ void codec_set_ack_enabled(bool enabled) {
     _ack_enabled = enabled;
 }
 
+void codec_set_back_buffer(uint16_t* back) {
+    _fb_back       = back;
+    _renderPending = false;
+}
+
+bool codec_is_render_pending() {
+    return _renderPending;
+}
+
+void codec_clear_render_pending() {
+    _renderPending = false;
+}
+
+uint16_t* codec_get_back_buffer() {
+    return _fb_back;
+}
+
 static void _ascii_try_handle() {
     _ascii_buf[_ascii_len] = '\0';
     if (strcmp(_ascii_buf, "ABORT_STREAM") == 0) {
@@ -372,8 +394,20 @@ static void _emit_resync() {
 }
 
 // IFRAME: payload is 40960 bytes of raw RGB565 LE. Copy into framebuffer and blit.
+// In double-buffer mode (_fb_back != nullptr): write to back buffer, set pending.
+// In single-buffer mode: write to _fb and blit to TFT immediately (legacy path).
 static void _apply_iframe() {
     if (_payload_len != CODEC_FRAME_BYTES) return;
+
+    if (_fb_back) {
+        // Double-buffer path: decode into back buffer, defer TFT push to clip player.
+        memcpy(_fb_back, _payload, CODEC_FRAME_BYTES);
+        _renderPending = true;
+        s_framesApplied++;
+        return;
+    }
+
+    // Single-buffer legacy path (UART streaming / no back buffer set).
     memcpy(_fb, _payload, CODEC_FRAME_BYTES);
     if (!_tft) return;
     TftLock _lock;
@@ -387,17 +421,24 @@ static void _apply_iframe() {
 // PFRAME: 40-byte dirty-tile bitmap + per-dirty-tile RLE chunks.
 // For each dirty tile: decode RLE into a local 8×8 tile buffer, patch the
 // framebuffer, then push only that tile via setAddrWindow (partial update).
+// In double-buffer mode (_fb_back != nullptr): patch back buffer, defer TFT push.
+// In single-buffer mode: patch _fb and push tiles to TFT immediately (legacy).
 static void _apply_pframe() {
     if (_payload_len < CODEC_DIRTY_BITMAP_BYTES) {
         Serial.printf("CODEC:PFRAME too_short=%lu\n", _payload_len);
         return;
     }
 
-    const uint8_t* dirty = _payload;
-    const uint8_t* rle   = _payload + CODEC_DIRTY_BITMAP_BYTES;
+    const uint8_t* dirty   = _payload;
+    const uint8_t* rle     = _payload + CODEC_DIRTY_BITMAP_BYTES;
     const uint8_t* rle_end = _payload + _payload_len;
 
-    TftLock _lock;
+    // Select target framebuffer: back buffer (double-buffer mode) or _fb (legacy).
+    uint16_t* target_fb = _fb_back ? _fb_back : _fb;
+
+    // Only acquire TFT + call startWrite in single-buffer (immediate blit) mode.
+    const bool immediate = (_fb_back == nullptr) && (_tft != nullptr);
+    TftLock _lock;  // acquires mutex unconditionally; harmless in double-buffer mode
 
     // Tile scratch buffer (64 pixels = 128 bytes)
     uint16_t tile_buf[CODEC_PIXELS_PER_TILE];
@@ -405,7 +446,7 @@ static void _apply_pframe() {
     // Hoist startWrite() outside the tile loop: one CS assert/deassert per
     // P-frame instead of one per dirty tile.  Each tile only calls
     // setAddrWindow+writePixels (no SPI CS toggle overhead between tiles).
-    if (_tft) _tft->startWrite();
+    if (immediate) _tft->startWrite();
 
     for (uint16_t tile_idx = 0; tile_idx < CODEC_TILE_COUNT; tile_idx++) {
         // Check dirty bit: MSB-first within each byte
@@ -416,7 +457,7 @@ static void _apply_pframe() {
         // Decode RLE for this tile
         if (rle >= rle_end) {
             Serial.println("CODEC:PFRAME rle_overrun");
-            if (_tft) _tft->endWrite();
+            if (immediate) _tft->endWrite();
             return;
         }
 
@@ -426,7 +467,7 @@ static void _apply_pframe() {
         for (uint8_t r = 0; r < run_count; r++) {
             if (rle + 3 > rle_end) {
                 Serial.println("CODEC:PFRAME rle_data_overrun");
-                if (_tft) _tft->endWrite();
+                if (immediate) _tft->endWrite();
                 return;
             }
             uint8_t  run_len = *rle++;
@@ -443,20 +484,26 @@ static void _apply_pframe() {
         uint16_t tx = (tile_idx % CODEC_TILES_X) * CODEC_TILE_W;
         uint16_t ty = (tile_idx / CODEC_TILES_X) * CODEC_TILE_H;
 
-        // Patch framebuffer (8 rows × 8 cols)
+        // Patch target framebuffer (8 rows × 8 cols)
         for (uint8_t row = 0; row < CODEC_TILE_H; row++) {
             for (uint8_t col = 0; col < CODEC_TILE_W; col++) {
-                _fb[(ty + row) * CODEC_WIDTH + (tx + col)] = tile_buf[row * CODEC_TILE_W + col];
+                target_fb[(ty + row) * CODEC_WIDTH + (tx + col)] = tile_buf[row * CODEC_TILE_W + col];
             }
         }
 
-        // Partial push: draw only this 8×8 tile (startWrite already asserted above)
-        if (_tft) {
+        // Single-buffer: partial push — draw only this 8×8 tile
+        if (immediate) {
             _tft->setAddrWindow(tx, ty, CODEC_TILE_W, CODEC_TILE_H);
             _tft->writePixels(tile_buf, CODEC_PIXELS_PER_TILE);
         }
     }
 
-    if (_tft) _tft->endWrite();
+    if (immediate) _tft->endWrite();
+
+    if (_fb_back) {
+        // Double-buffer path: mark pending so clip player blits front at deadline.
+        _renderPending = true;
+    }
+
     s_framesApplied++;
 }
