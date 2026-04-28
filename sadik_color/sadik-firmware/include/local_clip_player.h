@@ -23,7 +23,7 @@ class LocalClipPlayer {
 public:
     LocalClipPlayer()
         : _ready(false), _isPlaying(false), _isFinished(false), _loop(false),
-          _readBuf(nullptr), _fileSize(0) {
+          _readBuf(nullptr), _fileSize(0), _loopCount(0), _lastLoggedFrame(0) {
         _clipName[0] = '\0';
     }
 
@@ -81,11 +81,13 @@ public:
         _fileSize = _file.size();
         strncpy(_clipName, safeName, sizeof(_clipName) - 1);
         _clipName[sizeof(_clipName) - 1] = '\0';
-        _loop           = loop;
-        _isPlaying      = true;
-        _isFinished     = false;
-        _playStartMs    = millis();
-        _framesAtStart  = codec_frames_applied();
+        _loop             = loop;
+        _isPlaying        = true;
+        _isFinished       = false;
+        _playStartMs      = millis();
+        _framesAtStart    = codec_frames_applied();
+        _loopCount        = 0;
+        _lastLoggedFrame  = 0;
 
         Serial.print("LOCAL_CLIP:START name=");
         Serial.print(_clipName);
@@ -118,8 +120,18 @@ public:
         // STATE_HEADER/STATE_PAYLOAD state until codec_tick() fires STALL_RESET (~150ms).
         const uint32_t TARGET_FPS = 24;
         uint32_t elapsed = millis() - _playStartMs;
-        uint32_t targetFrames = (elapsed * TARGET_FPS) / 1000 + 1; // +1: izin biraz öne
         uint32_t framesEmitted = codec_frames_applied() - _framesAtStart;
+        uint32_t targetFrames = (elapsed * TARGET_FPS) / 1000 + 1; // +1: izin biraz öne
+
+        // Progress log every 10 frames (only for non-looping clips to avoid spam).
+        if (!_loop && framesEmitted > 0 && (framesEmitted % 10) == 0 && framesEmitted != _lastLoggedFrame) {
+            _lastLoggedFrame = framesEmitted;
+            char buf[80];
+            snprintf(buf, sizeof(buf), "[clip] progress name=%s frames=%lu elapsed_ms=%lu",
+                     _clipName, (unsigned long)framesEmitted, (unsigned long)elapsed);
+            Serial.println(buf);
+        }
+
         if (codec_is_idle() && framesEmitted >= targetFrames) return; // schedule'un önündeyiz, bekle
 
         size_t n = _file.read(static_cast<uint8_t*>(_readBuf), LOCAL_CLIP_READ_BUF_BYTES);
@@ -132,11 +144,17 @@ public:
             // EOF reached (short read).
             if (_loop) {
                 _file.seek(0);
+                _loopCount++;
                 // Continue on next tick; nothing else to do here.
             } else {
                 _file.close();
                 _isPlaying  = false;
                 _isFinished = true;
+                char buf[80];
+                snprintf(buf, sizeof(buf), "[clip] done name=%s total_frames=%lu elapsed_ms=%lu",
+                         _clipName, (unsigned long)framesEmitted,
+                         (unsigned long)(millis() - _playStartMs));
+                Serial.println(buf);
                 Serial.print("LOCAL_CLIP:DONE name=");
                 Serial.println(_clipName);
             }
@@ -167,6 +185,8 @@ private:
     File     _file;
     size_t   _fileSize;
     char     _clipName[64];
-    uint32_t _playStartMs   = 0;
-    uint32_t _framesAtStart = 0;
+    uint32_t _playStartMs    = 0;
+    uint32_t _framesAtStart  = 0;
+    uint32_t _loopCount      = 0;
+    uint32_t _lastLoggedFrame = 0;
 };

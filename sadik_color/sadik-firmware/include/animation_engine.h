@@ -63,11 +63,12 @@ public:
         _scheduleNextVariation();
     }
 
-    // Play a one-shot event clip (e.g. "listening", "thinking").
-    // Engine returns to idle automatically when clip finishes.
-    void playEvent(const char* clipName) {
+    // Play an event clip.  Pass loop=true for looping clips (e.g. mode_*_text).
+    // Engine returns to idle automatically when a one-shot clip finishes.
+    // Looping clips keep playing until an explicit stop() or a new playEvent().
+    void playEvent(const char* clipName, bool loop = false) {
         _state = AE_PLAYING_ONESHOT;
-        _player.play(clipName, /*loop=*/false);
+        _player.play(clipName, loop);
     }
 
     // Stop all playback; engine will NOT auto-return to idle.

@@ -213,7 +213,31 @@ void processCommand(ParsedCommand& cmd) {
         // ── PLAY_LOCAL:<name> ─────────────────────────────────────────────────
         case CMD_PLAY_LOCAL: {
             codec_set_ack_enabled(false);
-            animationEngine.playEvent(cmd.argument);
+
+            // Clips known to be looping (loop:true in manifest.json).
+            // These must be played with loop=true so they keep running until
+            // the app sends STOP_CLIP or the next PLAY_LOCAL.
+            static const char* LOOP_CLIPS[] = {
+                "idle", "break_text",
+                "mode_working_text", "mode_gaming_text", "mode_meeting_text",
+            };
+            static const uint8_t LOOP_CLIPS_COUNT = 5;
+            bool loopClip = false;
+            for (uint8_t i = 0; i < LOOP_CLIPS_COUNT; i++) {
+                if (strcmp(cmd.argument, LOOP_CLIPS[i]) == 0) {
+                    loopClip = true;
+                    break;
+                }
+            }
+
+            {
+                char dbg[80];
+                snprintf(dbg, sizeof(dbg), "[clip] PLAY_LOCAL name=%s loop=%d ae_state=%d",
+                         cmd.argument, (int)loopClip, (int)animationEngine.state());
+                Serial.println(dbg);
+            }
+
+            animationEngine.playEvent(cmd.argument, loopClip);
             currentMode = MODE_LOCAL_CLIP;
             markActivity("PLAY_LOCAL");
             break;
