@@ -81,3 +81,21 @@ void codec_set_ack_enabled(bool enabled);
 // (host crash, cable unplug mid-packet, stray 0xC5 in ASCII) cannot swallow
 // the UART forever. Framebuffer is preserved.
 void codec_tick();
+
+// ---------------------------------------------------------------------------
+// Pending-frame render API (used by LocalClipPlayer for FPS gating)
+// ---------------------------------------------------------------------------
+// After codec_feed() completes a frame, the decoded data is held in the
+// internal framebuffer (_fb) and a render-pending flag is set.  The TFT is
+// NOT written immediately.  The caller must call codec_flush_pending() when
+// it is ready to display the frame (i.e. at the correct deadline).
+//
+// codec_has_pending() — true if a decoded frame is waiting to be flushed.
+// codec_flush_pending() — push the pending frame to the TFT, increment the
+//   frame counter, fire on_frame_ready callback, and clear the pending flag.
+//   No-op if no frame is pending.
+// codec_pending_type() — type of the pending frame (CODEC_TYPE_IFRAME /
+//   CODEC_TYPE_PFRAME). Valid only when codec_has_pending() is true.
+bool     codec_has_pending();
+void     codec_flush_pending();
+uint8_t  codec_pending_type();

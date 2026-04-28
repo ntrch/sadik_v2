@@ -113,13 +113,17 @@ public:
 
     // Pump bytes into codec_feed(); called every loop tick.
     //
-    // FPS gate strategy (absolute-deadline, 24 fps hard):
-    //   target_ms = _clipStartMs + framesEmitted * 1000 / 24
-    //   - codec_is_idle(): frame boundary — gate until target_ms arrives.
-    //   - mid-packet (!codec_is_idle()): keep feeding so the in-flight packet
-    //     completes without hitting the 150 ms STALL_RESET.
-    //   - Catch-up: if we are 3+ frames behind (burst/stall recovery), render
-    //     immediately and clamp _clipStartMs so we don't burst forever.
+    // FPS gate strategy (pending-frame, 24 fps hard):
+    //   codec_feed() is called unconditionally every tick — the parser state
+    //   machine must never be gated mid-packet (causes CRC failures).
+    //   Gate is applied at the TFT-push layer only:
+    //     1. codec_feed() decodes a complete frame → sets render-pending flag
+    //        inside codec_decode (no TFT write yet).
+    //     2. update() checks deadline each tick.  When deadline arrives,
+    //        codec_flush_pending() pushes the frame to the TFT.
+    //   This ensures the parser always drains the LittleFS buffer cleanly.
+    //   Catch-up: if we are 3+ frames behind, clamp _clipStartMs so we don't
+    //   burst forever after a stall.
     inline void update() {
         if (!_isPlaying || !_file) return;
         if (!_readBuf) return;
@@ -140,24 +144,31 @@ public:
             Serial.println(buf);
         }
 
-        // Only gate at frame boundaries — keep feeding mid-packet to avoid STALL_RESET.
-        if (codec_is_idle()) {
-            // Absolute target: when should the (framesEmitted+1)-th frame start?
+        // ── Step 1: flush pending frame if deadline has arrived ───────────────
+        if (codec_has_pending()) {
+            // Absolute target: when should the (framesEmitted+1)-th frame appear?
             uint32_t targetMs = _clipStartMs + (framesEmitted * 1000u / TARGET_FPS);
 
-            // Catch-up guard: if we are 3+ frames behind, clamp start reference
-            // so we don't burst endlessly trying to recover.
+            // Catch-up guard: if we are 3+ frames behind, clamp start reference.
             int32_t behindMs = (int32_t)(now - targetMs);
             if (behindMs > (int32_t)(3 * FRAME_INTERVAL_MS)) {
-                // Re-anchor: treat 'now' as the target for the current frame count.
                 _clipStartMs = now - (framesEmitted * 1000u / TARGET_FPS);
                 targetMs     = now;
             }
 
-            // Not yet time for next frame — skip this tick.
-            if ((int32_t)(now - targetMs) < 0) return;
+            if ((int32_t)(now - targetMs) >= 0) {
+                // Deadline met — push frame to TFT.
+                codec_flush_pending();
+                // framesEmitted is stale after flush; re-read on next tick.
+                return;
+            }
+            // Deadline not yet met — don't feed more data either (parser already
+            // has a decoded frame; feeding would start the next packet but we
+            // can't render it until this one is flushed first).
+            return;
         }
 
+        // ── Step 2: no pending frame — feed more bytes from LittleFS ─────────
         size_t n = _file.read(static_cast<uint8_t*>(_readBuf), LOCAL_CLIP_READ_BUF_BYTES);
 
         if (n > 0) {

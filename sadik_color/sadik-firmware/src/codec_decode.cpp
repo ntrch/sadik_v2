@@ -76,6 +76,13 @@ static uint16_t     _last_seq           = 0;
 // Used by codec_tick() to detect stalled mid-packet parsers.
 static uint32_t     _last_byte_ms       = 0;
 
+// Pending-frame render state.
+// After _apply_iframe/_apply_pframe decode a frame into _fb, they set
+// _renderPending = true instead of pushing to TFT immediately.
+// codec_flush_pending() does the actual TFT blit + s_framesApplied++ + _cb.
+static bool         _renderPending      = false;
+static uint8_t      _pendingType        = 0;
+
 // Stall threshold (ms). A well-formed codec packet is fully transmitted in
 // ~100 ms at 921600 baud even for a 40 KB IFRAME, so 150 ms is tight enough
 // to recover quickly on clip switch (host's ABORT_STREAM timeout is 200 ms)
@@ -273,7 +280,11 @@ void codec_feed(const uint8_t* bytes, size_t n) {
                 _last_seq = _pkt_seq;
                 _emit_ack(_pkt_seq);
 
-                if (_cb) _cb(_pkt_seq, _pkt_type);
+                // _cb and s_framesApplied++ are fired from codec_flush_pending()
+                // once the caller pushes the frame to the TFT at the correct
+                // deadline.  For non-render packets (ACK/RESYNC/UNKNOWN) there
+                // is nothing pending, so fire _cb immediately.
+                if (!_renderPending && _cb) _cb(_pkt_seq, _pkt_type);
 
                 _reset_parser();
                 break;
@@ -302,7 +313,54 @@ static void _reset_parser() {
 // ---------------------------------------------------------------------------
 
 void codec_abort() {
+    _renderPending = false;
     _reset_parser();
+}
+
+// ---------------------------------------------------------------------------
+// Pending-frame render API
+// ---------------------------------------------------------------------------
+
+bool codec_has_pending() {
+    return _renderPending;
+}
+
+uint8_t codec_pending_type() {
+    return _pendingType;
+}
+
+// Push the pending frame to the TFT, increment the frame counter, fire _cb.
+// No-op if no frame is pending.  The TFT mutex is taken here so this is safe
+// to call from the main loop while FreeRTOS tasks also use the display.
+void codec_flush_pending() {
+    if (!_renderPending) return;
+    if (!_tft || !_fb) {
+        _renderPending = false;
+        return;
+    }
+
+    {
+        TftLock _lock;
+        if (_pendingType == CODEC_TYPE_IFRAME) {
+            // Full-screen blit from framebuffer.
+            _tft->startWrite();
+            _tft->setAddrWindow(0, 0, CODEC_WIDTH, CODEC_HEIGHT);
+            _tft->writePixels(_fb, CODEC_WIDTH * CODEC_HEIGHT);
+            _tft->endWrite();
+        } else {
+            // PFRAME: framebuffer already patched; push entire screen (simplest
+            // correct approach — avoids re-decoding dirty tiles here).
+            _tft->startWrite();
+            _tft->setAddrWindow(0, 0, CODEC_WIDTH, CODEC_HEIGHT);
+            _tft->writePixels(_fb, CODEC_WIDTH * CODEC_HEIGHT);
+            _tft->endWrite();
+        }
+    }
+
+    s_framesApplied++;
+    _renderPending = false;
+
+    if (_cb) _cb(_last_seq, _pendingType);
 }
 
 void codec_set_ack_enabled(bool enabled) {
@@ -371,41 +429,33 @@ static void _emit_resync() {
     }
 }
 
-// IFRAME: payload is 40960 bytes of raw RGB565 LE. Copy into framebuffer and blit.
+// IFRAME: payload is 40960 bytes of raw RGB565 LE. Copy into framebuffer and
+// mark as render-pending.  The actual TFT blit is deferred to
+// codec_flush_pending() so that the caller (LocalClipPlayer) can gate the
+// TFT push at the correct deadline without blocking codec_feed().
 static void _apply_iframe() {
     if (_payload_len != CODEC_FRAME_BYTES) return;
     memcpy(_fb, _payload, CODEC_FRAME_BYTES);
-    if (!_tft) return;
-    TftLock _lock;
-    _tft->startWrite();
-    _tft->setAddrWindow(0, 0, CODEC_WIDTH, CODEC_HEIGHT);
-    _tft->writePixels(_fb, CODEC_WIDTH * CODEC_HEIGHT);
-    _tft->endWrite();
-    s_framesApplied++;
+    _renderPending = true;
+    _pendingType   = CODEC_TYPE_IFRAME;
 }
 
 // PFRAME: 40-byte dirty-tile bitmap + per-dirty-tile RLE chunks.
-// For each dirty tile: decode RLE into a local 8×8 tile buffer, patch the
-// framebuffer, then push only that tile via setAddrWindow (partial update).
+// For each dirty tile: decode RLE into a local 8×8 tile buffer and patch the
+// framebuffer (_fb).  TFT blit is deferred to codec_flush_pending() so the
+// caller can gate the push at the correct deadline without blocking codec_feed().
 static void _apply_pframe() {
     if (_payload_len < CODEC_DIRTY_BITMAP_BYTES) {
         Serial.printf("CODEC:PFRAME too_short=%lu\n", _payload_len);
         return;
     }
 
-    const uint8_t* dirty = _payload;
-    const uint8_t* rle   = _payload + CODEC_DIRTY_BITMAP_BYTES;
+    const uint8_t* dirty   = _payload;
+    const uint8_t* rle     = _payload + CODEC_DIRTY_BITMAP_BYTES;
     const uint8_t* rle_end = _payload + _payload_len;
-
-    TftLock _lock;
 
     // Tile scratch buffer (64 pixels = 128 bytes)
     uint16_t tile_buf[CODEC_PIXELS_PER_TILE];
-
-    // Hoist startWrite() outside the tile loop: one CS assert/deassert per
-    // P-frame instead of one per dirty tile.  Each tile only calls
-    // setAddrWindow+writePixels (no SPI CS toggle overhead between tiles).
-    if (_tft) _tft->startWrite();
 
     for (uint16_t tile_idx = 0; tile_idx < CODEC_TILE_COUNT; tile_idx++) {
         // Check dirty bit: MSB-first within each byte
@@ -416,7 +466,6 @@ static void _apply_pframe() {
         // Decode RLE for this tile
         if (rle >= rle_end) {
             Serial.println("CODEC:PFRAME rle_overrun");
-            if (_tft) _tft->endWrite();
             return;
         }
 
@@ -426,7 +475,6 @@ static void _apply_pframe() {
         for (uint8_t r = 0; r < run_count; r++) {
             if (rle + 3 > rle_end) {
                 Serial.println("CODEC:PFRAME rle_data_overrun");
-                if (_tft) _tft->endWrite();
                 return;
             }
             uint8_t  run_len = *rle++;
@@ -449,14 +497,9 @@ static void _apply_pframe() {
                 _fb[(ty + row) * CODEC_WIDTH + (tx + col)] = tile_buf[row * CODEC_TILE_W + col];
             }
         }
-
-        // Partial push: draw only this 8×8 tile (startWrite already asserted above)
-        if (_tft) {
-            _tft->setAddrWindow(tx, ty, CODEC_TILE_W, CODEC_TILE_H);
-            _tft->writePixels(tile_buf, CODEC_PIXELS_PER_TILE);
-        }
     }
 
-    if (_tft) _tft->endWrite();
-    s_framesApplied++;
+    // Framebuffer patched — mark as render-pending; TFT push is deferred.
+    _renderPending = true;
+    _pendingType   = CODEC_TYPE_PFRAME;
 }
