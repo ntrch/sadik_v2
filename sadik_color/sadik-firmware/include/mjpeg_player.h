@@ -81,7 +81,13 @@ public:
 
         // Decode + blit
         s_active_tft = _tft;
-        TJpgDec.drawJpg(0, 0, _buf + soi, frame_len);
+        JRESULT rc = TJpgDec.drawJpg(0, 0, _buf + soi, frame_len);
+        if (rc != JDR_OK && _frameIdx < 3) {
+            // Log first few failures only (avoid spam on streaming corruption)
+            Serial.printf("MJPEG:DECODE_FAIL frame=%lu rc=%d soi=%u len=%u\n",
+                          (unsigned long)_frameIdx, (int)rc,
+                          (unsigned)soi, (unsigned)frame_len);
+        }
         _frameIdx++;
         _pos = eoi + 2;
     }

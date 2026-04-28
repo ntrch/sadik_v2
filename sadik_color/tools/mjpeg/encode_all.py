@@ -4,7 +4,7 @@ encode_all.py — SADIK Color MJPEG encoder
 Converts assets/mp4/*.mp4 → sadik-firmware/data/clips/*.mjpeg
 
 ffmpeg command per clip:
-  ffmpeg -y -i in.mp4 -vf "fps=24,scale=160:128:flags=lanczos" -q:v 5 -f mjpeg out.mjpeg
+  ffmpeg -y -i in.mp4 -vf "fps=24,scale=160:128:flags=lanczos" -q:v 5 -bsf:v mjpeg2jpeg -f mjpeg out.mjpeg
 
 Usage:
   python tools/mjpeg/encode_all.py
@@ -74,6 +74,7 @@ def encode_clip(mp4_path: Path, out_path: Path) -> bool:
         "-i", str(mp4_path),
         "-vf", "fps=24,scale=160:128:flags=lanczos",
         "-q:v", "5",
+        "-bsf:v", "mjpeg2jpeg",
         "-f", "mjpeg",
         str(out_path),
     ]
