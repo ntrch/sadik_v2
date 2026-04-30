@@ -617,8 +617,10 @@ export default function VoiceAssistant() {
       }
 
       // ── Step 1: STT ───────────────────────────────────────────────────────
+      const _sttStart = Date.now();
       let text = await voiceApi.stt(blob, signal);
       if (signal.aborted) return;
+      const sttElapsedMs = Date.now() - _sttStart;
 
       // ── Step 1b: STT retry for VAD-confirmed speech ────────────────────
       // If Whisper returned empty but VAD confirmed speech and blob is substantial,
@@ -631,6 +633,9 @@ export default function VoiceAssistant() {
         if (signal.aborted) return;
         console.log(`[Voice] STT retry result: "${text.trim()}" (${text.trim().length} chars)`);
       }
+
+      // Estimate audio duration from blob size (rough: WebM/Opus ~16kbps)
+      const audioDurationSeconds = Math.round((blob.size / 2000) * 10) / 10;
 
       // ── Step 2: Validate transcript ───────────────────────────────────────
       const trimmed   = text.trim();
@@ -858,6 +863,8 @@ export default function VoiceAssistant() {
         onChunk,
         signal,
         handleToolEvent,
+        sttElapsedMs,
+        audioDurationSeconds,
       );
       streamDone = true;
       setActiveTools([]);  // clear any residual tool indicators after stream ends

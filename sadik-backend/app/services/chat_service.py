@@ -451,6 +451,11 @@ class ChatService:
         self._last_tool_calls_used (list[dict]) for metadata.
         """
         self._last_tool_calls_used: list[dict] = []
+        self._last_usage: dict = {}
+        self._last_llm_ttfb_ms: int | None = None
+
+        import time as _time
+        _llm_start = _time.perf_counter()
 
         if not api_key:
             yield "OpenAI API anahtarı ayarlanmamış."
@@ -495,6 +500,8 @@ class ChatService:
                     tier=tier,
                 ):
                     if evt_type == "text":
+                        if self._last_llm_ttfb_ms is None:
+                            self._last_llm_ttfb_ms = int((_time.perf_counter() - _llm_start) * 1000)
                         buffer += payload
                         flushed = False
                         for i in range(len(buffer) - 1, -1, -1):
@@ -537,11 +544,21 @@ class ChatService:
                 model=model,
                 messages=redact_messages(messages),
                 stream=True,
+                stream_options={"include_usage": True},
             ) as stream:
                 async for chunk in stream:
+                    # Usage arrives in the final chunk when stream_options include_usage=True
+                    if getattr(chunk, "usage", None) is not None:
+                        self._last_usage = {
+                            "prompt_tokens": chunk.usage.prompt_tokens,
+                            "completion_tokens": chunk.usage.completion_tokens,
+                        }
+                        continue
                     delta = chunk.choices[0].delta.content if chunk.choices else None
                     if delta is None:
                         continue
+                    if self._last_llm_ttfb_ms is None:
+                        self._last_llm_ttfb_ms = int((_time.perf_counter() - _llm_start) * 1000)
                     buffer += delta
 
                     flushed = False

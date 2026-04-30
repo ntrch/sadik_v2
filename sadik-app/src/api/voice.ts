@@ -62,11 +62,13 @@ export const voiceApi = {
     onChunk: (audioBlob: Blob, sentenceIndex: number) => void,
     signal?: AbortSignal,
     onToolEvent?: (event: { type: 'tool_status'; tool_name: string; phase: 'executing' | 'completed' }) => void,
+    stt_ms?: number,
+    audio_seconds?: number,
   ): Promise<string> => {
     const response = await fetch('http://localhost:8000/api/voice/voice-chat-stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, history }),
+      body: JSON.stringify({ text, history, stt_ms, audio_seconds }),
       signal,
     });
 

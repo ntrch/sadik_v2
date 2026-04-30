@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import json
+import time
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from typing import Optional, AsyncIterator
 from fastapi.responses import StreamingResponse
@@ -193,6 +194,8 @@ async def text_to_speech(
 class VoiceChatRequest(BaseModel):
     text: str
     history: list[dict] = []
+    stt_ms: Optional[int] = None
+    audio_seconds: Optional[float] = None
 
 
 @router.post("/voice-chat-stream")
@@ -229,6 +232,8 @@ async def voice_chat_stream(
 
     if not api_key:
         raise HTTPException(status_code=400, detail="OpenAI API key not configured")
+
+    t0 = time.perf_counter()
 
     # Read privacy flags once; passed to tool loop and history gate.
     from app.services.privacy_flags import get_privacy_flags, get_privacy_tier
@@ -270,6 +275,8 @@ async def voice_chat_stream(
             0x02  JSON tool_status — {"type":"tool_status","tool_name":str,"phase":"executing"|"completed"}
         """
         full_reply_parts: list[str] = []
+        tts_ms_recorded: Optional[int] = None   # TTFB for first TTS chunk
+        tts_char_total: int = 0                 # cumulative chars sent to TTS
 
         # Async queue for tool events — allows the tool_event callback (sync context
         # inside run_tool_loop) to push events that generate() drains before the
@@ -311,11 +318,13 @@ async def voice_chat_stream(
             if not cleaned:
                 continue
             full_reply_parts.append(sentence)
+            tts_char_total += len(cleaned)
 
             # Synthesise this sentence using the user-configured TTS provider.
             # Fallback chain mirrors the /tts endpoint: configured provider first,
             # then OpenAI, then edge-tts as last resort.
             audio_chunks: list[bytes] = []
+            _tts_sentence_start = time.perf_counter()
 
             async def _try_elevenlabs() -> bool:
                 nonlocal audio_chunks
@@ -364,6 +373,8 @@ async def voice_chat_stream(
                 await _try_edge() or await _try_openai() or await _try_elevenlabs()
 
             if audio_chunks:
+                if tts_ms_recorded is None:
+                    tts_ms_recorded = int((time.perf_counter() - _tts_sentence_start) * 1000)
                 audio_data = b"".join(audio_chunks)
                 # type=0x01 (audio) + 4-byte big-endian length + payload
                 yield b"\x01" + len(audio_data).to_bytes(4, "big") + audio_data
@@ -383,6 +394,33 @@ async def voice_chat_stream(
         # Collect tool_calls_used from the generator (set on chat_service instance).
         tool_calls_used = getattr(chat_service, "_last_tool_calls_used", [])
         logger.info(f"[VoiceChatStream] tool_calls_used: {tool_calls_used}")
+
+        # ── Usage tracking DB insert (best-effort, never breaks voice flow) ──
+        try:
+            from app.models.voice_turn_event import VoiceTurnEvent
+            total_ms = int((time.perf_counter() - t0) * 1000)
+            usage_meta = getattr(chat_service, "_last_usage", {})
+            llm_ttfb = getattr(chat_service, "_last_llm_ttfb_ms", None)
+            tool_names_csv = ",".join(tc["name"] for tc in tool_calls_used) if tool_calls_used else None
+            event = VoiceTurnEvent(
+                stt_ms=body.stt_ms,
+                llm_ms=llm_ttfb,
+                tts_ms=tts_ms_recorded,
+                total_ms=total_ms,
+                prompt_tokens=usage_meta.get("prompt_tokens"),
+                completion_tokens=usage_meta.get("completion_tokens"),
+                tool_names=tool_names_csv,
+                tool_count=len(tool_calls_used),
+                user_audio_seconds=body.audio_seconds,
+                tts_audio_chars=tts_char_total if tts_char_total > 0 else None,
+                tts_provider=provider,
+                llm_model=model,
+            )
+            session.add(event)
+            await session.commit()
+            logger.info(f"[VoiceChatStream] usage recorded: total_ms={total_ms} tools={len(tool_calls_used)}")
+        except Exception as _ue:
+            logger.warning(f"[VoiceChatStream] usage insert failed (non-fatal): {_ue}")
 
         # Send text metadata frame (type=0x00) as the last frame in the stream.
         meta = json.dumps(

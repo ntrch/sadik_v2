@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
   Eye, EyeOff, RefreshCw, AlertTriangle, ChevronDown,
   Bot, Sun, Radio, Timer, Sparkles, Mic, Headphones, Monitor, Bell,
-  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, X, Shield, User,
+  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, X, Shield, User, BarChart3,
 } from 'lucide-react';
 import { settingsApi, Settings } from '../api/settings';
 import { privacyApi } from '../api/privacy';
@@ -14,6 +14,7 @@ import { wakeApi, WakeModel } from '../api/wake';
 import { AppContext } from '../context/AppContext';
 import { KVKK_NOTICE } from '../content/kvkkNotice';
 import FeedbackButton from '../components/feedback/FeedbackButton';
+import UsageStatsCard from '../components/usage/UsageStatsCard';
 
 const DEFAULT_SETTINGS: Settings = {
   openai_api_key: '',
@@ -1310,6 +1311,14 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
               );
             })}
           </div>
+        </Section>
+
+        {/* Usage Stats */}
+        <Section title="Kullanım İstatistikleri" icon={BarChart3} color="purple">
+          <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-2">
+            Sesli asistan kullanımın — maliyet tahmini ve gecikme analizi. Beta sonrası plan kararlarında kullanılacak.
+          </p>
+          <UsageStatsCard />
         </Section>
 
         {/* Privacy */}
