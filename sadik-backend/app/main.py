@@ -6,7 +6,7 @@ from sqlalchemy import select, text
 import logging
 
 from app.database import engine, Base, AsyncSessionLocal
-from app.models import Task, ModeLog, ChatMessage, Setting, AppUsageSession, Workspace, WorkspaceAction, Habit, Event, Integration, ExternalEvent, NotionSyncedPage
+from app.models import Task, ModeLog, ChatMessage, Setting, AppUsageSession, Workspace, WorkspaceAction, Habit, Event, Integration, ExternalEvent, NotionSyncedPage, FeedbackSubmission  # noqa: F401
 from app.routers import tasks, modes, stats, pomodoro, device, chat, voice, settings, ws, memory, workspace as workspace_router_mod
 from app.routers import habits as habits_router_mod
 from app.routers import weather as weather_router_mod
@@ -15,6 +15,7 @@ from app.routers import wake as wake_router_mod
 from app.routers import integrations as integrations_router_mod
 from app.routers import external_events as external_events_router_mod
 from app.routers import privacy as privacy_router_mod
+from app.routers import feedback as feedback_router_mod
 from app.services.providers import google_calendar  # noqa: F401 — self-registers PROVIDERS
 from app.services.providers import notion as _notion_provider  # noqa: F401 — self-registers PROVIDERS
 
@@ -320,6 +321,7 @@ app.include_router(wake_router_mod.router)
 app.include_router(integrations_router_mod.router)
 app.include_router(external_events_router_mod.router)
 app.include_router(privacy_router_mod.router)
+app.include_router(feedback_router_mod.router)
 
 @app.get("/")
 async def root():

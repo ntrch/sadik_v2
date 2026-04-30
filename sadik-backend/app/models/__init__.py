@@ -10,3 +10,4 @@ from app.models.event import Event
 from app.models.integration import Integration
 from app.models.external_event import ExternalEvent
 from app.models.notion_synced_page import NotionSyncedPage
+from app.models.feedback import FeedbackSubmission

@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState, useCallback } from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { MessageSquare, Mic } from 'lucide-react';
 import { AppProvider } from './context/AppContext';
@@ -17,7 +17,9 @@ import AgendaPage from './pages/AgendaPage';
 import VoiceAssistant from './components/voice/VoiceAssistant';
 import OnboardingPage from './pages/OnboardingPage';
 import FirstDayTutorial from './components/onboarding/FirstDayTutorial';
+import FeedbackModal from './components/feedback/FeedbackModal';
 import { settingsApi } from './api/settings';
+import { isInputFocused } from './utils/focus';
 
 /**
  * Tab selector for the /chat route. Lives at App level so the persistent
@@ -65,6 +67,22 @@ function AppShell() {
   const onChatRoute = location.pathname === '/chat';
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
   const [tutorialDone, setTutorialDone] = useState<boolean | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+
+  const openFeedback = useCallback(() => setFeedbackOpen(true), []);
+  const closeFeedback = useCallback(() => setFeedbackOpen(false), []);
+
+  // Global Shift+F hotkey — opens feedback modal unless input is focused
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.key.toLowerCase() === 'f' && !isInputFocused()) {
+        e.preventDefault();
+        setFeedbackOpen((prev) => !prev);
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, []);
 
   useEffect(() => {
     settingsApi.get('onboarding_completed')
@@ -101,7 +119,7 @@ function AppShell() {
           <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/habits" element={<HabitsPage />} />
           <Route path="/agenda" element={<AgendaPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings" element={<SettingsPage onOpenFeedback={openFeedback} />} />
         </Routes>
         <div
           aria-hidden={!(onChatRoute && voiceUiVisible)}
@@ -118,6 +136,7 @@ function AppShell() {
       {showTutorial && (
         <FirstDayTutorial onDone={() => setTutorialDone(true)} />
       )}
+      {feedbackOpen && <FeedbackModal onClose={closeFeedback} />}
     </div>
   );
 }

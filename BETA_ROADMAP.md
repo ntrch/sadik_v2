@@ -95,6 +95,21 @@
 - Proaktif 7 senaryo gerçek kullanımda test edilmedi
 - Wake-word 48h uptime testi yapılmadı
 - Long-session memory leak bilinmiyor
+- Voice pipeline gecikmesi (~28s end-to-end "Nasılsın?" testinde) — kod tarafında 2.5-5s daha sıkıştırılabilir ama OpenAI ham latansı (whisper-1 ~14s + chat ~14s) kod ile düzeltilemez. **Beta için mevcut hâl kabul edildi**; kullanım datası sonrası (T7.2) Cartesia/Deepgram (C planı) veya Realtime API (D planı) kararı verilecek. ElevenLabs kredi yenilenince algı kalitesi düzelir.
+
+### Yeni biten (2026-05-01) — voice/stability/settings sprint batch (commit 7ae475e):
+- **Voice prompt persona** — SADIK kimliği pekiştirildi, proaktif kapatma teklifi yasaklandı, robotik cevap kalıpları yasaklandı, selamlaşmada tool-gating
+- **OpenAI client retry/timeout** — chat: max_retries=0/timeout=20s; STT: max_retries=2/timeout=30s; STT exception → 500 yerine empty text (handleDidntHear recovery)
+- **Streaming tool path** — `run_tool_loop_stream` async generator, voice path artık tool kullansa bile cümle delta'sını streaming yolluyor
+- **TTS chunk overlap fix** — schedulePoll race kaldırıldı, isPlayingRef re-entry guard, end-conv double-fire fix (endHandledRef)
+- **Wake word default** — DEFAULT_INPUT_GAIN 1.5→1.9; seed wake_threshold=0.35, wake_input_gain=1.9
+- **DTR/RTS hold low before serial open** — Windows CP210x/CH340 üzerinde focus regain'de ESP32 boot screen flash'ı düzeltildi
+- **Idempotent connect chain** — frontend autoConnect + backend connect/auto_connect; aynı target tekrar bağlamayı no-op yapar
+- **Late WS device profile recovery** — `/api/device/status` artık `device_line` döner; useWebSocket onOpen callback ile AppContext WS reconnect'te status fetch + variant parse yapar (frame pump dondurma fix)
+- **AnimationEngine clock** — `requestAnimationFrame` → `setInterval(60ms)`; pencere blur olunca Chromium rAF throttle'ı OLED/preview'i donduruyordu (backgroundThrottling=false yetmiyor)
+- **handleDidntHear** — 3. attempt idle'a dönmeden önce `clearWakeWordPending()` (idle effect'in stale wake trigger ile listening'e zıplamasını engeller)
+- **Pomodoro/break native notifications** — `pomodoro_completed` + `break_completed` Electron native notification
+- **Settings draft-state refactor** — 17 draft mirror, dirty flag, Save zorunlu, unsaved-exit dialog (document-level click capture), beforeunload, tüm live-apply helper'ları kaldırıldı, handleSave merkezi sequential API call
 - Faz 0.5 OAuth refactor (Desktop+PKCE) ship-blocker
 
 ### Aktif sprint: **Sprint 3 — Behavioral learning (opt-in)**

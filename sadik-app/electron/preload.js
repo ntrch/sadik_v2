@@ -63,4 +63,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('workspace-snap-captured', l);
     return () => ipcRenderer.removeListener('workspace-snap-captured', l);
   },
+  // Capture the current window as a PNG. Returns a base64 string or null.
+  captureScreenshot: () => ipcRenderer.invoke('feedback:capture-screenshot'),
 });

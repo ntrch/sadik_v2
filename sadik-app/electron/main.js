@@ -1372,6 +1372,18 @@ Write-Output "OK"
     n.show();
   });
 
+  // ── Feedback: screenshot capture ─────────────────────────────────────────
+  ipcMain.handle('feedback:capture-screenshot', async () => {
+    if (!win) return null;
+    try {
+      const image = await win.webContents.capturePage();
+      return image.toPNG().toString('base64');
+    } catch (err) {
+      twarn('[SADIK] captureScreenshot failed:', err && err.message);
+      return null;
+    }
+  });
+
   // ── Window lifecycle diagnostics ──────────────────────────────────────────
   win.once('ready-to-show', () => tlog('[SADIK] Window ready-to-show'));
   win.on('show',        () => tlog('[SADIK] Window show'));

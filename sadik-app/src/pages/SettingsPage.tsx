@@ -13,6 +13,7 @@ import { chatApi } from '../api/chat';
 import { wakeApi, WakeModel } from '../api/wake';
 import { AppContext } from '../context/AppContext';
 import { KVKK_NOTICE } from '../content/kvkkNotice';
+import FeedbackButton from '../components/feedback/FeedbackButton';
 
 const DEFAULT_SETTINGS: Settings = {
   openai_api_key: '',
@@ -56,7 +57,11 @@ const OPENAI_VOICES = [
   { value: 'shimmer', label: 'Shimmer — Yumuşak Kadın' },
 ];
 
-export default function SettingsPage() {
+interface SettingsPageProps {
+  onOpenFeedback?: () => void;
+}
+
+export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {}) {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
@@ -1558,6 +1563,7 @@ export default function SettingsPage() {
         </div>
       </div>
     )}
+    {onOpenFeedback && <FeedbackButton onClick={onOpenFeedback} />}
     </>
   );
 }
