@@ -22,7 +22,7 @@ const TYPE_OPTIONS: { value: FeedbackType; label: string; icon: React.ReactNode 
 
 function getContextInfo() {
   return {
-    app_version: (window as any).__APP_VERSION__ ?? process?.env?.npm_package_version ?? undefined,
+    app_version: (window as any).__APP_VERSION__ ?? undefined,
     os_info: navigator.platform ?? undefined,
     current_page: window.location.hash || '/',
   };
