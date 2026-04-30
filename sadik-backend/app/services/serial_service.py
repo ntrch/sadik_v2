@@ -82,9 +82,16 @@ class SerialService:
         captured_device_line: Optional[str] = None
         try:
             logger.debug(f"Trying port {port}")
-            s = serial.Serial(port, baudrate, timeout=1.0, write_timeout=1.0)
-            logger.debug(f"Opened port {port}")
-            time.sleep(0.2)  # brief settle — DTR reset on Windows may trigger reboot
+            # Bug fix (focus-regain reset): construct without auto-open, hold DTR/RTS
+            # low, THEN open. This prevents the Windows USB-serial driver from pulsing
+            # DTR on open which auto-resets the ESP32 (visible as boot screen on OLED).
+            s = serial.Serial(baudrate=baudrate, timeout=1.0, write_timeout=1.0)
+            s.port = port
+            s.dtr = False
+            s.rts = False
+            s.open()
+            logger.debug(f"Opened port {port} (DTR/RTS held low, no auto-reset)")
+            time.sleep(0.2)  # brief settle
             s.reset_input_buffer()
 
             # ── Phase 1: PING verification ────────────────────────────────────
@@ -250,9 +257,15 @@ class SerialService:
                     return False
 
             def _open_and_query() -> bool:
-                s = serial.Serial(port, baudrate, timeout=1.0, write_timeout=1.0)
-                time.sleep(0.2)       # settle — DTR may reset the ESP32 on Windows
-                s.reset_input_buffer()  # discard boot-time DEVICE: / SADIK:READY noise
+                # Bug fix (focus-regain reset): hold DTR/RTS low before open so the
+                # Windows USB-serial driver does not pulse DTR and auto-reset the ESP32.
+                s = serial.Serial(baudrate=baudrate, timeout=1.0, write_timeout=1.0)
+                s.port = port
+                s.dtr = False
+                s.rts = False
+                s.open()
+                time.sleep(0.2)       # settle
+                s.reset_input_buffer()  # discard any boot-time noise
 
                 # Query device profile so device_profile WS broadcast works on manual connect
                 captured: Optional[str] = None

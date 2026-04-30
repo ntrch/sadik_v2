@@ -144,9 +144,12 @@ async def _get_today_agenda(
     from app.models.event import Event
     from app.models.external_event import ExternalEvent
 
-    today = datetime.now(_TZ_TR).date()
-    day_start = datetime(today.year, today.month, today.day, 0, 0, 0)
-    day_end = day_start + timedelta(days=1)
+    today_tr = datetime.now(_TZ_TR).date()
+    day_start_tr = datetime(today_tr.year, today_tr.month, today_tr.day, 0, 0, 0, tzinfo=_TZ_TR)
+    day_end_tr = day_start_tr + timedelta(days=1)
+    # ExternalEvent.start_at is naive UTC; convert TR-day boundaries to naive UTC.
+    day_start = day_start_tr.astimezone(timezone.utc).replace(tzinfo=None)
+    day_end = day_end_tr.astimezone(timezone.utc).replace(tzinfo=None)
 
     native_rows = (await session.execute(
         select(Event).where(Event.starts_at >= day_start).where(Event.starts_at < day_end).order_by(Event.starts_at)
@@ -165,12 +168,15 @@ async def _get_today_agenda(
             .order_by(ExternalEvent.start_at)
         )).scalars().all()
 
+    def _utc_naive_to_tr_str(dt: datetime) -> str:
+        return dt.replace(tzinfo=timezone.utc).astimezone(_TZ_TR).strftime("%H:%M")
+
     items: list[tuple[datetime, str]] = []
     for ev in native_rows:
-        t = ev.starts_at.strftime("%H:%M") if ev.starts_at else "?"
+        t = _utc_naive_to_tr_str(ev.starts_at) if ev.starts_at else "?"
         items.append((ev.starts_at or day_start, f"{t} — {ev.title}"))
     for ev in ext_rows:
-        t = ev.start_at.strftime("%H:%M") if ev.start_at else "?"
+        t = _utc_naive_to_tr_str(ev.start_at) if ev.start_at else "?"
         items.append((ev.start_at or day_start, f"{t} — {ev.title} (Takvim)"))
 
     items.sort(key=lambda x: x[0])
@@ -455,6 +461,61 @@ async def _delete_clipboard_item(session: AsyncSession, args: dict) -> str:
     return f'Pano öğesi silindi: "{snippet}"'
 
 
+async def _get_weather(session: AsyncSession, args: dict) -> str:
+    import httpx
+    from app.models.setting import Setting
+
+    rows = await session.execute(select(Setting))
+    settings = {s.key: s.value for s in rows.scalars().all()}
+
+    api_key = (settings.get("weather_api_key") or "").strip()
+    if not api_key:
+        return "Hava durumu için API anahtarı ayarlanmamış."
+
+    lat_raw = (settings.get("weather_lat") or "").strip()
+    lon_raw = (settings.get("weather_lon") or "").strip()
+    label = (settings.get("weather_location_label") or "").strip()
+    city = (settings.get("weather_city") or "").strip()
+
+    params: dict = {"appid": api_key, "units": "metric", "lang": "tr"}
+    use_coords = False
+    if lat_raw and lon_raw:
+        try:
+            params["lat"] = float(lat_raw)
+            params["lon"] = float(lon_raw)
+            use_coords = True
+        except ValueError:
+            use_coords = False
+    if not use_coords:
+        if not city:
+            return "Hava durumu için konum ayarlanmamış."
+        params["q"] = city
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                "https://api.openweathermap.org/data/2.5/weather", params=params
+            )
+    except Exception as e:
+        return f"Hava durumu alınamadı: {e}"
+
+    if resp.status_code != 200:
+        return f"Hava durumu servisi hata verdi (kod {resp.status_code})."
+
+    payload = resp.json()
+    try:
+        weather0 = (payload.get("weather") or [{}])[0]
+        temp = round(float(payload["main"]["temp"]), 1)
+        feels = round(float(payload["main"].get("feels_like", payload["main"]["temp"])), 1)
+        desc = weather0.get("description", "").strip()
+        loc = label or payload.get("name") or city or "konum"
+    except (KeyError, TypeError, ValueError) as e:
+        return f"Hava durumu yanıtı çözümlenemedi: {e}"
+
+    desc_part = f" ({desc})" if desc else ""
+    return f"{loc} için hava: {temp}°C, hissedilen {feels}°C{desc_part}."
+
+
 # ── Tool registry ──────────────────────────────────────────────────────────────
 
 TOOLS: dict[str, Tool] = {
@@ -509,6 +570,12 @@ TOOLS: dict[str, Tool] = {
         description="Bugünün ajandası: yerleşik etkinlikler + Google Calendar etkinlikleri.",
         parameters={"type": "object", "properties": {}, "required": []},
         execute=_get_today_agenda,
+    ),
+    "get_weather": Tool(
+        name="get_weather",
+        description="Kullanıcının ayarladığı konum için güncel hava durumunu getir: sıcaklık, hissedilen sıcaklık ve hava açıklaması.",
+        parameters={"type": "object", "properties": {}, "required": []},
+        execute=_get_weather,
     ),
     "get_app_usage_summary": Tool(
         name="get_app_usage_summary",
@@ -938,3 +1005,164 @@ async def run_tool_loop(
     )
     final_text = response.choices[0].message.content or ""
     return msgs, final_text, tool_calls_used
+
+
+async def run_tool_loop_stream(
+    messages: list[dict],
+    client,
+    model: str,
+    session: AsyncSession,
+    on_tool_event: Callable[[dict], Awaitable[None]] | None = None,
+    privacy_flags: dict[str, bool] | None = None,
+    tier: str = "full",
+):
+    """Streaming variant of run_tool_loop.
+
+    Async generator yielding event tuples:
+        ("text", str)        — a text delta token from the LLM (for sentence buffering)
+        ("done", dict)       — terminal event with {"tool_calls_used": [...], "full_text": str}
+
+    Intermediate iterations that return tool_calls are NOT yielded as text
+    (no user-visible content); they execute tools and continue. Only the
+    final (text-producing) iteration streams deltas.
+
+    Tool-call delta aggregation pattern (OpenAI streaming):
+      - Each chunk's delta.tool_calls is a list of partial entries with an
+        `index` field. We buffer per-index: id, function.name (set once),
+        function.arguments (concatenated as string fragments).
+      - When the stream closes with finish_reason == "tool_calls", we
+        rebuild a normalized list and execute tools, then loop again.
+    """
+    import json
+    msgs = list(messages)
+    tool_schemas = get_tool_schemas("openai", tier=tier)
+    tool_calls_used: list[dict] = []
+    full_text_parts: list[str] = []
+
+    async def _emit(event: dict) -> None:
+        if on_tool_event is not None:
+            try:
+                await on_tool_event(event)
+            except Exception as ev_err:
+                logger.warning(f"[voice_tools] on_tool_event error: {ev_err}")
+
+    for round_idx in range(MAX_TOOL_ROUNDS):
+        create_kwargs: dict = {
+            "model": model,
+            "messages": redact_messages(msgs),
+            "stream": True,
+        }
+        if tool_schemas:
+            create_kwargs["tools"] = tool_schemas
+            create_kwargs["tool_choice"] = "auto"
+
+        # Per-index aggregation buffers
+        tc_buffer: dict[int, dict] = {}  # idx -> {"id":..., "name":..., "arguments": str}
+        content_parts: list[str] = []
+        finish_reason: str | None = None
+
+        stream_ctx = await client.chat.completions.create(**create_kwargs)
+        async with stream_ctx as stream:
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                ch0 = chunk.choices[0]
+                delta = ch0.delta
+                if ch0.finish_reason:
+                    finish_reason = ch0.finish_reason
+
+                # Aggregate tool_call deltas
+                if getattr(delta, "tool_calls", None):
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        slot = tc_buffer.setdefault(idx, {"id": None, "name": None, "arguments": ""})
+                        if getattr(tc_delta, "id", None):
+                            slot["id"] = tc_delta.id
+                        fn = getattr(tc_delta, "function", None)
+                        if fn is not None:
+                            if getattr(fn, "name", None):
+                                slot["name"] = fn.name
+                            if getattr(fn, "arguments", None):
+                                slot["arguments"] += fn.arguments
+
+                # Stream text content
+                if getattr(delta, "content", None):
+                    content_parts.append(delta.content)
+                    full_text_parts.append(delta.content)
+                    yield ("text", delta.content)
+
+        # Build assistant message entry for history
+        aggregated_content = "".join(content_parts)
+        assistant_entry: dict = {"role": "assistant", "content": aggregated_content}
+        if tc_buffer:
+            assistant_entry["tool_calls"] = [
+                {
+                    "id": tc_buffer[i]["id"] or f"call_{round_idx}_{i}",
+                    "type": "function",
+                    "function": {
+                        "name": tc_buffer[i]["name"] or "",
+                        "arguments": tc_buffer[i]["arguments"] or "{}",
+                    },
+                }
+                for i in sorted(tc_buffer.keys())
+            ]
+        msgs.append(assistant_entry)
+
+        if finish_reason == "tool_calls" and tc_buffer:
+            for i in sorted(tc_buffer.keys()):
+                slot = tc_buffer[i]
+                fn_name = slot["name"] or ""
+                try:
+                    fn_args = json.loads(slot["arguments"] or "{}")
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"[voice_tools] tool_call args JSON parse failed: {slot['arguments']!r}"
+                    )
+                    fn_args = {}
+
+                logger.info(f"[voice_tools] (stream) round={round_idx+1} tool={fn_name} args={fn_args}")
+
+                await _emit({"type": "tool_status", "tool_name": fn_name, "phase": "executing"})
+                tool_result = await execute_tool(fn_name, fn_args, session, privacy_flags=privacy_flags)
+                await _emit({"type": "tool_status", "tool_name": fn_name, "phase": "completed"})
+
+                args_summary = ", ".join(
+                    f"{k}={str(v)[:30]}" for k, v in fn_args.items()
+                ) if fn_args else ""
+                tool_calls_used.append({"name": fn_name, "args_summary": args_summary})
+
+                msgs.append({
+                    "role": "tool",
+                    "tool_call_id": slot["id"] or f"call_{round_idx}_{i}",
+                    "content": tool_result,
+                })
+            # Continue loop — next iteration will stream final text (or more tools)
+            continue
+        else:
+            # Final text iteration finished
+            yield ("done", {
+                "tool_calls_used": tool_calls_used,
+                "full_text": "".join(full_text_parts),
+            })
+            return
+
+    # Exhausted MAX_TOOL_ROUNDS — force a final non-tool streaming response
+    logger.warning("[voice_tools] (stream) max rounds reached, forcing final response without tools")
+    forced_parts: list[str] = []
+    async with await client.chat.completions.create(
+        model=model,
+        messages=redact_messages(msgs),
+        stream=True,
+    ) as stream:
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if getattr(delta, "content", None):
+                forced_parts.append(delta.content)
+                full_text_parts.append(delta.content)
+                yield ("text", delta.content)
+    yield ("done", {
+        "tool_calls_used": tool_calls_used,
+        "full_text": "".join(full_text_parts),
+    })

@@ -208,17 +208,17 @@ class VoiceService:
             return ""
 
         try:
-            client = AsyncOpenAI(api_key=api_key, max_retries=0 if fast else 2)
+            client = AsyncOpenAI(
+                api_key=api_key,
+                max_retries=0 if fast else 2,
+                timeout=30.0,
+            )
             audio_file = io.BytesIO(audio_bytes)
             audio_file.name = "audio.webm"
             kwargs: dict = dict(
                 model="whisper-1",
                 file=audio_file,
                 language="tr",
-                # temperature=0 → deterministic output, avoids creative/random
-                # hallucinations on near-silence.  OpenAI SDK whisper-1 accepts
-                # temperature in [0, 1]; condition_on_previous_text and
-                # no_speech_threshold are local-Whisper-only and not in the API.
                 temperature=0.0,
             )
             if prompt:

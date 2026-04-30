@@ -75,6 +75,8 @@ DEFAULT_SETTINGS = {
     # two keys; the code paths never hard-code a persona.
     "persona_slug": "sadik",
     "wake_model_path": "",  # empty → fallback to built-in "hey_jarvis"
+    "wake_threshold": "0.35",
+    "wake_input_gain": "1.9",
     # Google Calendar OAuth credentials (user-supplied)
     "google_client_id": "",
     "google_client_secret": "",

@@ -60,17 +60,24 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
-const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [ports, setPorts] = useState<SerialPort[]>([]);
   const [wakeModels, setWakeModels] = useState<WakeModel[]>([]);
+  // Draft wake model path — committed to backend only on Save.
   const [wakeModelPath, setWakeModelPath] = useState<string>('');
-  const [applyingWake, setApplyingWake] = useState(false);
+  const savedWakeModelPathRef = useRef<string>('');
+  // Wake detection draft — defaults match backend (0.35 / 1.9). Persisted via wakeApi only.
   const [wakeThreshold, setWakeThreshold] = useState(0.35);
-  const [wakeInputGain, setWakeInputGain] = useState(1.5);
-  const wakeThresholdRef = useRef(0.35);
-  const wakeInputGainRef = useRef(1.5);
+  const [wakeInputGain, setWakeInputGain] = useState(1.9);
+  const savedWakeThresholdRef = useRef(0.35);
+  const savedWakeInputGainRef = useRef(1.9);
   // Tracks the last-persisted personalization values so we can detect changes on save.
   const savedPersonalizationRef = useRef({ user_name: '', greeting_style: '' });
+  // Tracks the last-persisted snapshot of editable settings so dirty/cancel can compare.
+  const savedSettingsRef = useRef<Settings>(DEFAULT_SETTINGS);
+  // In-app navigation guard — set true while user has unsaved changes.
+  const [dirty, setDirty] = useState(false);
+  const [unsavedDialog, setUnsavedDialog] = useState<null | { onConfirm: () => void }>(null);
   const {
     showToast, triggerEvent,
     wakeWordEnabled, toggleWakeWord,
@@ -98,11 +105,62 @@ const [saving, setSaving] = useState(false);
     weatherData,                 weatherError,
     refreshWeather,
   } = useContext(AppContext);
+
+  // ---------------------------------------------------------------------------
+  // Draft mirrors for AppContext-backed settings.
+  // The UI binds to these drafts; AppContext setters (which write to backend)
+  // are only invoked from handleSave. Initialised lazily from the live context
+  // values once they hydrate from the DB.
+  // ---------------------------------------------------------------------------
+  const [draftWakeWordEnabled,        setDraftWakeWordEnabled]        = useState(wakeWordEnabled);
+  const [draftWakeWordSensitivity,    setDraftWakeWordSensitivity]    = useState(wakeWordSensitivity);
+  const [draftContinuousConversation, setDraftContinuousConversation] = useState(continuousConversation);
+  const [draftOledSleepTimeout,       setDraftOledSleepTimeout]       = useState(oledSleepTimeoutMinutes);
+  const [draftAudioInputDeviceId,     setDraftAudioInputDeviceId]     = useState(selectedAudioInputDeviceId);
+  const [draftAudioOutputDeviceId,    setDraftAudioOutputDeviceId]    = useState(selectedAudioOutputDeviceId);
+  const [draftProactiveEnabled,       setDraftProactiveEnabled]       = useState(proactiveSuggestionsEnabled);
+  const [draftProactiveQuietStart,    setDraftProactiveQuietStart]    = useState(proactiveQuietHoursStart);
+  const [draftProactiveQuietEnd,      setDraftProactiveQuietEnd]      = useState(proactiveQuietHoursEnd);
+  const [draftProactiveDailyLimit,    setDraftProactiveDailyLimit]    = useState(proactiveDailyLimit);
+  const [draftProactiveCooldown,      setDraftProactiveCooldown]      = useState(proactiveCooldownMinutes);
+  const [draftSpokenEnabled,          setDraftSpokenEnabled]          = useState(spokenProactiveEnabled);
+  const [draftSpokenDailyLimit,       setDraftSpokenDailyLimit]       = useState(spokenProactiveDailyLimit);
+  const [draftSadikPosition,          setDraftSadikPosition]          = useState(sadikPosition);
+  const [draftWeatherEnabled,         setDraftWeatherEnabled]         = useState(weatherEnabled);
+  const [draftWeatherLocationLabel,   setDraftWeatherLocationLabel]   = useState(weatherLocationLabel);
+  const [draftWeatherLocation,        setDraftWeatherLocation]        = useState<{ label: string; lat: number; lon: number } | null>(null);
+  const [draftWeatherCleared,         setDraftWeatherCleared]         = useState(false);
+  const [draftPrivacyTierAction, setDraftPrivacyTierAction] = useState<null | 'full' | 'hybrid' | 'local'>(null);
+
+  // First-time hydration: when AppContext finishes loading, sync drafts so we
+  // mirror the saved state. Subsequent updates only happen via the user.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    setDraftWakeWordEnabled(wakeWordEnabled);
+    setDraftWakeWordSensitivity(wakeWordSensitivity);
+    setDraftContinuousConversation(continuousConversation);
+    setDraftOledSleepTimeout(oledSleepTimeoutMinutes);
+    setDraftAudioInputDeviceId(selectedAudioInputDeviceId);
+    setDraftAudioOutputDeviceId(selectedAudioOutputDeviceId);
+    setDraftProactiveEnabled(proactiveSuggestionsEnabled);
+    setDraftProactiveQuietStart(proactiveQuietHoursStart);
+    setDraftProactiveQuietEnd(proactiveQuietHoursEnd);
+    setDraftProactiveDailyLimit(proactiveDailyLimit);
+    setDraftProactiveCooldown(proactiveCooldownMinutes);
+    setDraftSpokenEnabled(spokenProactiveEnabled);
+    setDraftSpokenDailyLimit(spokenProactiveDailyLimit);
+    setDraftSadikPosition(sadikPosition);
+    setDraftWeatherEnabled(weatherEnabled);
+    setDraftWeatherLocationLabel(weatherLocationLabel);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wakeWordEnabled, oledSleepTimeoutMinutes, weatherEnabled]);
+
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
   const [privacyExporting, setPrivacyExporting] = useState(false);
   const [privacyTier, setPrivacyTier] = useState<'full' | 'hybrid' | 'local' | 'custom'>('hybrid');
   const [privacyAdvancedOpen, setPrivacyAdvancedOpen] = useState(false);
-  const [tierApplying, setTierApplying] = useState(false);
   const [purgeModal, setPurgeModal] = useState<'closed' | 'step1' | 'step2'>('closed');
   const [purgeToken, setPurgeToken] = useState('');
   const [purgeTokenInput, setPurgeTokenInput] = useState('');
@@ -123,7 +181,7 @@ const [saving, setSaving] = useState(false);
   // Debounced geocode search
   useEffect(() => {
     if (locTimerRef.current) clearTimeout(locTimerRef.current);
-    if (!weatherEnabled) { setLocResults([]); return; }
+    if (!draftWeatherEnabled) { setLocResults([]); return; }
     const q = locQuery.trim();
     if (q.length < 2) { setLocResults([]); setLocError(null); return; }
     locTimerRef.current = setTimeout(async () => {
@@ -141,56 +199,215 @@ const [saving, setSaving] = useState(false);
       }
     }, 350);
     return () => { if (locTimerRef.current) clearTimeout(locTimerRef.current); };
-  }, [locQuery, weatherEnabled]);
+  }, [locQuery, draftWeatherEnabled]);
 
   useEffect(() => {
     settingsApi.getAll().then((s) => {
-      setSettings((prev) => ({ ...prev, ...s }));
+      // Strip wake_threshold/wake_input_gain — we manage these via wakeApi only,
+      // so they must not be round-tripped through settingsApi.update (stale-write bug).
+      const { wake_threshold, wake_input_gain, ...rest } = s;
+      const merged = { ...DEFAULT_SETTINGS, ...rest };
+      setSettings(merged);
+      savedSettingsRef.current = merged;
       savedPersonalizationRef.current = {
         user_name:      s['user_name']      ?? '',
         greeting_style: s['greeting_style'] ?? '',
       };
-      if (s['wake_threshold'])  { const v = parseFloat(s['wake_threshold']);  wakeThresholdRef.current = v; setWakeThreshold(v); }
-      if (s['wake_input_gain']) { const v = parseFloat(s['wake_input_gain']); wakeInputGainRef.current = v; setWakeInputGain(v); }
+      if (wake_threshold)  { const v = parseFloat(wake_threshold);  savedWakeThresholdRef.current = v; setWakeThreshold(v); }
+      if (wake_input_gain) { const v = parseFloat(wake_input_gain); savedWakeInputGainRef.current = v; setWakeInputGain(v); }
     }).catch(() => {});
     deviceApi.listPorts().then(setPorts).catch(() => {});
     wakeApi.listModels().then((r) => {
       setWakeModels(r.models);
       setWakeModelPath(r.current);
+      savedWakeModelPathRef.current = r.current;
     }).catch(() => {});
     integrationsApi.list().then(setIntegrations).catch(() => {});
   }, []);
 
-  const applyWakeModel = async (path: string) => {
-    setApplyingWake(true);
-    try {
-      await wakeApi.selectModel(path);
-      setWakeModelPath(path);
-      setSettings((prev) => ({ ...prev, wake_model_path: path }));
-      showToast('Wake modeli güncellendi', 'success');
-    } catch (e: any) {
-      showToast(e?.response?.data?.detail ?? 'Model yüklenemedi', 'error');
-    } finally {
-      setApplyingWake(false);
-    }
-  };
+  // ---------------------------------------------------------------------------
+  // Dirty tracking — recompute whenever any draft / settings field changes.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const baseline = savedSettingsRef.current;
+    const settingsChanged = Object.keys(settings).some(
+      (k) => (settings[k] ?? '') !== (baseline[k] ?? ''),
+    );
+    const draftChanged =
+      draftWakeWordEnabled        !== wakeWordEnabled        ||
+      draftWakeWordSensitivity    !== wakeWordSensitivity    ||
+      draftContinuousConversation !== continuousConversation ||
+      draftOledSleepTimeout       !== oledSleepTimeoutMinutes ||
+      draftAudioInputDeviceId     !== selectedAudioInputDeviceId ||
+      draftAudioOutputDeviceId    !== selectedAudioOutputDeviceId ||
+      draftProactiveEnabled       !== proactiveSuggestionsEnabled ||
+      draftProactiveQuietStart    !== proactiveQuietHoursStart ||
+      draftProactiveQuietEnd      !== proactiveQuietHoursEnd ||
+      draftProactiveDailyLimit    !== proactiveDailyLimit ||
+      draftProactiveCooldown      !== proactiveCooldownMinutes ||
+      draftSpokenEnabled          !== spokenProactiveEnabled ||
+      draftSpokenDailyLimit       !== spokenProactiveDailyLimit ||
+      draftSadikPosition          !== sadikPosition ||
+      draftWeatherEnabled         !== weatherEnabled ||
+      draftWeatherLocation        !== null ||
+      draftWeatherCleared          ||
+      draftPrivacyTierAction       !== null;
+    const wakeChanged =
+      wakeThreshold !== savedWakeThresholdRef.current ||
+      wakeInputGain !== savedWakeInputGainRef.current ||
+      wakeModelPath !== savedWakeModelPathRef.current;
+    setDirty(settingsChanged || draftChanged || wakeChanged);
+  }, [
+    settings,
+    draftWakeWordEnabled, draftWakeWordSensitivity, draftContinuousConversation,
+    draftOledSleepTimeout, draftAudioInputDeviceId, draftAudioOutputDeviceId,
+    draftProactiveEnabled, draftProactiveQuietStart, draftProactiveQuietEnd,
+    draftProactiveDailyLimit, draftProactiveCooldown, draftSpokenEnabled,
+    draftSpokenDailyLimit, draftSadikPosition, draftWeatherEnabled,
+    draftWeatherLocation, draftWeatherCleared, draftPrivacyTierAction,
+    wakeThreshold, wakeInputGain, wakeModelPath,
+    wakeWordEnabled, wakeWordSensitivity, continuousConversation,
+    oledSleepTimeoutMinutes, selectedAudioInputDeviceId, selectedAudioOutputDeviceId,
+    proactiveSuggestionsEnabled, proactiveQuietHoursStart, proactiveQuietHoursEnd,
+    proactiveDailyLimit, proactiveCooldownMinutes, spokenProactiveEnabled,
+    spokenProactiveDailyLimit, sadikPosition, weatherEnabled,
+  ]);
 
-  const applyWakeDetectionSettings = async (threshold: number, gain: number) => {
-    try {
-      await wakeApi.updateSettings({ wake_threshold: threshold, wake_input_gain: gain });
-      showToast('Algılama ayarları güncellendi', 'success');
-    } catch {
-      showToast('Ayarlar güncellenemedi', 'error');
-    }
-  };
+  // beforeunload guard — warn if user closes window with unsaved changes.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
+
+  // In-app navigation guard. Intercepts clicks on app navigation elements
+  // (anchors, sidebar buttons) at the document level. If draft is dirty,
+  // shows a confirmation dialog before allowing the navigation to proceed.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (ev: MouseEvent) => {
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      // Find nearest <a> or [data-nav-link] ancestor — those represent route
+      // changes outside the SettingsPage container.
+      const navEl = target.closest('a[href], [data-nav-link]') as HTMLElement | null;
+      if (!navEl) return;
+      // Ignore clicks inside the SettingsPage main content (it has no nav
+      // anchors of its own that change route).
+      if (navEl.closest('[data-settings-page]')) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const click = () => navEl.click();
+      setUnsavedDialog({ onConfirm: () => { savedSettingsRef.current = settings; setDirty(false); setTimeout(click, 0); } });
+    };
+    document.addEventListener('click', handler, true);
+    return () => document.removeEventListener('click', handler, true);
+  }, [dirty, settings]);
 
   const set = (key: string, value: string) =>
     setSettings((prev) => ({ ...prev, [key]: value }));
 
+  // Reset every draft + the editable-settings object back to the last
+  // persisted snapshot. Used by "Vazgeç" and the unsaved-changes dialog.
+  const cancelDraft = () => {
+    setSettings(savedSettingsRef.current);
+    setWakeThreshold(savedWakeThresholdRef.current);
+    setWakeInputGain(savedWakeInputGainRef.current);
+    setWakeModelPath(savedWakeModelPathRef.current);
+    setDraftWakeWordEnabled(wakeWordEnabled);
+    setDraftWakeWordSensitivity(wakeWordSensitivity);
+    setDraftContinuousConversation(continuousConversation);
+    setDraftOledSleepTimeout(oledSleepTimeoutMinutes);
+    setDraftAudioInputDeviceId(selectedAudioInputDeviceId);
+    setDraftAudioOutputDeviceId(selectedAudioOutputDeviceId);
+    setDraftProactiveEnabled(proactiveSuggestionsEnabled);
+    setDraftProactiveQuietStart(proactiveQuietHoursStart);
+    setDraftProactiveQuietEnd(proactiveQuietHoursEnd);
+    setDraftProactiveDailyLimit(proactiveDailyLimit);
+    setDraftProactiveCooldown(proactiveCooldownMinutes);
+    setDraftSpokenEnabled(spokenProactiveEnabled);
+    setDraftSpokenDailyLimit(spokenProactiveDailyLimit);
+    setDraftSadikPosition(sadikPosition);
+    setDraftWeatherEnabled(weatherEnabled);
+    setDraftWeatherLocationLabel(weatherLocationLabel);
+    setDraftWeatherLocation(null);
+    setDraftWeatherCleared(false);
+    setDraftPrivacyTierAction(null);
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
+      // 1) Generic settings (everything except wake_threshold/wake_input_gain).
       await settingsApi.update(settings);
+
+      // 2) Wake model — only if changed.
+      if (wakeModelPath !== savedWakeModelPathRef.current) {
+        try {
+          await wakeApi.selectModel(wakeModelPath);
+        } catch (e: any) {
+          showToast(e?.response?.data?.detail ?? 'Wake modeli yüklenemedi', 'error');
+        }
+      }
+
+      // 3) Wake detection params — always commit so the slider changes stick
+      // even if `settings` happens to be otherwise equal.
+      if (
+        wakeThreshold !== savedWakeThresholdRef.current ||
+        wakeInputGain !== savedWakeInputGainRef.current
+      ) {
+        await wakeApi.updateSettings({
+          wake_threshold: wakeThreshold,
+          wake_input_gain: wakeInputGain,
+        });
+      }
+
+      // 4) AppContext-backed setters (each writes to backend internally).
+      const tasks: Promise<unknown>[] = [];
+      if (draftWakeWordEnabled !== wakeWordEnabled)               tasks.push(Promise.resolve(toggleWakeWord()));
+      if (draftWakeWordSensitivity !== wakeWordSensitivity)       tasks.push(Promise.resolve(setWakeWordSensitivity(draftWakeWordSensitivity)));
+      if (draftContinuousConversation !== continuousConversation) tasks.push(Promise.resolve(setContinuousConversation(draftContinuousConversation)));
+      if (draftOledSleepTimeout !== oledSleepTimeoutMinutes)      tasks.push(setOledSleepTimeout(draftOledSleepTimeout));
+      if (draftAudioInputDeviceId !== selectedAudioInputDeviceId) tasks.push(setSelectedAudioInputDeviceId(draftAudioInputDeviceId));
+      if (draftAudioOutputDeviceId !== selectedAudioOutputDeviceId) tasks.push(setSelectedAudioOutputDeviceId(draftAudioOutputDeviceId));
+      if (draftProactiveEnabled !== proactiveSuggestionsEnabled)  tasks.push(setProactiveSuggestionsEnabled(draftProactiveEnabled));
+      if (draftProactiveQuietStart !== proactiveQuietHoursStart)  tasks.push(setProactiveQuietHoursStart(draftProactiveQuietStart));
+      if (draftProactiveQuietEnd !== proactiveQuietHoursEnd)      tasks.push(setProactiveQuietHoursEnd(draftProactiveQuietEnd));
+      if (draftProactiveDailyLimit !== proactiveDailyLimit)       tasks.push(setProactiveDailyLimit(draftProactiveDailyLimit));
+      if (draftProactiveCooldown !== proactiveCooldownMinutes)    tasks.push(setProactiveCooldownMinutes(draftProactiveCooldown));
+      if (draftSpokenEnabled !== spokenProactiveEnabled)          tasks.push(setSpokenProactiveEnabled(draftSpokenEnabled));
+      if (draftSpokenDailyLimit !== spokenProactiveDailyLimit)    tasks.push(setSpokenProactiveDailyLimit(draftSpokenDailyLimit));
+      if (draftSadikPosition !== sadikPosition)                   tasks.push(setSadikPosition(draftSadikPosition));
+      if (draftWeatherEnabled !== weatherEnabled)                 tasks.push(setWeatherEnabled(draftWeatherEnabled));
+      if (weatherKeyDraft !== weatherApiKey)                      tasks.push(setWeatherApiKey(weatherKeyDraft));
+      if (draftWeatherCleared)                                    tasks.push(Promise.resolve(clearWeatherLocation()));
+      if (draftWeatherLocation)                                   tasks.push(setWeatherLocation(draftWeatherLocation));
+      await Promise.allSettled(tasks);
+
+      // 5) Privacy tier — applied last so its broadcast flag updates win.
+      if (draftPrivacyTierAction) {
+        try {
+          const res = await privacyApi.setTier(draftPrivacyTierAction);
+          setPrivacyTier(res.tier);
+          Object.entries(res.flags).forEach(([k, v]) => set(k, v ? 'true' : 'false'));
+          set('privacy_tier', res.tier);
+        } catch {
+          showToast('Gizlilik modu güncellenemedi', 'error');
+        }
+      }
+
+      // Snapshot the new persisted state.
+      savedSettingsRef.current = settings;
+      savedWakeThresholdRef.current = wakeThreshold;
+      savedWakeInputGainRef.current = wakeInputGain;
+      savedWakeModelPathRef.current = wakeModelPath;
+      setDraftWeatherLocation(null);
+      setDraftWeatherCleared(false);
+      setDraftPrivacyTierAction(null);
 
       const prevName  = savedPersonalizationRef.current.user_name;
       const prevStyle = savedPersonalizationRef.current.greeting_style;
@@ -209,6 +426,7 @@ const [saving, setSaving] = useState(false);
       } else {
         showToast('Ayarlar kaydedildi', 'success');
       }
+      setDirty(false);
     } catch {
       showToast('Ayarlar kaydedilemedi', 'error');
     }
@@ -220,29 +438,17 @@ const [saving, setSaving] = useState(false);
     setPorts(p);
   };
 
-  const handlePrivacyToggle = async (key: string, value: boolean) => {
-    set(key, value ? 'true' : 'false');
-    try {
-      await settingsApi.update({ [key]: value ? 'true' : 'false', privacy_tier: 'custom' });
-      setPrivacyTier('custom');
-    } catch {
-      showToast('Ayar kaydedilemedi', 'error');
-    }
+  const handlePrivacyToggle = (key: string, value: boolean) => {
+    // Draft-only — committed on Save. Mark tier custom in the local snapshot.
+    setSettings((prev) => ({ ...prev, [key]: value ? 'true' : 'false', privacy_tier: 'custom' }));
+    setPrivacyTier('custom');
+    setDraftPrivacyTierAction(null);
   };
 
-  const handleTierSelect = async (tier: 'full' | 'hybrid' | 'local') => {
-    setTierApplying(true);
-    try {
-      const res = await privacyApi.setTier(tier);
-      setPrivacyTier(res.tier);
-      Object.entries(res.flags).forEach(([k, v]) => set(k, v ? 'true' : 'false'));
-      set('privacy_tier', res.tier);
-      showToast('Gizlilik modu güncellendi', 'success');
-    } catch {
-      showToast('Gizlilik modu güncellenemedi', 'error');
-    } finally {
-      setTierApplying(false);
-    }
+  const handleTierSelect = (tier: 'full' | 'hybrid' | 'local') => {
+    // Draft-only — actual privacyApi.setTier call deferred to handleSave.
+    setDraftPrivacyTierAction(tier);
+    setPrivacyTier(tier);
   };
 
   useEffect(() => {
@@ -326,7 +532,7 @@ const [saving, setSaving] = useState(false);
 
   return (
     <>
-    <div className="h-full overflow-y-auto p-6 page-transition">
+    <div data-settings-page className="h-full overflow-y-auto p-6 page-transition">
       <div className="max-w-2xl mx-auto">
         <h1 className="text-xl font-bold text-text-primary mb-6">Ayarlar</h1>
 
@@ -400,16 +606,16 @@ const [saving, setSaving] = useState(false);
               </p>
             </div>
             <button
-              onClick={() => setWeatherEnabled(!weatherEnabled)}
+              onClick={() => setDraftWeatherEnabled((v) => !v)}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                ${weatherEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
+                ${draftWeatherEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
             >
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                ${weatherEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                ${draftWeatherEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
 
-          {weatherEnabled && (
+          {draftWeatherEnabled && (
             <>
               <Field label="OpenWeatherMap Erişim Anahtarı">
                 <div className="relative">
@@ -417,7 +623,6 @@ const [saving, setSaving] = useState(false);
                     type={showWeatherKey ? 'text' : 'password'}
                     value={weatherKeyDraft}
                     onChange={(e) => setWeatherKeyDraft(e.target.value)}
-                    onBlur={() => { if (weatherKeyDraft !== weatherApiKey) setWeatherApiKey(weatherKeyDraft); }}
                     placeholder="openweathermap.org üzerinden ücretsiz alınabilir"
                     className="input-field pr-10"
                   />
@@ -430,11 +635,18 @@ const [saving, setSaving] = useState(false);
                 </div>
               </Field>
               <Field label="Konum">
-                {weatherLocationLabel ? (
+                {(() => {
+                  const effectiveLabel = draftWeatherCleared
+                    ? ''
+                    : (draftWeatherLocation?.label ?? weatherLocationLabel);
+                  return effectiveLabel;
+                })() ? (
                   <div className="flex items-center justify-between gap-3 bg-bg-input border border-border rounded-btn px-3 py-2">
-                    <span className="text-sm text-text-primary truncate">{weatherLocationLabel}</span>
+                    <span className="text-sm text-text-primary truncate">
+                      {draftWeatherLocation?.label ?? weatherLocationLabel}
+                    </span>
                     <button
-                      onClick={() => { clearWeatherLocation(); setLocQuery(''); }}
+                      onClick={() => { setDraftWeatherCleared(true); setDraftWeatherLocation(null); setLocQuery(''); }}
                       className="text-xs text-text-muted hover:text-accent-red transition-colors flex-shrink-0"
                     >
                       Değiştir
@@ -464,7 +676,8 @@ const [saving, setSaving] = useState(false);
                           <button
                             key={`${r.lat},${r.lon},${r.label}`}
                             onClick={() => {
-                              setWeatherLocation({ label: r.label, lat: r.lat, lon: r.lon });
+                              setDraftWeatherLocation({ label: r.label, lat: r.lat, lon: r.lon });
+                              setDraftWeatherCleared(false);
                               setLocQuery('');
                               setLocResults([]);
                             }}
@@ -510,8 +723,8 @@ const [saving, setSaving] = useState(false);
           </p>
           <Field label="Ekran uyku süresi">
             <select
-              value={String(oledSleepTimeoutMinutes)}
-              onChange={(e) => setOledSleepTimeout(Number(e.target.value))}
+              value={String(draftOledSleepTimeout)}
+              onChange={(e) => setDraftOledSleepTimeout(Number(e.target.value))}
               className="input-field"
             >
               <option value="0">Kapalı</option>
@@ -654,8 +867,8 @@ const [saving, setSaving] = useState(false);
 
           <Field label="Sadık'ın Konumu">
             <select
-              value={sadikPosition}
-              onChange={(e) => setSadikPosition(e.target.value as 'left' | 'right' | 'top')}
+              value={draftSadikPosition}
+              onChange={(e) => setDraftSadikPosition(e.target.value as 'left' | 'right' | 'top')}
               className="input-field"
             >
               <option value="left">Sol</option>
@@ -770,11 +983,11 @@ const [saving, setSaving] = useState(false);
 
           <Field label="Uyandırma Kelimesi">
             <button
-              onClick={toggleWakeWord}
+              onClick={() => setDraftWakeWordEnabled((v) => !v)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors
-                ${wakeWordEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
+                ${draftWakeWordEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                ${wakeWordEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                ${draftWakeWordEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
             <p className="text-[11px] text-text-muted mt-1.5">
               Yerel ses algılama — uygulama açıkken aktif olur. Şu an söylenmesi gereken uyandırma kelimesi: <strong>"Hey Jarvis"</strong>
@@ -784,8 +997,7 @@ const [saving, setSaving] = useState(false);
           <Field label="Uyandırma Modeli">
             <select
               value={wakeModelPath}
-              onChange={(e) => applyWakeModel(e.target.value)}
-              disabled={applyingWake}
+              onChange={(e) => setWakeModelPath(e.target.value)}
               className="input-field"
             >
               <option value="">Varsayılan — Hey Jarvis (yerleşik)</option>
@@ -794,15 +1006,15 @@ const [saving, setSaving] = useState(false);
               ))}
             </select>
             <p className="text-[11px] text-text-muted mt-1.5">
-              <code>sadik-backend/app/wake_models/</code> klasörüne .onnx dosyası ekleyip listeden seçin. Değişiklik anında uygulanır.
+              <code>sadik-backend/app/wake_models/</code> klasörüne .onnx dosyası ekleyip listeden seçin. Değişiklik Kaydet'e basınca uygulanır.
             </p>
           </Field>
 
-          {wakeWordEnabled && (
+          {draftWakeWordEnabled && (
             <Field label="Uyandırma Hassasiyeti">
               <select
-                value={wakeWordSensitivity}
-                onChange={(e) => setWakeWordSensitivity(e.target.value)}
+                value={draftWakeWordSensitivity}
+                onChange={(e) => setDraftWakeWordSensitivity(e.target.value)}
                 className="input-field"
               >
                 <option value="very_high">Çok hassas — uzak mikrofon için</option>
@@ -813,19 +1025,13 @@ const [saving, setSaving] = useState(false);
             </Field>
           )}
 
-          {/* Wake detection tuning sliders */}
+          {/* Wake detection tuning sliders — draft only, committed on Save. */}
           <Field label={`Algılama Eşiği — ${wakeThreshold.toFixed(2)}`}>
             <input
               type="range"
               min={0.1} max={0.9} step={0.05}
               value={wakeThreshold}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                wakeThresholdRef.current = v;
-                setWakeThreshold(v);
-              }}
-              onMouseUp={() => applyWakeDetectionSettings(wakeThresholdRef.current, wakeInputGainRef.current)}
-              onTouchEnd={() => applyWakeDetectionSettings(wakeThresholdRef.current, wakeInputGainRef.current)}
+              onChange={(e) => setWakeThreshold(parseFloat(e.target.value))}
               className="w-full accent-accent-purple"
             />
             <p className="text-[11px] text-text-muted mt-1">
@@ -838,13 +1044,7 @@ const [saving, setSaving] = useState(false);
               type="range"
               min={1.0} max={3.0} step={0.1}
               value={wakeInputGain}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                wakeInputGainRef.current = v;
-                setWakeInputGain(v);
-              }}
-              onMouseUp={() => applyWakeDetectionSettings(wakeThresholdRef.current, wakeInputGainRef.current)}
-              onTouchEnd={() => applyWakeDetectionSettings(wakeThresholdRef.current, wakeInputGainRef.current)}
+              onChange={(e) => setWakeInputGain(parseFloat(e.target.value))}
               className="w-full accent-accent-purple"
             />
             <p className="text-[11px] text-text-muted mt-1">
@@ -860,11 +1060,11 @@ const [saving, setSaving] = useState(false);
               </p>
             </div>
             <button
-              onClick={() => setContinuousConversation(!continuousConversation)}
+              onClick={() => setDraftContinuousConversation((v) => !v)}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                ${continuousConversation ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
+                ${draftContinuousConversation ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                ${continuousConversation ? 'translate-x-6' : 'translate-x-1'}`} />
+                ${draftContinuousConversation ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
         </Section>
@@ -877,8 +1077,8 @@ const [saving, setSaving] = useState(false);
           <Field label="Mikrofon">
             <div className="flex gap-2">
               <select
-                value={selectedAudioInputDeviceId}
-                onChange={(e) => setSelectedAudioInputDeviceId(e.target.value)}
+                value={draftAudioInputDeviceId}
+                onChange={(e) => setDraftAudioInputDeviceId(e.target.value)}
                 className="flex-1 input-field"
               >
                 <option value="default">Sistem varsayılanı</option>
@@ -899,8 +1099,8 @@ const [saving, setSaving] = useState(false);
           </Field>
           <Field label="Hoparlör / Çıkış">
             <select
-              value={selectedAudioOutputDeviceId}
-              onChange={(e) => setSelectedAudioOutputDeviceId(e.target.value)}
+              value={draftAudioOutputDeviceId}
+              onChange={(e) => setDraftAudioOutputDeviceId(e.target.value)}
               className="input-field"
             >
               <option value="default">Sistem varsayılanı</option>
@@ -957,23 +1157,23 @@ const [saving, setSaving] = useState(false);
               </p>
             </div>
             <button
-              onClick={() => setProactiveSuggestionsEnabled(!proactiveSuggestionsEnabled)}
+              onClick={() => setDraftProactiveEnabled((v) => !v)}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                ${proactiveSuggestionsEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
+                ${draftProactiveEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
             >
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                ${proactiveSuggestionsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                ${draftProactiveEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
 
-          {proactiveSuggestionsEnabled && (
+          {draftProactiveEnabled && (
             <>
               {/* Quiet hours */}
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Sessiz saat başlangıcı">
                   <select
-                    value={proactiveQuietHoursStart}
-                    onChange={(e) => setProactiveQuietHoursStart(e.target.value)}
+                    value={draftProactiveQuietStart}
+                    onChange={(e) => setDraftProactiveQuietStart(e.target.value)}
                     className="input-field"
                   >
                     {Array.from({ length: 24 }, (_, h) => {
@@ -984,8 +1184,8 @@ const [saving, setSaving] = useState(false);
                 </Field>
                 <Field label="Sessiz saat bitişi">
                   <select
-                    value={proactiveQuietHoursEnd}
-                    onChange={(e) => setProactiveQuietHoursEnd(e.target.value)}
+                    value={draftProactiveQuietEnd}
+                    onChange={(e) => setDraftProactiveQuietEnd(e.target.value)}
                     className="input-field"
                   >
                     {Array.from({ length: 24 }, (_, h) => {
@@ -1002,8 +1202,8 @@ const [saving, setSaving] = useState(false);
               {/* Daily limit */}
               <Field label="Günlük maksimum öneri">
                 <select
-                  value={String(proactiveDailyLimit)}
-                  onChange={(e) => setProactiveDailyLimit(Number(e.target.value))}
+                  value={String(draftProactiveDailyLimit)}
+                  onChange={(e) => setDraftProactiveDailyLimit(Number(e.target.value))}
                   className="input-field"
                 >
                   <option value="1">1 öneri</option>
@@ -1020,8 +1220,8 @@ const [saving, setSaving] = useState(false);
               {/* Cooldown */}
               <Field label="Öneriler arası bekleme">
                 <select
-                  value={String(proactiveCooldownMinutes)}
-                  onChange={(e) => setProactiveCooldownMinutes(Number(e.target.value))}
+                  value={String(draftProactiveCooldown)}
+                  onChange={(e) => setDraftProactiveCooldown(Number(e.target.value))}
                   className="input-field"
                 >
                   <option value="15">15 dakika</option>
@@ -1043,21 +1243,21 @@ const [saving, setSaving] = useState(false);
                     </p>
                   </div>
                   <button
-                    onClick={() => setSpokenProactiveEnabled(!spokenProactiveEnabled)}
+                    onClick={() => setDraftSpokenEnabled((v) => !v)}
                     className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                      ${spokenProactiveEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
+                      ${draftSpokenEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
                   >
                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                      ${spokenProactiveEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                      ${draftSpokenEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                   </button>
                 </div>
 
-                {spokenProactiveEnabled && (
+                {draftSpokenEnabled && (
                   <div className="mt-3">
                     <Field label="Günlük sesli öneri sınırı">
                       <select
-                        value={String(spokenProactiveDailyLimit)}
-                        onChange={(e) => setSpokenProactiveDailyLimit(Number(e.target.value))}
+                        value={String(draftSpokenDailyLimit)}
+                        onChange={(e) => setDraftSpokenDailyLimit(Number(e.target.value))}
                         className="input-field"
                       >
                         <option value="0">Kapalı</option>
@@ -1093,7 +1293,7 @@ const [saving, setSaving] = useState(false);
               return (
                 <button
                   key={id}
-                  onClick={() => { set('user_persona', id); settingsApi.update({ user_persona: id }).catch(() => {}); }}
+                  onClick={() => set('user_persona', id)}
                   className={`text-left p-3 rounded-btn border transition-colors
                     ${active
                       ? 'bg-accent-purple/10 border-accent-purple'
@@ -1126,7 +1326,6 @@ const [saving, setSaving] = useState(false);
                   <button
                     key={id}
                     onClick={() => handleTierSelect(id)}
-                    disabled={tierApplying}
                     className={`text-left p-3 rounded-btn border transition-colors disabled:opacity-60
                       ${active
                         ? 'bg-accent-purple/10 border-accent-purple'
@@ -1216,10 +1415,21 @@ const [saving, setSaving] = useState(false);
           </button>
         </Section>
 
-        <button onClick={handleSave} disabled={saving}
-          className="w-full py-3 bg-accent-purple hover:bg-accent-purple-hover text-white font-semibold rounded-btn transition-colors disabled:opacity-60 text-sm mt-2">
-          {saving ? 'Kaydediliyor...' : 'Kaydet'}
-        </button>
+        {dirty && (
+          <p className="text-xs text-accent-orange text-center mt-2">
+            Kaydedilmemiş değişiklikler var.
+          </p>
+        )}
+        <div className="flex gap-2 mt-2">
+          <button onClick={cancelDraft} disabled={saving || !dirty}
+            className="flex-1 py-3 bg-bg-input border border-border text-text-secondary hover:text-text-primary font-medium rounded-btn transition-colors disabled:opacity-40 text-sm">
+            Vazgeç
+          </button>
+          <button onClick={handleSave} disabled={saving || !dirty}
+            className="flex-[2] py-3 bg-accent-purple hover:bg-accent-purple-hover text-white font-semibold rounded-btn transition-colors disabled:opacity-60 text-sm">
+            {saving ? 'Kaydediliyor...' : 'Kaydet'}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -1283,6 +1493,38 @@ const [saving, setSaving] = useState(false);
               </button>
             </>
           )}
+        </div>
+      </div>
+    )}
+
+    {/* Unsaved changes confirmation */}
+    {unsavedDialog && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="bg-bg-card border border-border rounded-card w-full max-w-sm p-6 space-y-4">
+          <h3 className="text-base font-bold text-text-primary">Kaydedilmemiş değişiklikler</h3>
+          <p className="text-sm text-text-secondary leading-relaxed">
+            Bu sayfada kaydedilmemiş değişiklikler var. Çıkmadan önce ne yapmak istersin?
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={async () => { const cb = unsavedDialog.onConfirm; setUnsavedDialog(null); await handleSave(); cb(); }}
+              className="w-full py-2.5 text-sm rounded-btn bg-accent-purple text-white font-semibold hover:bg-accent-purple-hover transition-colors"
+            >
+              Kaydet
+            </button>
+            <button
+              onClick={() => { const cb = unsavedDialog.onConfirm; cancelDraft(); setUnsavedDialog(null); cb(); }}
+              className="w-full py-2 text-sm rounded-btn bg-bg-input border border-border text-text-secondary hover:text-text-primary transition-colors"
+            >
+              Yine de çık (değişiklikleri at)
+            </button>
+            <button
+              onClick={() => setUnsavedDialog(null)}
+              className="w-full py-2 text-xs text-text-muted hover:text-text-secondary transition-colors"
+            >
+              İptal
+            </button>
+          </div>
         </div>
       </div>
     )}

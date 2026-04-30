@@ -346,6 +346,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const autoConnectDevice = useCallback(async () => {
     try {
+      // Pre-check: if backend already reports connected, skip the auto-connect
+      // round-trip entirely. Even though the backend auto_connect path is
+      // idempotent, avoiding the request reduces log noise and removes any
+      // residual chance of a race that would close-and-reopen the serial port
+      // (which auto-resets the ESP32 via DTR pulse on Windows).
+      const current = await deviceApi.getStatus().catch(() => null);
+      if (current?.connected) {
+        setDeviceStatus(current);
+        showToast('SADIK cihazı zaten bağlı', 'info');
+        return;
+      }
       const result = await deviceApi.autoConnect();
       const status = await deviceApi.getStatus();
       setDeviceStatus(status);
@@ -2012,6 +2023,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // Transition to break mode, play the mod_break intro fully, then let
           // upcoming timer_tick ticks render the MM:SS countdown.
           showToast('Pomodoro oturumu tamamlandı!', 'success');
+          // Native OS notification — tray/blur durumunda kullanıcı haberdar olsun
+          try {
+            const electron = (window as any).sadikElectron;
+            if (electron?.showNotification) {
+              electron.showNotification('SADIK — Pomodoro', 'Çalışma süresi bitti, mola zamanı!');
+            }
+          } catch { /* best-effort */ }
           suppressBreakTimerDisplayRef.current = true;
           modesApi.setMode('break').then(() => setCurrentMode('break')).catch(() => {});
           {
@@ -2034,6 +2052,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           clearBreakAcceptedInsightRef.current();
           _speakProactiveRef.current('Mola bitti. Hazırsan devam edelim.');
           showToast('Mola sona erdi!', 'info');
+          // Native OS notification — tray/blur durumunda kullanıcı haberdar olsun
+          try {
+            const electron = (window as any).sadikElectron;
+            if (electron?.showNotification) {
+              electron.showNotification('SADIK — Mola Bitti', 'Hazırsan çalışmaya devam edelim.');
+            }
+          } catch { /* best-effort */ }
           getAnimationEngine().triggerEvent('return_to_idle');
           modesApi.endCurrent().then(() => setCurrentMode(null)).catch(() => {});
           break;
@@ -2113,7 +2138,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [showToast, showText, returnToIdle, triggerEvent, getLoadedClipNames, pauseWakeWord, resumeWakeWord]
   );
 
-  useWebSocket(handleWSMessage);
+  // On WS (re)connect, refetch device status. Backend may have started
+  // after the app, in which case the initial getStatus() failed with
+  // ECONNREFUSED and deviceStatus is stale. WS-onopen is the earliest
+  // signal that backend is ready, so we resync here.
+  const handleWSOpen = useCallback(() => {
+    deviceApi
+      .getStatus()
+      .then((status) => {
+        setDeviceStatus(status);
+        // Recover device profile when the live device_profile WS broadcast
+        // happened before this client was connected (e.g. backend startup
+        // auto-connect fired during the WS reconnect loop). Without this,
+        // connectedDevice stays null → variant stays null → frame pump
+        // skips forever → preview + OLED frozen.
+        const line = (status as unknown as { device_line?: string | null }).device_line;
+        if (line) {
+          const profile = parseDeviceLine(line);
+          if (profile) setConnectedDevice(profile);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useWebSocket(handleWSMessage, handleWSOpen);
 
   // Manual pomodoro-stop mid-break: if the user hit "Bitir" on the Pomodoro
   // timer during a break phase while break mode is active, exit break mode

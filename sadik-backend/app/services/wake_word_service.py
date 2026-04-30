@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 SAMPLE_RATE        = 16000
 DEFAULT_THRESHOLD  = 0.35   # custom model için düşürüldü (önceki 0.7 idi)
-DEFAULT_INPUT_GAIN = 1.5    # pre-inference amplification (1.0 = kapalı)
+DEFAULT_INPUT_GAIN = 1.9    # pre-inference amplification (1.0 = kapalı)
 CHUNK_SAMPLES      = 1280   # 80 ms @ 16 kHz — openWakeWord beklentisi
 # sounddevice'in native rate'i genellikle 48000; basit decimation ile 16k'ya indiriyoruz.
 NATIVE_RATE   = 48000

@@ -63,7 +63,6 @@ export function useAnimationEngine(
   deviceVariant: 'mini' | 'color' | null = null,
 ) {
   const engine = getAnimationEngine();
-  const rafRef = useRef<number | null>(null);
   const bufferRef = useRef<Uint8Array>(new Uint8Array(1024));
   const [engineState, setEngineState] = useState<EngineState>(defaultEngineState);
   // frameVersion increments to signal canvas needs a repaint
@@ -326,17 +325,19 @@ export function useAnimationEngine(
     // Load clips on mount (per active persona)
     engine.loadClips(personaSlug);
 
-    // rAF loop — drives the engine clock only. Preview repaint and OLED send
-    // both happen inside onFrameReady, so they share the same cadence.
-    const loop = (timestamp: number) => {
-      engine.update(timestamp);
-      rafRef.current = requestAnimationFrame(loop);
-    };
-
-    rafRef.current = requestAnimationFrame(loop);
+    // Engine clock — wall-clock interval (NOT rAF) so animations keep running
+    // when the window is unfocused/hidden. Chromium throttles rAF to ~1Hz on
+    // blur even with Electron's backgroundThrottling=false, which previously
+    // froze blink/idle on the OLED while the app was in tray.
+    // 60ms ≈ 16fps gives the 12fps engine a safe oversample without burning CPU.
+    const ENGINE_TICK_MS = 60;
+    const tickRef: { id: ReturnType<typeof setInterval> | null } = { id: null };
+    tickRef.id = setInterval(() => {
+      engine.update(performance.now());
+    }, ENGINE_TICK_MS);
 
     return () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (tickRef.id !== null) clearInterval(tickRef.id);
       pumpAlive = false;
       if (pendingColorClipTimerRef.current) {
         clearTimeout(pendingColorClipTimerRef.current);
@@ -361,6 +362,10 @@ export function useAnimationEngine(
   // Tracks window focus state via Electron IPC when available, falling back to
   // document visibility / window focus events for web/dev builds.
   const windowFocusedRef = useRef(false);
+  // Ref so the focus listener closure (registered once with []) reads the
+  // current sadikPosition instead of the value captured at mount.
+  const sadikPositionRef = useRef(sadikPosition);
+  useEffect(() => { sadikPositionRef.current = sadikPosition; }, [sadikPosition]);
 
   // Re-apply focus-look whenever sadikPosition changes while window is focused.
   useEffect(() => {
@@ -372,7 +377,7 @@ export function useAnimationEngine(
     const applyFocus = (focused: boolean) => {
       windowFocusedRef.current = focused;
       if (focused) {
-        engine.setFocusLook(positionToClipDirection(sadikPosition));
+        engine.setFocusLook(positionToClipDirection(sadikPositionRef.current));
       } else {
         engine.setFocusLook(null);
       }

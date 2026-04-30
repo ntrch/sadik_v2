@@ -138,7 +138,11 @@ async def speech_to_text(
     try:
         text = await voice_service.stt(audio_bytes, api_key, prompt=prompt, fast=bool(fast))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty text on transient failures (timeout, 5xx, network) so
+        # the frontend can recover gracefully (handleDidntHear) instead of
+        # surfacing a 500 to the user.
+        logger.warning(f"STT failed transiently, returning empty: {e}")
+        return {"text": ""}
 
     # Hallucination filter — ONLY for wake-word detection chunks.
     # Conversation recordings skip the filter; the frontend has its own

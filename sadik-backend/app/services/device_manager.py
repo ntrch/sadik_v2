@@ -12,6 +12,19 @@ class DeviceManager:
         self._ip: Optional[str] = None
 
     async def connect(self, method: str, port: Optional[str] = None, ip: Optional[str] = None, baudrate: int = 460800) -> bool:
+        # Idempotency guard: if we are already connected to the requested target,
+        # skip the disconnect+reopen cycle. Reopening serial pulses DTR on Windows
+        # and resets the ESP32 (visible as boot screen on OLED). Only re-establish
+        # when the target actually differs or the underlying link is unhealthy.
+        if method == "serial" and self._method == "serial" and serial_service.is_connected:
+            same_target = (port is None) or (port == "auto") or (port == self._port)
+            if same_target:
+                logger.info(f"connect(serial) noop — already connected on {self._port}")
+                return True
+        if method == "wifi" and self._method == "wifi" and ip and ip == self._ip:
+            logger.info(f"connect(wifi) noop — already connected to {self._ip}")
+            return True
+
         await self.disconnect()
         if method == "serial":
             success = await serial_service.open(port or "auto", baudrate)
@@ -122,6 +135,7 @@ class DeviceManager:
             "method": self._method,
             "port": self._port,
             "ip": self._ip,
+            "device_line": serial_service.last_device_line if self._method == "serial" else None,
         }
 
 device_manager = DeviceManager()

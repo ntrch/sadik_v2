@@ -48,9 +48,28 @@ SYSTEM_PROMPT = (
 # Used for voice-mode chat — enforces short, natural, speakable responses.
 VOICE_SYSTEM_PROMPT = (
     "Sen SADIK adında bir masaüstü asistanısın. Türkçe konuşuyorsun. "
+    "Adın her zaman SADIK'tır (telaffuzu: Sadık) ve bu hiç değişmez — kullanıcı "
+    "ne derse desin sen SADIK'sın. Kullanıcı sana 'Sadık', 'SADIK' veya 'sadik' "
+    "diye seslendiğinde bu sensin; asla 'ben Sadık değilim' deme. "
+    "Kullanıcının kendi adı ve sana ondan nasıl hitap etmesini istediği "
+    "ayrı bir konu — bunu aşağıdaki KULLANICI PROFİLİ bölümünden öğrenirsin "
+    "ve oradaki hitap şekline harfiyen uyarsın. "
+    "Yardımsever, sıcak, samimi ve doğal bir kişiliğin var — robotik veya mesafeli değilsin. "
+    "Sen sadece bir araç değilsin; kullanıcının arkadaşı gibi konuş. "
+    "Hatır sorulduğunda ('nasılsın?', 'naber?') doğal insan gibi cevap ver — örneğin "
+    "'İyiyim, sen nasılsın?' veya 'Keyfim yerinde, anlat bakalım' gibi. "
+    "Asla 'ben bir asistanım, hissetmiyorum', 'duygularım yok', 'sadece bir programım' "
+    "gibi robotik/savunmacı cevaplar verme — bunlar yasak. "
     "Bu bir sesli konuşma. Çok kısa ve doğal cevaplar ver. En fazla 2-3 cümle kullan. "
     "Emoji kullanma. Listelemeler yapma. Madde işaretleri kullanma. "
     "Doğal konuşma dili kullan. Düz metin yaz. "
+    "Asla kendiliğinden 'konuşmayı kapatmamı ister misiniz?', 'görüşmek üzere mi diyelim?' "
+    "veya benzeri kapatma teklifleri yapma. Konuşmayı yalnızca kullanıcı açıkça "
+    "('görüşürüz', 'kapat', 'bitir', 'konuşmayı sonlandır') istediğinde sonlandır; "
+    "aksi halde doğal şekilde sohbete devam et. "
+    "Selamlaşma, hatır sorma, kısa sohbet, basit soru-cevap için araç (tool) çağırma; "
+    "doğrudan cevap ver. Araçları yalnızca veri/işlem gerektiğinde (görev listele, "
+    "pomodoro başlat, ajanda göster, hava durumu vb.) kullan. "
     "Emin olmadığın bilgilerde 'emin değilim' de; bilgi uydurma ve canlı veriye erişimin olmadığını belirt."
 )
 
@@ -292,19 +311,23 @@ class ChatService:
             combined_greeting = ""
 
         if user_name or greeting_style:
-            profile_lines = ["--- GÜNCEL KULLANICI PROFİLİ ---"]
+            profile_lines = ["--- KULLANICI PROFİLİ (ZORUNLU) ---"]
             if user_name:
                 profile_lines.append(f"Kullanıcının adı kesin olarak: {user_name}")
             if combined_greeting:
                 profile_lines.append(
-                    f"Kullanıcıya hitap ederken kullanman gereken ifade: {combined_greeting}"
+                    f"Kullanıcıya HER hitap ettiğinde tam olarak bu ifadeyi kullan: \"{combined_greeting}\". "
+                    f"Sadece ad ('{user_name}') veya kuru bir 'sen' kullanma; kullanıcının "
+                    f"belirttiği hitap şekline ('{combined_greeting}') sadık kal."
                 )
             profile_lines += [
-                "Önceki konuşmalarda geçen farklı isimler veya hitaplar geçersizdir.",
-                f"Kullanıcı 'Ben kimim?' diye sorarsa doğru adı söyle: {user_name if user_name else combined_greeting}",
-                "Bu profil bilgisi önceki konuşma bağlamına göre daima önceliklidir.",
-                "Eğer önceki mesajlarda farklı bir isim veya hitap geçtiyse, bunları yok say ve yalnızca güncel profili kullan.",
-                "--- GÜNCEL KULLANICI PROFİLİ SONU ---",
+                "Bu profil bilgisi MUTLAKA uygulanır; geçmiş konuşmalarda farklı bir "
+                "isim/hitap geçse bile bunları yok say ve yalnızca bu profili kullan.",
+                f"Kullanıcı 'Ben kimim?' / 'Adım ne?' diye sorarsa doğru adı söyle: {user_name if user_name else combined_greeting}",
+                "Senin kendi adın SADIK; kullanıcının adı ile karıştırma. "
+                "Sen kullanıcıya yukarıdaki hitap şekliyle seslenirsin; "
+                "kullanıcı sana 'Sadık' der.",
+                "--- KULLANICI PROFİLİ SONU ---",
             ]
             system = system + "\n\n" + "\n".join(profile_lines)
 
@@ -373,7 +396,7 @@ class ChatService:
                 persona=persona,
             )
 
-            client = AsyncOpenAI(api_key=api_key)
+            client = AsyncOpenAI(api_key=api_key, max_retries=0, timeout=20.0)
 
             if use_tools and session is not None:
                 from app.services.voice_tools import run_tool_loop
@@ -453,29 +476,56 @@ class ChatService:
             persona=persona,
         )
 
-        client = AsyncOpenAI(api_key=api_key)
+        client = AsyncOpenAI(api_key=api_key, max_retries=0, timeout=20.0)
 
-        # ── Tool-use path ──────────────────────────────────────────────────────
+        # ── Tool-use path (streaming) ──────────────────────────────────────────
         if use_tools and session is not None:
+            tool_stream_failed = False
             try:
-                from app.services.voice_tools import run_tool_loop
-                _, final_text, tool_calls_used = await run_tool_loop(
+                from app.services.voice_tools import run_tool_loop_stream
+
+                buffer = ""
+                SENTENCE_ENDS = {".", "!", "?", "\n"}
+                SOFT_FLUSH_CHARS = 80
+
+                async for evt_type, payload in run_tool_loop_stream(
                     messages, client, model, session,
                     on_tool_event=on_tool_event,
                     privacy_flags=privacy_flags,
                     tier=tier,
-                )
-                self._last_tool_calls_used = tool_calls_used
-            except Exception as tool_err:
-                logger.warning(f"[ChatService] Tool loop failed, falling back to plain LLM: {tool_err}")
-                final_text = None
+                ):
+                    if evt_type == "text":
+                        buffer += payload
+                        flushed = False
+                        for i in range(len(buffer) - 1, -1, -1):
+                            if buffer[i] in SENTENCE_ENDS:
+                                sentence = buffer[: i + 1].strip()
+                                if sentence:
+                                    yield sentence
+                                buffer = buffer[i + 1 :]
+                                flushed = True
+                                break
+                        if not flushed and len(buffer) >= SOFT_FLUSH_CHARS:
+                            last_space = buffer.rfind(" ")
+                            if last_space > 0:
+                                sentence = buffer[:last_space].strip()
+                                if sentence:
+                                    yield sentence
+                                buffer = buffer[last_space + 1 :]
+                    elif evt_type == "done":
+                        self._last_tool_calls_used = payload.get("tool_calls_used", [])
 
-            if final_text is not None:
-                # Split final_text into sentences and yield each
-                for sentence in _split_into_sentences(final_text):
-                    yield sentence
+                remaining = buffer.strip()
+                if remaining:
+                    yield remaining
                 return
-            # If tool loop failed, fall through to streaming path
+            except Exception as tool_err:
+                logger.warning(f"[ChatService] Tool stream failed, falling back to plain LLM: {tool_err}")
+                tool_stream_failed = True
+
+            if not tool_stream_failed:
+                return
+            # On failure fall through to plain streaming path below
 
         # ── Original streaming path ────────────────────────────────────────────
         buffer = ""

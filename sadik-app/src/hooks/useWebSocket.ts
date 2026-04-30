@@ -8,11 +8,13 @@ export type WSMessage = {
   data: Record<string, unknown>;
 };
 
-export function useWebSocket(onMessage: (msg: WSMessage) => void) {
+export function useWebSocket(onMessage: (msg: WSMessage) => void, onOpen?: () => void) {
   const ws = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
 
   const connect = useCallback(() => {
     try {
@@ -24,6 +26,11 @@ export function useWebSocket(onMessage: (msg: WSMessage) => void) {
         if (reconnectTimer.current) {
           clearTimeout(reconnectTimer.current);
           reconnectTimer.current = null;
+        }
+        try {
+          onOpenRef.current?.();
+        } catch (e) {
+          console.error('WS onopen handler error', e);
         }
       };
 

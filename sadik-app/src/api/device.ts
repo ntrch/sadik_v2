@@ -5,6 +5,7 @@ export interface DeviceStatus {
   method: string | null;
   port: string | null;
   ip: string | null;
+  device_line?: string | null;
 }
 
 export interface SerialPort {

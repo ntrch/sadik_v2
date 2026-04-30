@@ -14,6 +14,10 @@ class DeviceStatusResponse(BaseModel):
     method: Optional[str]
     port: Optional[str]
     ip: Optional[str]
+    # Raw DEVICE: handshake line (e.g. "DEVICE:variant=mini hw=esp32-wroom32 ...").
+    # Included so a late-connecting WS client can recover the device profile via
+    # GET /api/device/status when the live device_profile broadcast was missed.
+    device_line: Optional[str] = None
 
 class AutoConnectResult(BaseModel):
     connected: bool

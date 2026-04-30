@@ -187,6 +187,10 @@ export default function VoiceAssistant() {
   const startListeningRef  = useRef<(_fromWake?: boolean) => Promise<void>>(async () => {});
   const lastReplyRef              = useRef('');
   const userRequestedEndRef       = useRef(false);
+  // Re-entry guard for sequential chunk player (Bug 1: TTS chunks overlap).
+  const isPlayingRef              = useRef(false);
+  // One-shot guard for end-of-conversation logic (Bug 2: end fires twice).
+  const endHandledRef             = useRef(false);
 
   // ── Refs — silence detection ───────────────────────────────────────────────
   const silenceAudioCtxRef       = useRef<AudioContext | null>(null);
@@ -388,9 +392,13 @@ export default function VoiceAssistant() {
       conversationActiveRef.current = false;
       didntHearCountRef.current = 0;
       destroyVAD();
+      // Clear any wake-word trigger that may have fired during the 2.2s
+      // "Duyamadım" message — otherwise the idle-state effect immediately
+      // re-enters listening as soon as we set voiceState='idle'.
+      clearWakeWordPending();
       returnToIdleFlow();
     }
-  }, [triggerEvent, returnToIdleFlow, continuousConversationRef, destroyVAD]);
+  }, [triggerEvent, returnToIdleFlow, continuousConversationRef, destroyVAD, clearWakeWordPending]);
 
   // ── beforeunload + unmount cleanup ────────────────────────────────────────
 
@@ -588,6 +596,10 @@ export default function VoiceAssistant() {
     setVoiceState('processing');
     triggerEvent('processing');   // thinking — loops until understanding_resolved
 
+    // Reset playback/end guards for this conversation turn.
+    isPlayingRef.current  = false;
+    endHandledRef.current = false;
+
     try {
       // ── Step 0a: Blob size guard ──────────────────────────────────────────
       // Guard against empty or suspiciously tiny blobs before hitting STT.
@@ -750,16 +762,25 @@ export default function VoiceAssistant() {
             setVoiceState('speaking');
             triggerEvent('assistant_speaking');
             if (!continuousConversationRef.current) resumeWakeWord();
-            playNextChunk();
+            if (!isPlayingRef.current) playNextChunk();
           }, 600);
+        } else if (!isPlayingRef.current && voiceStateRef.current === 'speaking') {
+          // Player has already drained the queue and is idle — restart it.
+          playNextChunk();
         }
       };
 
-      // Sequential chunk player — called after each chunk finishes playing.
+      // Sequential chunk player — strictly onended-driven.
+      // Re-entry guarded via isPlayingRef so concurrent invocations cannot
+      // start two Audio() elements at once.
       const playNextChunk = () => {
         if (signal.aborted) return;
+        if (isPlayingRef.current) return;   // re-entry guard (Bug 1)
+
         if (playingChunkIdx >= audioQueue.length) {
           if (streamDone) {
+            if (endHandledRef.current) return;   // one-shot guard (Bug 2)
+            endHandledRef.current = true;
             // All chunks played — conversation finished.
             stopSpeakingInterruptDetection();
             const reply = lastReplyRef.current;
@@ -781,8 +802,8 @@ export default function VoiceAssistant() {
               returnTimer.current = setTimeout(() => returnToIdleFlow(), 1200);
             }
           }
-          // else: stream still in progress — onChunk will call playNextChunk
-          // when the next blob arrives via the setTimeout below.
+          // else: stream still in progress — onChunk will re-trigger playback
+          // when the next blob arrives.
           return;
         }
 
@@ -803,33 +824,23 @@ export default function VoiceAssistant() {
 
         audio.onended = () => {
           URL.revokeObjectURL(url);
+          isPlayingRef.current = false;
           playNextChunk();
         };
         audio.onerror = () => {
           URL.revokeObjectURL(url);
+          isPlayingRef.current = false;
           playNextChunk();
         };
 
+        isPlayingRef.current = true;
         audio.play().catch((e) => {
           console.warn('[Voice] Chunk play failed:', e);
           URL.revokeObjectURL(url);
+          isPlayingRef.current = false;
           playNextChunk();
         });
       };
-
-      // Poll for new chunks while stream is in progress (handles chunks arriving
-      // after the player has caught up with the queue).
-      const schedulePoll = () => {
-        if (signal.aborted || streamDone) return;
-        setTimeout(() => {
-          if (playingChunkIdx < audioQueue.length) {
-            // New chunk available — start playing if not already.
-            if (!audioRef.current || audioRef.current.paused) playNextChunk();
-          }
-          schedulePoll();
-        }, 200);
-      };
-      schedulePoll();
 
       // Tool event handler — updates activeTools state for UI indicator.
       const handleToolEvent = (event: { type: 'tool_status'; tool_name: string; phase: 'executing' | 'completed' }) => {
@@ -875,27 +886,12 @@ export default function VoiceAssistant() {
         setVoiceState('speaking');
         triggerEvent('assistant_speaking');
         if (!continuousConversationRef.current) resumeWakeWord();
+        if (!isPlayingRef.current) playNextChunk();
+      } else if (!isPlayingRef.current && playingChunkIdx >= audioQueue.length) {
+        // All chunks already drained before streamDone was set — fall through
+        // to the single end-logic path inside playNextChunk (guarded by
+        // endHandledRef so it can't double-fire with onended).
         playNextChunk();
-      } else if (playingChunkIdx >= audioQueue.length) {
-        // All chunks already played before streamDone was set — trigger finish now.
-        stopSpeakingInterruptDetection();
-        const reply = lastReplyRef.current;
-        const shouldEnd = continuousConversationRef.current
-          ? userRequestedEndRef.current
-          : isConversationEnding(reply) || userRequestedEndRef.current;
-        userRequestedEndRef.current = false;
-        if (continuousConversationRef.current && !shouldEnd) {
-          triggerEvent('user_speaking');
-          setTimeout(() => startListeningRef.current(), 800);
-        } else {
-          conversationActiveRef.current = false;
-          didntHearCountRef.current = 0;
-          destroyVAD();
-          triggerEvent('conversation_finished');
-          pauseWakeWord();
-          if (returnTimer.current) clearTimeout(returnTimer.current);
-          returnTimer.current = setTimeout(() => returnToIdleFlow(), 1200);
-        }
       }
 
       // Speaking interrupt detection disabled (safe mode):
