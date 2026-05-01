@@ -447,7 +447,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 - [x] **T6.6 tamam [session-A]** CP210x driver installer'a gömüldü
   - `sadik-app/build/drivers/cp210x/{silabser.inf,silabser.cat,silabser.sys}` (Universal Windows Driver, x64)
   - `sadik-app/build/installer.nsh` (NEW) — `customInstall` macro: `pnputil /add-driver ... /install`
-  - `sadik-app/package.json` — `extraResources` driver klasörü, `win.requestedExecutionLevel: requireAdministrator`, `nsis.include: build/installer.nsh`
+  - `sadik-app/package.json` — `extraResources` driver klasörü, `win.requestedExecutionLevel: asInvoker`, `nsis.perMachine: true`, `nsis.include: build/installer.nsh`; perMachine:true → installer UAC bir kez prompt eder, kurulu app normal user olarak açılır
   - **Sebep:** ESP32-WROOM-32 CP210x USB-UART bridge kullanıyor; Windows'ta default driver yok → temiz makinede cihaz COM port almıyordu.
 - [ ] **T6.3** Auto-update (electron-updater)
   - Publish target: GitHub Releases (private repo OK) veya S3
