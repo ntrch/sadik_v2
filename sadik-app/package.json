@@ -10,10 +10,11 @@
     "electron": "electron .",
     "convert:animation": "node scripts/convert-cpp-animation.js",
     "convert:animations": "node scripts/batch-convert-animations.js",
-    "package": "electron-builder",
-    "package:dir": "electron-builder --dir",
-    "package:win": "electron-builder --win",
-    "package:mac": "electron-builder --mac"
+    "package": "npm run build && electron-builder",
+    "package:dir": "npm run build && electron-builder --dir",
+    "package:win": "npm run build && electron-builder --win",
+    "package:mac": "npm run build && electron-builder --mac",
+    "release:win": "powershell -ExecutionPolicy Bypass -File ../sadik-backend/build/build.ps1 && npm run package:win"
   },
   "build": {
     "appId": "com.sadik.app",
