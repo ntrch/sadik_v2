@@ -9,6 +9,7 @@ from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
 from app.services.chat_service import chat_service
 from app.services.mode_tracker import mode_tracker
 from app.services.pomodoro_service import pomodoro_service
+from app.services.tier_guard import get_tier_status
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -64,6 +65,9 @@ async def send_message(body: ChatMessageCreate, session: AsyncSession = Depends(
     await session.commit()
     await session.refresh(assistant_msg)
 
+    # Tier status — informational only; never blocks the response.
+    tier_status = await get_tier_status(session)
+
     return {
         "response": assistant_text,
         "message": {
@@ -71,7 +75,8 @@ async def send_message(body: ChatMessageCreate, session: AsyncSession = Depends(
             "role": assistant_msg.role,
             "content": assistant_msg.content,
             "created_at": assistant_msg.created_at.isoformat(),
-        }
+        },
+        "tier_status": tier_status,
     }
 
 @router.get("/history", response_model=list[ChatMessageResponse])

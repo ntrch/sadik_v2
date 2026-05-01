@@ -459,9 +459,13 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 **Amaç:** Shadow olarak Pro altyapısı hazır, hard-gate yok.
 
 **Concurrency zone A (backend):**
-- [ ] **T7.1** User tier model (Free/Pro)
+- [x] **T7.1 tamam [session-A]** User tier model (Free/Pro)
   - Settings: `user_tier` (default free), `pro_expires_at`
   - Her AI call backend'de tier check → free limit'te throttle/mesaj, hard-block YOK (beta için)
+  - MOD `sadik-backend/app/main.py` — `user_tier` + `pro_expires_at` DEFAULT_SETTINGS keys
+  - NEW `sadik-backend/app/services/tier_guard.py` — `get_effective_tier()` + `get_tier_status()` (soft warn, never raises)
+  - MOD `sadik-backend/app/routers/chat.py` — `tier_status` opt-in field in POST /api/chat/message response
+  - MOD `sadik-backend/app/services/chat_service.py` — `event: tier_status` SSE frame at stream start (voice)
 - [x] **T7.2 tamam [session-B]** Usage tracking (commit 65cdb45)
   - Voice turn count, LLM token count, tool call count
   - `/api/usage/me` endpoint — analiz için

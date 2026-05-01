@@ -99,6 +99,9 @@ DEFAULT_SETTINGS = {
     "privacy_tier": "hybrid",
     "telemetry_consent": "false",
     "telemetry_consent_asked": "false",
+    # User tier — Free / Pro
+    "user_tier": "free",
+    "pro_expires_at": "",  # ISO 8601; empty = no expiry; set to enable Pro
     "onboarding_completed": "false",
     "tutorial_completed": "false",
     "user_profile_patterns": "",

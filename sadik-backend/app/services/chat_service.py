@@ -461,6 +461,17 @@ class ChatService:
             yield "OpenAI API anahtarı ayarlanmamış."
             return
 
+        # ── Tier status SSE frame (informational, never blocks) ────────────────
+        if session is not None:
+            try:
+                from app.services.tier_guard import get_tier_status as _get_tier_status
+                import json as _json
+                _ts = await _get_tier_status(session)
+                if _ts is not None:
+                    yield f"event: tier_status\ndata: {_json.dumps(_ts)}\n\n"
+            except Exception as _tier_err:
+                logger.warning(f"[ChatService] tier_status frame skipped: {_tier_err}")
+
         local_ctx = ""
         if session is not None:
             try:
