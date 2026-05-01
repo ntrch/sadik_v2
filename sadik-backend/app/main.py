@@ -18,6 +18,7 @@ from app.routers import privacy as privacy_router_mod
 from app.routers import feedback as feedback_router_mod
 from app.routers import usage as usage_router_mod
 from app.routers import telemetry as telemetry_router_mod
+from app.routers import billing as billing_router_mod
 from app.services.providers import google_calendar  # noqa: F401 — self-registers PROVIDERS
 from app.services.providers import notion as _notion_provider  # noqa: F401 — self-registers PROVIDERS
 
@@ -102,6 +103,10 @@ DEFAULT_SETTINGS = {
     # User tier — Free / Pro
     "user_tier": "free",
     "pro_expires_at": "",  # ISO 8601; empty = no expiry; set to enable Pro
+    # Stripe billing (shadow — feature flag controls frontend visibility)
+    "stripe_customer_id": "",
+    "stripe_subscription_id": "",
+    "billing_enabled": "false",  # "true" → frontend shows Upgrade/Manage buttons
     "onboarding_completed": "false",
     "tutorial_completed": "false",
     "user_profile_patterns": "",
@@ -331,6 +336,7 @@ app.include_router(privacy_router_mod.router)
 app.include_router(feedback_router_mod.router)
 app.include_router(usage_router_mod.router)
 app.include_router(telemetry_router_mod.router)
+app.include_router(billing_router_mod.router)
 
 @app.get("/")
 async def root():

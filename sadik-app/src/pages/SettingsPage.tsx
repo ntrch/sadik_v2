@@ -12,6 +12,7 @@ import { integrationsApi, IntegrationStatus, MEET_REQUIRED_SCOPE } from '../api/
 import { notionApi, NotionStatus, NotionDatabase } from '../api/notion';
 import { deviceApi, SerialPort } from '../api/device';
 import { chatApi } from '../api/chat';
+import { billingApi, BillingStatus } from '../api/billing';
 import { wakeApi, WakeModel } from '../api/wake';
 import { AppContext } from '../context/AppContext';
 import { KVKK_NOTICE } from '../content/kvkkNotice';
@@ -178,6 +179,9 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
   const [purgeConfirming, setPurgeConfirming] = useState(false);
   const [kvkkModal, setKvkkModal] = useState(false);
   const purgeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Billing (feature flag — hidden when enabled=false)
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
   const [showWeatherKey, setShowWeatherKey] = useState(false);
   const [weatherKeyDraft, setWeatherKeyDraft] = useState('');
   const [locQuery, setLocQuery] = useState('');
@@ -233,6 +237,7 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
     }).catch(() => {});
     integrationsApi.list().then(setIntegrations).catch(() => {});
     telemetryApi.getConsent().then((r) => setTelemetryConsent(r.enabled)).catch(() => {});
+    billingApi.getStatus().then(setBillingStatus).catch(() => {});
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -1336,6 +1341,54 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
           </p>
           <UsageStatsCard />
         </Section>
+
+        {/* Abonelik — only rendered when billing_enabled=true (feature flag) */}
+        {billingStatus?.enabled && (
+          <Section title="Abonelik" icon={Sparkles} color="pink">
+            <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-3">
+              {billingStatus.tier === 'pro'
+                ? `Pro plan aktif${billingStatus.expires_at ? ' — ' + new Date(billingStatus.expires_at).toLocaleDateString('tr-TR') + ' tarihine kadar' : ''}.`
+                : 'Ücretsiz plandasyın. Pro\'ya geçerek limitleri kaldır.'}
+            </p>
+            {billingStatus.tier === 'free' ? (
+              <button
+                disabled={billingLoading}
+                onClick={async () => {
+                  setBillingLoading(true);
+                  try {
+                    const { url } = await billingApi.createCheckout();
+                    window.open(url, '_blank');
+                  } catch {
+                    showToast('Ödeme sayfası açılamadı. Lütfen tekrar dene.', 'error');
+                  } finally {
+                    setBillingLoading(false);
+                  }
+                }}
+                className="px-4 py-2 text-sm rounded-btn bg-accent-purple text-white hover:opacity-90 transition-opacity disabled:opacity-60"
+              >
+                {billingLoading ? 'Yönlendiriliyor…' : "Pro'ya Yükselt"}
+              </button>
+            ) : (
+              <button
+                disabled={billingLoading}
+                onClick={async () => {
+                  setBillingLoading(true);
+                  try {
+                    const { url } = await billingApi.openPortal();
+                    window.open(url, '_blank');
+                  } catch {
+                    showToast('Abonelik portalı açılamadı. Lütfen tekrar dene.', 'error');
+                  } finally {
+                    setBillingLoading(false);
+                  }
+                }}
+                className="px-4 py-2 text-sm rounded-btn bg-bg-input border border-border text-text-primary hover:border-accent-purple/40 transition-colors disabled:opacity-60"
+              >
+                {billingLoading ? 'Yönlendiriliyor…' : 'Aboneliği Yönet'}
+              </button>
+            )}
+          </Section>
+        )}
 
         {/* Telemetry consent */}
         <Section title="Gizlilik & Telemetri" icon={Shield} color="cyan">

@@ -13,3 +13,4 @@ pydantic-settings>=2.1.0
 tzdata>=2024.1
 openwakeword>=0.6.0
 sounddevice>=0.4.6
+stripe>=8.0.0,<10.0.0

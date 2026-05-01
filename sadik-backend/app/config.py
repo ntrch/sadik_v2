@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     notion_client_id: str = ""
     notion_client_secret: str = ""
 
+    # Stripe billing — all optional; billing endpoints return 503 when key is empty.
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_id: str = ""  # Monthly Pro plan price ID (e.g. price_...)
+    stripe_success_url: str = "http://localhost:5173/settings?billing=success"
+    stripe_cancel_url: str = "http://localhost:5173/settings?billing=cancel"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

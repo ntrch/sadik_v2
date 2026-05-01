@@ -470,9 +470,22 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Voice turn count, LLM token count, tool call count
   - `/api/usage/me` endpoint — analiz için
   - Settings'te UsageStatsCard
-- [ ] **T7.3** Paddle sandbox entegrasyonu (shadow)
-  - Checkout flow hazır ama buton gizli (feature flag)
-  - Webhook: `subscription.created` → `user_tier=pro`
+- [x] **T7.3 tamam [session-A]** Stripe shadow billing (checkout + webhook + portal)
+  - MOD `sadik-backend/requirements.txt` — `stripe>=8.0.0,<10.0.0` eklendi
+  - MOD `sadik-backend/app/config.py` — `stripe_secret_key`, `stripe_webhook_secret`, `stripe_price_id`, `stripe_success_url`, `stripe_cancel_url` env fields
+  - MOD `sadik-backend/app/main.py` — `stripe_customer_id`, `stripe_subscription_id`, `billing_enabled` DEFAULT_SETTINGS + billing router register
+  - NEW `sadik-backend/app/services/billing_stripe.py` — lazy stripe import, `create_checkout_session`, `create_portal_session`, `handle_webhook_event` (idempotent webhook handler)
+  - NEW `sadik-backend/app/routers/billing.py` — `GET /api/billing/status`, `POST /api/billing/checkout`, `POST /api/billing/portal`, `POST /api/billing/webhook` (raw body + signature verify)
+  - NEW `sadik-app/src/api/billing.ts` — `getBillingStatus`, `createCheckout`, `openPortal` API client
+  - MOD `sadik-app/src/pages/SettingsPage.tsx` — Abonelik section (feature flag: only rendered when `billing_enabled=true`)
+  - **Eren TODO (Stripe aktivasyonu):**
+    1. Stripe dashboard → Ürün oluştur → Aylık fiyat ekle → Price ID'yi kopyala → `.env`'e `STRIPE_PRICE_ID=price_...`
+    2. `.env`'e `STRIPE_SECRET_KEY=sk_test_...` (test mode) ekle
+    3. Webhook endpoint ekle: `https://<domain>/api/billing/webhook`
+       - Lokal test: `stripe listen --forward-to localhost:8000/api/billing/webhook` → CLI signing secret'ı `STRIPE_WEBHOOK_SECRET` olarak ekle
+    4. Backend'i restart et
+    5. Settings'te `PUT /api/settings {"billing_enabled":"true"}` → Abonelik section görünür
+    6. Test card: `4242 4242 4242 4242`, herhangi CVV/tarih
 
 **Concurrency zone B (telemetry):**
 - [x] **T7.4 tamam [session-B]** Crash telemetry endpoint + admin panel
