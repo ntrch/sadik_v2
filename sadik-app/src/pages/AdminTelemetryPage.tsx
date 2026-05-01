@@ -34,6 +34,8 @@ function DetailDrawer({
   onResolveToggle: (item: AdminTelemetryItem) => void;
 }) {
   const [resolving, setResolving] = useState(false);
+  const [shot, setShot] = useState<string | null>(null);
+  const [shotState, setShotState] = useState<'idle' | 'loading' | 'error'>('idle');
 
   const handleToggle = async () => {
     setResolving(true);
@@ -45,10 +47,28 @@ function DetailDrawer({
   };
 
   let contextStr = '';
+  let hasScreenshot = false;
   if (item.context_json) {
-    try { contextStr = JSON.stringify(JSON.parse(item.context_json), null, 2); }
-    catch { contextStr = item.context_json; }
+    try {
+      const parsed = JSON.parse(item.context_json);
+      hasScreenshot = !!parsed?.has_screenshot;
+      contextStr = JSON.stringify(parsed, null, 2);
+    } catch { contextStr = item.context_json; }
   }
+
+  useEffect(() => {
+    if (item.kind !== 'feedback' || !hasScreenshot) return;
+    let cancelled = false;
+    setShotState('loading');
+    telemetryApi.getFeedbackScreenshot(item.id)
+      .then((r) => {
+        if (cancelled) return;
+        if (r.screenshot_base64) { setShot(r.screenshot_base64); setShotState('idle'); }
+        else { setShotState('error'); }
+      })
+      .catch(() => { if (!cancelled) setShotState('error'); });
+    return () => { cancelled = true; };
+  }, [item.id, item.kind, hasScreenshot]);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -107,6 +127,26 @@ function DetailDrawer({
               <pre className="text-[11px] text-text-secondary bg-bg-input border border-border rounded-btn p-3 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
                 {item.stack}
               </pre>
+            </div>
+          )}
+
+          {/* Screenshot */}
+          {item.kind === 'feedback' && hasScreenshot && (
+            <div>
+              <p className="text-xs text-text-muted mb-1">Ekran görüntüsü</p>
+              {shotState === 'loading' && (
+                <p className="text-xs text-text-muted">Yükleniyor…</p>
+              )}
+              {shotState === 'error' && (
+                <p className="text-xs text-accent-red">Görsel yüklenemedi</p>
+              )}
+              {shot && (
+                <img
+                  src={`data:image/png;base64,${shot}`}
+                  alt="Feedback screenshot"
+                  className="max-w-full max-h-96 object-contain rounded-btn border border-border"
+                />
+              )}
             </div>
           )}
 

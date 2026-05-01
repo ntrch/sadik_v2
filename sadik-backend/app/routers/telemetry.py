@@ -274,3 +274,18 @@ async def admin_resolve(
         return {"ok": True, "id": item_id, "resolved": body.resolved}
 
     raise HTTPException(status_code=400, detail=f"Unknown kind '{kind}'. Use 'crash' or 'feedback'.")
+
+
+@router.get("/api/admin/telemetry/feedback/{item_id}/screenshot")
+async def admin_feedback_screenshot(
+    item_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    await _require_admin(session)
+    result = await session.execute(
+        select(FeedbackSubmission).where(FeedbackSubmission.id == item_id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    return {"screenshot_base64": item.screenshot_base64}

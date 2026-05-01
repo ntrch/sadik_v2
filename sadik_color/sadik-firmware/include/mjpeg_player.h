@@ -19,7 +19,7 @@ public:
         }
         // TJpgDec render callback: write decoded MCU into TFT
         TJpgDec.setJpgScale(1);
-        TJpgDec.setSwapBytes(true);
+        TJpgDec.setSwapBytes(false);
         TJpgDec.setCallback(_tjpg_cb);
         _ready = true;
     }

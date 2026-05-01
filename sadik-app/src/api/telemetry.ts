@@ -54,4 +54,9 @@ export const telemetryApi = {
       `/api/admin/telemetry/${kind}/${id}/resolve`,
       { resolved }
     ).then((r) => r.data),
+
+  getFeedbackScreenshot: (id: number) =>
+    http.get<{ screenshot_base64: string | null }>(
+      `/api/admin/telemetry/feedback/${id}/screenshot`
+    ).then((r) => r.data),
 };
