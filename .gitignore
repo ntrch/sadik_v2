@@ -14,8 +14,18 @@ dist/
 sadik-app/release/
 
 # PyInstaller backend bundle
-sadik-backend/build/__pycache__/
+sadik-backend/build/
 sadik-backend/dist/
+sadik-backend/_check_wake.py
+
+# SADIK Color generated assets
+sadik_color/assets/codec/
+sadik_color/assets/png/
+sadik_color/tools/codec/
+sadik_color/sadik-firmware/data/manifest.json
+
+# Skills lock
+skills-lock.json
 
 # PlatformIO
 .pio/
