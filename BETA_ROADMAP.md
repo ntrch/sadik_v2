@@ -475,6 +475,10 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - Electron uncaught handlers wire'lı
 - [ ] **T7.5** Beta feedback widget (in-app)
   - Shift+F → feedback modal → backend'e + Discord webhook
+- ✅ **T7.6** App branding (SADIK name + custom icon)
+  - `BrowserWindow title: 'SADIK'` + `src/index.html <title>SADIK</title>` (zaten vardı)
+  - `build/icon.png` (1024×1024, opaque) electron-builder'a entegre
+  - `package.json`: `productName: "SADIK"`, `appId: "com.sadik.app"`, win+mac `icon: "build/icon.png"` ✓
 
 **Exit criteria:** Usage tracking çalışır, crash raporu gönderilir, feedback modal çalışır.
 

@@ -611,6 +611,7 @@ function fetchCloseToTray() {
 
 function createWindow() {
   const win = new BrowserWindow({
+    title:           'SADIK',
     width:           1400,
     height:          900,
     minWidth:        1100,
