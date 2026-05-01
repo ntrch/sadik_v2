@@ -444,6 +444,11 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - `sadik-backend/app/main.py` — `GET /api/health` endpoint
   - `sadik-backend/app/config.py` — `_default_db_path()`: frozen → `%APPDATA%/sadik/sadik.db` (Win) / `~/sadik/sadik.db`; dev davranışı aynen korundu (`getattr(sys,"frozen",False)` False branch)
   - `.gitignore` (sadik-backend + root) — `dist/`, `release/`, `build/__pycache__/`
+- [x] **T6.6 tamam [session-A]** CP210x driver installer'a gömüldü
+  - `sadik-app/build/drivers/cp210x/{silabser.inf,silabser.cat,silabser.sys}` (Universal Windows Driver, x64)
+  - `sadik-app/build/installer.nsh` (NEW) — `customInstall` macro: `pnputil /add-driver ... /install`
+  - `sadik-app/package.json` — `extraResources` driver klasörü, `win.requestedExecutionLevel: requireAdministrator`, `nsis.include: build/installer.nsh`
+  - **Sebep:** ESP32-WROOM-32 CP210x USB-UART bridge kullanıyor; Windows'ta default driver yok → temiz makinede cihaz COM port almıyordu.
 - [ ] **T6.3** Auto-update (electron-updater)
   - Publish target: GitHub Releases (private repo OK) veya S3
   - Frontend update notification UI

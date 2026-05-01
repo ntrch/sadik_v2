@@ -35,18 +35,24 @@
         "from": "../sadik-backend/dist/sadik-backend",
         "to": "backend",
         "filter": ["**/*"]
+      },
+      {
+        "from": "build/drivers/cp210x",
+        "to": "drivers/cp210x",
+        "filter": ["**/*"]
       }
     ],
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }],
-      "requestedExecutionLevel": "asInvoker",
+      "requestedExecutionLevel": "requireAdministrator",
       "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
     },
     "mac": {
       "category": "public.app-category.productivity",
