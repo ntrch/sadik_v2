@@ -606,6 +606,89 @@ function fetchCloseToTray() {
 }
 
 // =============================================================================
+// Crash telemetry — main process uncaught error forwarding
+// =============================================================================
+//
+// Sends crash reports to the local backend. Gated by telemetry_consent setting.
+// Fails silently — the crash handler must never itself crash or block shutdown.
+
+let _telemetryConsent = false;  // cached; refreshed at startup
+
+async function _refreshTelemetryConsent() {
+  return new Promise((resolve) => {
+    const _u = new URL(`${BACKEND_ORIGIN}/api/settings/telemetry-consent`);
+    const req = http.get(
+      { hostname: _u.hostname, port: Number(_u.port), path: _u.pathname },
+      (res) => {
+        let body = '';
+        res.on('data', (d) => (body += d));
+        res.on('end', () => {
+          try {
+            _telemetryConsent = JSON.parse(body).enabled === true;
+          } catch { _telemetryConsent = false; }
+          resolve();
+        });
+      },
+    );
+    req.setTimeout(2000, () => { req.destroy(); resolve(); });
+    req.on('error', () => resolve());
+  });
+}
+
+function _postCrashReport(payload) {
+  // Best-effort fire-and-forget; never throws
+  try {
+    if (!_telemetryConsent) return;
+    const body = JSON.stringify(payload);
+    const _u = new URL(`${BACKEND_ORIGIN}/api/telemetry/crash`);
+    const options = {
+      hostname: _u.hostname,
+      port:     Number(_u.port),
+      path:     _u.pathname,
+      method:   'POST',
+      headers: {
+        'Content-Type':   'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    };
+    const req = http.request(options, (res) => {
+      res.on('data', () => {});
+      res.on('end', () => {});
+    });
+    req.setTimeout(3000, () => { try { req.destroy(); } catch { /* ignore */ } });
+    req.on('error', () => {});
+    req.write(body);
+    req.end();
+  } catch { /* crash handler must never throw */ }
+}
+
+// Wire process-level crash hooks. These fire for uncaught main-process errors.
+process.on('uncaughtException', (err) => {
+  twarn('[Crash] uncaughtException:', err && err.message);
+  _postCrashReport({
+    platform:   process.platform,
+    app_version: app.isReady() ? app.getVersion() : 'unknown',
+    error_type:  err && err.constructor ? err.constructor.name : 'Error',
+    message:     err && err.message,
+    stack:       err && err.stack,
+    context:     { process: 'main' },
+  });
+});
+
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  twarn('[Crash] unhandledRejection:', err.message);
+  _postCrashReport({
+    platform:   process.platform,
+    app_version: app.isReady() ? app.getVersion() : 'unknown',
+    error_type:  'UnhandledRejection',
+    message:     err.message,
+    stack:       err.stack,
+    context:     { process: 'main' },
+  });
+});
+
+// =============================================================================
 // Electron window
 // =============================================================================
 
@@ -1373,6 +1456,16 @@ Write-Output "OK"
     n.show();
   });
 
+  // ── Telemetry: renderer crash forwarding ─────────────────────────────────
+  // Renderer sends 'telemetry:crash' via IPC; main forwards to backend.
+  ipcMain.handle('telemetry:crash', async (_e, payload) => {
+    _postCrashReport({
+      ...payload,
+      context: { ...(payload.context || {}), process: 'renderer' },
+    });
+    return { ok: true };
+  });
+
   // ── Feedback: screenshot capture ─────────────────────────────────────────
   ipcMain.handle('feedback:capture-screenshot', async () => {
     if (!win) return null;
@@ -1622,6 +1715,10 @@ app.whenReady().then(async () => {
     tlog(`[SADIK] Permission check: "${permission}" → ${granted ? 'granted' : 'denied'}`);
     return granted;
   });
+
+  // Fetch telemetry consent once at startup so crash handlers can gate on it.
+  // Best-effort: if backend isn't ready yet, consent stays false (safe default).
+  _refreshTelemetryConsent().catch(() => {});
 
   initTray();
   createWindow();

@@ -18,8 +18,10 @@ import VoiceAssistant from './components/voice/VoiceAssistant';
 import OnboardingPage from './pages/OnboardingPage';
 import FirstDayTutorial from './components/onboarding/FirstDayTutorial';
 import FeedbackModal from './components/feedback/FeedbackModal';
+import AdminTelemetryPage from './pages/AdminTelemetryPage';
 import { settingsApi } from './api/settings';
 import { isInputFocused } from './utils/focus';
+import TelemetryConsentBanner from './components/telemetry/TelemetryConsentBanner';
 
 /**
  * Tab selector for the /chat route. Lives at App level so the persistent
@@ -120,6 +122,7 @@ function AppShell() {
           <Route path="/habits" element={<HabitsPage />} />
           <Route path="/agenda" element={<AgendaPage />} />
           <Route path="/settings" element={<SettingsPage onOpenFeedback={openFeedback} />} />
+          <Route path="/admin/telemetry" element={<AdminTelemetryPage />} />
         </Routes>
         <div
           aria-hidden={!(onChatRoute && voiceUiVisible)}
@@ -137,6 +140,7 @@ function AppShell() {
         <FirstDayTutorial onDone={() => setTutorialDone(true)} />
       )}
       {feedbackOpen && <FeedbackModal onClose={closeFeedback} />}
+      <TelemetryConsentBanner />
     </div>
   );
 }

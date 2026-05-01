@@ -65,4 +65,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   // Capture the current window as a PNG. Returns a base64 string or null.
   captureScreenshot: () => ipcRenderer.invoke('feedback:capture-screenshot'),
+  // Forward a renderer crash report to the main process (which POSTs to backend).
+  reportCrash: (payload) => ipcRenderer.invoke('telemetry:crash', payload),
 });

@@ -462,20 +462,33 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 - [ ] **T7.1** User tier model (Free/Pro)
   - Settings: `user_tier` (default free), `pro_expires_at`
   - Her AI call backend'de tier check → free limit'te throttle/mesaj, hard-block YOK (beta için)
-- [ ] **T7.2** Usage tracking (beta data collection)
+- [x] **T7.2 tamam [session-B]** Usage tracking (commit 65cdb45)
   - Voice turn count, LLM token count, tool call count
   - `/api/usage/me` endpoint — analiz için
+  - Settings'te UsageStatsCard
 - [ ] **T7.3** Paddle sandbox entegrasyonu (shadow)
   - Checkout flow hazır ama buton gizli (feature flag)
   - Webhook: `subscription.created` → `user_tier=pro`
 
 **Concurrency zone B (telemetry):**
-- [ ] **T7.4** Crash telemetry endpoint (self-hosted, opt-in consent)
-  - `POST /api/telemetry/crash` — stack trace + redacted context
-  - Electron uncaught handlers wire'lı
-- [ ] **T7.5** Beta feedback widget (in-app)
-  - Shift+F → feedback modal → backend'e + Discord webhook
-- ✅ **T7.6** App branding (SADIK name + custom icon)
+- [x] **T7.4 tamam [session-B]** Crash telemetry endpoint + admin panel
+  - NEW `sadik-backend/app/models/crash_report.py` — `crash_reports` tablosu
+  - NEW `sadik-backend/app/services/telemetry_redactor.py` — file path/API key/email/env var redaction
+  - NEW `sadik-backend/app/routers/telemetry.py` — `POST /api/telemetry/crash`, `GET/POST /api/settings/telemetry-consent`, `GET /api/admin/telemetry`, `POST /api/admin/telemetry/{kind}/{id}/resolve`
+  - MOD `app/main.py` — `CrashReport` model import + `telemetry_router` register + `telemetry_consent`/`telemetry_consent_asked` DEFAULT_SETTINGS
+  - NEW `sadik-app/src/api/telemetry.ts` — frontend API client
+  - NEW `sadik-app/src/services/crashReporter.ts` — renderer window.error + unhandledrejection hooks
+  - MOD `electron/main.js` — `process.on('uncaughtException'/'unhandledRejection')` + `ipcMain.handle('telemetry:crash')` + `_refreshTelemetryConsent` at startup
+  - MOD `electron/preload.js` — `electronAPI.reportCrash` exposed
+  - MOD `src/index.tsx` — `initCrashReporter()` called at startup
+  - NEW `src/components/telemetry/TelemetryConsentBanner.tsx` — one-time first-launch banner
+  - MOD `src/pages/SettingsPage.tsx` — "Gizlilik & Telemetri" section + toggle
+  - NEW `src/pages/AdminTelemetryPage.tsx` — `/admin/telemetry` route, tabs, filter chips, table, detail drawer, resolve button
+  - MOD `src/App.tsx` — `TelemetryConsentBanner` + `/admin/telemetry` route
+- [x] **T7.5 tamam [session-B]** Beta feedback widget (commit c4b7ecd)
+  - Shift+F → feedback modal → backend'e
+  - Settings FAB + screenshot capture
+- [x] **T7.6 tamam [session-B]** App branding (commit 4967665)
   - `BrowserWindow title: 'SADIK'` + `src/index.html <title>SADIK</title>` (zaten vardı)
   - `build/icon.png` (1024×1024, opaque) electron-builder'a entegre
   - `package.json`: `productName: "SADIK"`, `appId: "com.sadik.app"`, win+mac `icon: "build/icon.png"` ✓

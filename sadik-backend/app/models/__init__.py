@@ -12,3 +12,4 @@ from app.models.external_event import ExternalEvent
 from app.models.notion_synced_page import NotionSyncedPage
 from app.models.feedback import FeedbackSubmission
 from app.models.voice_turn_event import VoiceTurnEvent
+from app.models.crash_report import CrashReport

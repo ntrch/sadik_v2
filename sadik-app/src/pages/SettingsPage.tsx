@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { settingsApi, Settings } from '../api/settings';
 import { privacyApi } from '../api/privacy';
+import { telemetryApi } from '../api/telemetry';
+import { invalidateCrashReporterConsent } from '../services/crashReporter';
 import { integrationsApi, IntegrationStatus, MEET_REQUIRED_SCOPE } from '../api/integrations';
 import { notionApi, NotionStatus, NotionDatabase } from '../api/notion';
 import { deviceApi, SerialPort } from '../api/device';
@@ -164,6 +166,7 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
   }, [wakeWordEnabled, oledSleepTimeoutMinutes, weatherEnabled]);
 
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
+  const [telemetryConsent, setTelemetryConsent] = useState(false);
   const [privacyExporting, setPrivacyExporting] = useState(false);
   const [privacyTier, setPrivacyTier] = useState<'full' | 'hybrid' | 'local' | 'custom'>('hybrid');
   const [privacyAdvancedOpen, setPrivacyAdvancedOpen] = useState(false);
@@ -229,6 +232,7 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
       savedWakeModelPathRef.current = r.current;
     }).catch(() => {});
     integrationsApi.list().then(setIntegrations).catch(() => {});
+    telemetryApi.getConsent().then((r) => setTelemetryConsent(r.enabled)).catch(() => {});
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -462,6 +466,18 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
       .then((res) => setPrivacyTier(res.tier))
       .catch(() => {});
   }, []);
+
+  const handleTelemetryToggle = async (enabled: boolean) => {
+    setTelemetryConsent(enabled);
+    invalidateCrashReporterConsent(enabled);
+    try {
+      await telemetryApi.setConsent(enabled);
+    } catch {
+      setTelemetryConsent(!enabled);
+      invalidateCrashReporterConsent(!enabled);
+      showToast('Telemetri ayarı kaydedilemedi', 'error');
+    }
+  };
 
   const handleExportData = async () => {
     setPrivacyExporting(true);
@@ -1319,6 +1335,27 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
             Sesli asistan kullanımın — maliyet tahmini ve gecikme analizi. Beta sonrası plan kararlarında kullanılacak.
           </p>
           <UsageStatsCard />
+        </Section>
+
+        {/* Telemetry consent */}
+        <Section title="Gizlilik & Telemetri" icon={Shield} color="cyan">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-text-primary">Crash raporları gönder</p>
+              <p className="text-xs text-text-muted mt-0.5 leading-relaxed">
+                Uygulama çöktüğünde anonim hata bilgisini geliştiriciye gönderir. Kişisel veri gönderilmez.
+              </p>
+            </div>
+            <button
+              onClick={() => handleTelemetryToggle(!telemetryConsent)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors mt-0.5
+                ${telemetryConsent ? 'bg-accent-cyan' : 'bg-bg-input border border-border'}`}
+              aria-label="Crash raporları gönder"
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                ${telemetryConsent ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
         </Section>
 
         {/* Privacy */}
