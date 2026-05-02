@@ -87,6 +87,7 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
   // In-app navigation guard — set true while user has unsaved changes.
   const [dirty, setDirty] = useState(false);
   const [unsavedDialog, setUnsavedDialog] = useState<null | { onConfirm: () => void }>(null);
+  const [appVersion, setAppVersion] = useState<string>('');
   const {
     showToast, triggerEvent,
     wakeWordEnabled, toggleWakeWord,
@@ -192,6 +193,10 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
   const [locError, setLocError]     = useState<string | null>(null);
   const locTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { setWeatherKeyDraft(weatherApiKey); }, [weatherApiKey]);
+
+  useEffect(() => {
+    (window as any).electronAPI?.getAppVersion?.().then((v: string) => setAppVersion(v)).catch(() => {});
+  }, []);
 
   // Debounced geocode search
   useEffect(() => {
@@ -1570,6 +1575,12 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
             {saving ? 'Kaydediliyor...' : 'Kaydet'}
           </button>
         </div>
+
+        {appVersion && (
+          <div className="text-center text-xs text-gray-500 opacity-60 py-4">
+            v{appVersion}
+          </div>
+        )}
       </div>
     </div>
 

@@ -724,6 +724,8 @@ function createWindow() {
   // loop keeps ticking when the window is hidden to tray, blurred, or occluded.
 
   // ── Shell open external URL ─────────────────────────────────────────────
+  ipcMain.handle('app:get-version', () => app.getVersion());
+
   ipcMain.handle('shell:openExternal', async (_e, url) => {
     const { shell } = require('electron');
     try {
