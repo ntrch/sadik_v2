@@ -536,6 +536,23 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 
 **Exit criteria:** 3 arkadaş 1 hafta kullanmış, crash report'lar analiz edilmiş, feedback listesi hotfix'e dönmüş.
 
+**Not (2026-05-02):** Beta süresince **billing kapalı** (`billing_enabled=false`). T7.3 + T7.3b kod path'i devrede ama UI gizli. Pro tier gerekirse Eren manuel `PUT /api/settings {"user_tier":"pro"}` ile set eder. Sebep: mevcut Stripe akışı dev-only — webhook localhost'a ulaşamaz, secret key client'ta. Production billing T9.1 ile gelecek.
+
+---
+
+### Sprint 9 (post-beta): Hosted billing migration
+**Amaç:** Production-grade billing — Stripe secret server'da, webhook public URL'de, kullanıcı hesap sistemi.
+
+- [ ] **T9.1** Hosted billing backend
+  - Domain (ör. `api.sadik.app`) + minimal FastAPI deploy (Railway/Fly.io ~$5/ay)
+  - Stripe secret + webhook secret hosted backend'de durur, desktop app görmez
+  - Kullanıcı hesabı: email-only magic link auth (Stripe Customer ↔ user_id eşlemesi)
+  - Mevcut `app/services/billing_stripe.py` + `app/routers/billing.py` mantığı hosted tarafa taşınır
+  - Desktop app → hosted backend (`api.sadik.app/checkout`, `/status`, `/portal`) → Stripe
+  - `billing_enabled=true` ancak T9.1 prod'a çıkınca
+
+**Exit criteria:** Yeni kullanıcı email ile kayıt → checkout → ödeme → desktop app'inde tier=pro otomatik aktif. Stripe secret hiçbir client'ta yok.
+
 ---
 
 ## Color Sprint-4: ESP32-S3 N16R8 donanım geçişi
