@@ -17,7 +17,7 @@ const navItems = [
 
 export default function BottomNav() {
   return (
-    <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 glass border border-white/10 rounded-2xl px-2 py-1.5 flex items-center gap-1 shadow-nav">
+    <nav className="fixed bottom-5 left-1/2 -translate-x-1/2 z-30 glass-heavy border border-white/10 rounded-full px-2 py-1.5 flex items-center gap-0.5 shadow-nav">
       {navItems.map(({ to, icon: Icon, label, activeClass }) => (
         <NavLink
           key={to}
@@ -26,14 +26,14 @@ export default function BottomNav() {
           title={label}
           data-tutorial={to === '/tasks' ? 'nav-tasks' : undefined}
           className={({ isActive }) =>
-            `p-3 rounded-xl transition-all flex items-center justify-center ${
+            `p-2.5 rounded-full transition-all flex items-center justify-center ${
               isActive
                 ? activeClass
-                : 'text-text-secondary/50 hover:text-text-primary hover:bg-white/5'
+                : 'text-text-secondary/60 hover:text-text-primary hover:bg-white/5'
             }`
           }
         >
-          <Icon size={22} />
+          <Icon size={20} />
         </NavLink>
       ))}
     </nav>

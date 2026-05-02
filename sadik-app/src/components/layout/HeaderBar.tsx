@@ -99,8 +99,8 @@ export default function HeaderBar() {
   const hour = now.getHours();
 
   return (
-    <header className="glass-heavy border-b border-border shadow-header sticky top-0 z-30">
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center pl-8 pr-5 py-2.5">
+    <header className="bg-bg-main/80 backdrop-blur-xl border-b border-border-subtle sticky top-0 z-30">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center pl-7 pr-5 py-3">
         {/* Left — weather icon (°C top-left) → clock+date → time-of-day icon → greeting */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
@@ -123,16 +123,16 @@ export default function HeaderBar() {
             {/* Clock + date with time-of-day icon inline next to the time */}
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-3xl font-bold text-text-primary tabular-nums tracking-wide leading-none">{timeStr}</span>
+                <span className="text-[28px] font-bold text-text-primary tabular-nums tracking-tight leading-none">{timeStr}</span>
                 <span className="flex-shrink-0">{getTimeOfDayIcon(hour, 24)}</span>
               </div>
-              <p className="text-xs text-text-secondary mt-0.5 capitalize">{dateStr}</p>
+              <p className="text-[11px] text-text-muted mt-1 capitalize tracking-wide">{dateStr}</p>
             </div>
           </div>
           {userName && (
             <>
               <div className="w-px h-8 bg-border/40" />
-              <span className="text-xl font-semibold text-text-primary truncate">Merhaba, {userName}</span>
+              <span className="text-lg font-semibold text-text-primary truncate">Merhaba, {userName}</span>
             </>
           )}
         </div>
@@ -173,7 +173,7 @@ export default function HeaderBar() {
             <button
               onClick={() => { navigate('/chat'); setVoiceUiVisible(true); }}
               title="Sesli asistan çalışıyor — görmek için tıkla"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent-cyan/15 border border-accent-cyan/40 text-accent-cyan text-xs font-semibold animate-pulse"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent-primary/15 border border-accent-primary/40 text-accent-primary text-xs font-semibold animate-pulse"
             >
               <Radio size={12} />
               Sesli Asistan Aktif
@@ -188,7 +188,7 @@ export default function HeaderBar() {
               <button
                 onClick={() => setOledBrightness(nextValue)}
                 title={isFull ? 'Ekstra Parlaklık: Açık' : 'Ekstra Parlaklık: Kapalı'}
-                className={`p-2.5 rounded-full transition-all ${
+                className={`p-2 rounded-full transition-all ${
                   isFull
                     ? 'bg-accent-yellow/20 text-accent-yellow hover:bg-accent-yellow/30'
                     : 'bg-bg-input text-text-muted hover:text-text-secondary'
@@ -202,7 +202,7 @@ export default function HeaderBar() {
           <button
             onClick={() => setDndActive(!dndActive)}
             title="Rahatsız Etmeyin (Windows'ta sistem Focus Assist'ini manuel açın: Win+A → Focus)"
-            className={`p-2.5 rounded-full transition-all ${
+            className={`p-2 rounded-full transition-all ${
               dndActive
                 ? 'bg-accent-red/20 text-accent-red hover:bg-accent-red/30'
                 : 'bg-bg-input text-text-muted hover:text-text-secondary'
@@ -217,7 +217,7 @@ export default function HeaderBar() {
             data-tutorial="voice-btn"
             onClick={toggleWakeWord}
             title={wakeWordEnabled ? 'Sesli komutu kapat' : 'Sesli komutu aç'}
-            className={`p-2.5 rounded-full transition-all ${
+            className={`p-2 rounded-full transition-all ${
               wakeWordEnabled
                 ? 'bg-accent-purple-dim text-accent-purple hover:bg-accent-purple/20'
                 : 'bg-bg-input text-text-muted hover:text-text-secondary'
@@ -234,7 +234,7 @@ export default function HeaderBar() {
             data-tutorial="nav-settings"
             onClick={() => navigate('/settings')}
             title="Ayarlar"
-            className={`p-2.5 rounded-full transition-all ${
+            className={`p-2 rounded-full transition-all ${
               location.pathname === '/settings'
                 ? 'bg-accent-purple-dim text-accent-purple'
                 : 'bg-bg-input text-text-muted hover:text-text-secondary'
@@ -257,12 +257,12 @@ export default function HeaderBar() {
           <div className="flex gap-1 mb-3">
             <button onClick={() => setTab('serial')}
               className={`flex-1 text-sm py-2 rounded-btn flex items-center justify-center gap-1.5 transition-colors
-                ${tab === 'serial' ? 'bg-accent-purple text-white' : 'bg-bg-input text-text-secondary hover:text-text-primary'}`}>
+                ${tab === 'serial' ? 'bg-accent-primary text-white' : 'bg-bg-input text-text-secondary hover:text-text-primary'}`}>
               <Usb size={14} /> USB
             </button>
             <button onClick={() => setTab('wifi')}
               className={`flex-1 text-sm py-2 rounded-btn flex items-center justify-center gap-1.5 transition-colors
-                ${tab === 'wifi' ? 'bg-accent-purple text-white' : 'bg-bg-input text-text-secondary hover:text-text-primary'}`}>
+                ${tab === 'wifi' ? 'bg-accent-primary text-white' : 'bg-bg-input text-text-secondary hover:text-text-primary'}`}>
               <Wifi size={14} /> WiFi
             </button>
           </div>
@@ -281,7 +281,7 @@ export default function HeaderBar() {
                 ))
               )}
               <button onClick={() => handleSerial('auto')} disabled={loading}
-                className="w-full text-sm px-3 py-2 bg-accent-purple hover:bg-accent-purple-hover text-white rounded-btn transition-colors mt-1">
+                className="w-full text-sm px-3 py-2 bg-accent-primary hover:bg-accent-primary-hover text-white rounded-btn transition-colors mt-1">
                 Otomatik Bul
               </button>
             </div>
@@ -295,7 +295,7 @@ export default function HeaderBar() {
                 className="input-field"
               />
               <button onClick={handleWifi} disabled={loading || !wifiIp}
-                className="w-full text-sm px-3 py-2 bg-accent-purple hover:bg-accent-purple-hover text-white rounded-btn transition-colors disabled:opacity-50">
+                className="w-full text-sm px-3 py-2 bg-accent-primary hover:bg-accent-primary-hover text-white rounded-btn transition-colors disabled:opacity-50">
                 Bağlan
               </button>
             </div>
