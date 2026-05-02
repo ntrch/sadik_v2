@@ -12,6 +12,7 @@ from app.models.integration import Integration
 logger = logging.getLogger(__name__)
 
 _scheduler_task: Optional[asyncio.Task] = None
+_meeting_poll_task: Optional[asyncio.Task] = None
 
 # ---------------------------------------------------------------------------
 # Known providers
@@ -175,15 +176,47 @@ async def _scheduler_loop() -> None:
         await asyncio.sleep(60)  # 1 minute
 
 
+async def _meeting_poll_loop() -> None:
+    """Poll Google Meet active-conference state every 20 seconds.
+
+    Runs independently of the calendar sync so that meeting join detection
+    latency drops from up to 60 s to up to 20 s. The calendar full sync still
+    runs every 60 s — events are already in DB by the time this poll fires.
+    """
+    from app.database import AsyncSessionLocal
+    from app.services.providers.google_meet import poll_active_meeting
+
+    while True:
+        await asyncio.sleep(20)
+        try:
+            async with AsyncSessionLocal() as session:
+                integration = await get_integration(session, "google_calendar")
+                if (
+                    integration is None
+                    or integration.status != "connected"
+                    or not integration.access_token
+                ):
+                    continue
+                await poll_active_meeting(
+                    session, integration, integration.access_token
+                )
+        except asyncio.CancelledError:
+            logger.info("[google_meet] Meeting poll loop cancelled")
+            raise
+        except Exception as exc:
+            logger.warning("[google_meet] Meeting poll tick error: %s", exc)
+
+
 def create_scheduler_task() -> asyncio.Task:
-    global _scheduler_task
+    global _scheduler_task, _meeting_poll_task
     logger.info("[integrations] Starting integration sync scheduler")
     _scheduler_task = asyncio.create_task(_scheduler_loop())
+    _meeting_poll_task = asyncio.create_task(_meeting_poll_loop())
     return _scheduler_task
 
 
 async def stop_scheduler() -> None:
-    global _scheduler_task
+    global _scheduler_task, _meeting_poll_task
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
         try:
@@ -191,4 +224,13 @@ async def stop_scheduler() -> None:
         except asyncio.CancelledError:
             pass
     _scheduler_task = None
+
+    if _meeting_poll_task and not _meeting_poll_task.done():
+        _meeting_poll_task.cancel()
+        try:
+            await _meeting_poll_task
+        except asyncio.CancelledError:
+            pass
+    _meeting_poll_task = None
+
     logger.info("[integrations] Scheduler stopped")
