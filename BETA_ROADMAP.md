@@ -456,7 +456,8 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 - [x] **T6.4 tamamlandı [session-A]** Basit landing page (statik tek dosya)
   - `landing/index.html` — inline CSS, koyu tema, hero + 4 özellik kartı + 3-tier gizlilik + cihaz bölümü + changelog link + footer
   - `landing/icon.png` — `sadik-app/build/icon.png` kopyalandı
-  - Deploy: `landing/` klasörünü gh-pages branch'e push et; repo ayarlarından Pages source = `gh-pages / (root)` seç
+  - **Canlı (2026-05-02):** https://ntrch.github.io/sadik-releases/ (GitHub Pages, `sadik-releases` repo `gh-pages` branch)
+  - Future update: `landing/` master'da edit → `gh-pages` branch'e push (subtree veya manuel kopya)
 - [x] **T6.5 KARAR + IMPLEMENTATION** — Option A (PyInstaller embedded) ✅ yukarıda detay
 
 **Exit criteria:** Temiz Windows + macOS makinede `.exe` / `.dmg` çift tıkla → app çalışır.
