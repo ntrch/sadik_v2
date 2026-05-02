@@ -137,38 +137,41 @@ export default function HeaderBar() {
           )}
         </div>
 
-        {/* Center — OLED preview + connection */}
+        {/* Center — OLED preview */}
         <div className="flex flex-col items-center gap-1">
           <OledPreview />
-          <div className="flex items-center justify-center gap-1.5">
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${deviceStatus.connected ? 'bg-accent-green' : 'bg-accent-red'}`} />
-            {deviceStatus.connected ? (
-              <>
-                <span className="text-[10px] text-accent-green font-medium">Bağlı</span>
-                <button onClick={disconnect}
-                  title="Bağlantıyı kes"
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-text-muted hover:bg-accent-red/20 hover:text-accent-red transition-all">
-                  <X size={10} />
-                </button>
-              </>
-            ) : (
-              <>
-                <button onClick={handleAuto} disabled={autoConnecting}
-                  title="Otomatik bağlan"
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-text-muted hover:text-accent-purple transition-all">
-                  <RotateCw size={10} className={autoConnecting ? 'animate-spin' : ''} />
-                </button>
-                <button onClick={openConnect}
-                  className="text-[10px] text-accent-purple hover:text-accent-purple-hover font-medium transition-colors flex items-center gap-0.5">
-                  Bağlan <ChevronDown size={8} />
-                </button>
-              </>
-            )}
-          </div>
         </div>
 
         {/* Right — brightness + mic + settings */}
         <div className="flex items-center gap-3 justify-self-end">
+          {/* SADIK device pill */}
+          <button
+            onClick={deviceStatus.connected ? disconnect : openConnect}
+            title={deviceStatus.connected ? 'Bağlı — kesmek için tıkla' : 'Cihaza bağlan'}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-card border border-border-subtle hover:border-border transition-all"
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                deviceStatus.connected ? 'bg-accent-green' : 'bg-accent-red'
+              }`}
+              style={
+                deviceStatus.connected
+                  ? { boxShadow: '0 0 6px rgba(110, 231, 183, 0.6)' }
+                  : { boxShadow: '0 0 6px rgba(252, 165, 165, 0.5)' }
+              }
+            />
+            <span className="text-xs font-semibold text-text-primary tracking-wide">SADIK</span>
+          </button>
+          {!deviceStatus.connected && (
+            <button
+              onClick={handleAuto}
+              disabled={autoConnecting}
+              title="Otomatik bağlan"
+              className="p-2 rounded-full bg-bg-input text-text-muted hover:text-accent-primary transition-all disabled:opacity-40"
+            >
+              <RotateCw size={16} className={autoConnecting ? 'animate-spin' : ''} />
+            </button>
+          )}
           {voiceAssistantActive && (
             <button
               onClick={() => { navigate('/chat'); setVoiceUiVisible(true); }}
