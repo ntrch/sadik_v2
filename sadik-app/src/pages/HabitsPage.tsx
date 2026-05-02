@@ -257,9 +257,12 @@ interface CardProps {
 
 function HabitCard({ habit, onEdit, onDelete, onToggleEnabled }: CardProps) {
   return (
-    <div className="bg-bg-card border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-card hover:border-accent-orange/30 transition-colors group">
-      {/* Top row */}
-      <div className="flex items-start justify-between gap-2">
+    <div className="bg-bg-card border border-border-subtle rounded-card p-4 flex flex-col gap-3 hover:border-border transition-colors group">
+      {/* Top row — accent küpü + isim/açıklama + hover actions */}
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-xl bg-accent-orange/15 flex items-center justify-center flex-shrink-0 ring-1 ring-accent-orange/30">
+          <Repeat size={18} className="text-accent-orange" />
+        </div>
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-text-primary text-sm truncate">{habit.name}</p>
           {habit.description && (
@@ -269,14 +272,14 @@ function HabitCard({ habit, onEdit, onDelete, onToggleEnabled }: CardProps) {
         <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => onEdit(habit)}
-            className="p-2 rounded-lg hover:bg-bg-hover text-text-secondary hover:text-text-primary transition-colors"
+            className="p-1.5 rounded-lg hover:bg-bg-hover text-text-secondary hover:text-text-primary transition-colors"
             title="Düzenle"
           >
             <Pencil size={14} />
           </button>
           <button
             onClick={() => onDelete(habit.id)}
-            className="p-2 rounded-lg hover:bg-red-500/10 text-text-secondary hover:text-red-400 transition-colors"
+            className="p-1.5 rounded-lg hover:bg-accent-red/15 text-text-secondary hover:text-accent-red transition-colors"
             title="Sil"
           >
             <Trash2 size={14} />
@@ -284,18 +287,19 @@ function HabitCard({ habit, onEdit, onDelete, onToggleEnabled }: CardProps) {
         </div>
       </div>
 
-      {/* Meta row */}
-      <div className="flex items-center gap-3 text-xs text-text-muted flex-wrap">
-        <span className="text-accent-orange font-medium">{habit.time}</span>
+      {/* Meta — saat + günler */}
+      <div className="flex items-center gap-3 text-xs text-text-muted flex-wrap pl-[52px]">
+        <span className="text-accent-orange font-semibold tabular-nums">{habit.time}</span>
         {habit.minutes_before > 0 && (
           <span>{habit.minutes_before} dk önce</span>
         )}
+        <span>·</span>
         <span>{formatDays(habit.days_of_week)}</span>
       </div>
 
-      {/* Footer: enable toggle */}
-      <div className="flex items-center justify-between pt-1 border-t border-border/60">
-        <span className={`text-xs ${habit.enabled ? 'text-accent-orange' : 'text-text-muted'}`}>
+      {/* Footer — enable toggle */}
+      <div className="flex items-center justify-between pt-2 border-t border-border-subtle">
+        <span className={`text-xs font-medium ${habit.enabled ? 'text-accent-orange' : 'text-text-muted'}`}>
           {habit.enabled ? 'Aktif' : 'Pasif'}
         </span>
         <Toggle
@@ -370,19 +374,18 @@ export default function HabitsPage() {
   return (
     <div className="p-5 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-accent-orange/15 flex items-center justify-center">
-            <Repeat size={20} className="text-accent-orange" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-text-primary">Alışkanlıklar</h1>
-            <p className="text-xs text-text-muted">Günlük rutin hatırlatıcılar</p>
-          </div>
+      <div className="flex items-start justify-between mb-7">
+        <div>
+          <h1 className="text-[32px] font-bold text-text-primary tracking-tight leading-tight">Alışkanlıklar</h1>
+          <p className="text-sm text-text-muted mt-1">
+            {habits.length === 0
+              ? 'Henüz alışkanlık yok'
+              : `${habits.filter((h) => h.enabled).length} aktif · ${habits.length} toplam`}
+          </p>
         </div>
         <button
           onClick={openCreate}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-accent-orange/15 text-accent-orange border border-accent-orange/30 hover:bg-accent-orange/25 transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold bg-accent-primary text-bg-main hover:bg-accent-primary-hover transition-colors shadow-sm"
         >
           <Plus size={16} />
           Yeni Alışkanlık
@@ -427,10 +430,10 @@ export default function HabitsPage() {
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl text-sm font-medium shadow-lg transition-all ${
-            toast.type === 'success' ? 'bg-green-500/20 text-green-300 border border-green-500/30' :
-            toast.type === 'error'   ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
-                                       'bg-bg-card text-text-primary border border-border'
+          className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-full text-sm font-medium border transition-all ${
+            toast.type === 'success' ? 'bg-accent-green/15 text-accent-green border-accent-green/30' :
+            toast.type === 'error'   ? 'bg-accent-red/15 text-accent-red border-accent-red/30' :
+                                       'bg-bg-card text-text-primary border-border'
           }`}
         >
           {toast.message}
