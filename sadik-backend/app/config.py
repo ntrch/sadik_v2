@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
     stripe_price_id: str = ""  # Monthly Pro plan price ID (e.g. price_...)
-    stripe_success_url: str = "http://localhost:5173/settings?billing=success"
-    stripe_cancel_url: str = "http://localhost:5173/settings?billing=cancel"
+    stripe_success_url: str = "http://localhost:8000/api/billing/checkout-complete"
+    stripe_cancel_url: str = "http://localhost:8000/api/billing/checkout-cancel"
 
     class Config:
         env_file = ".env"

@@ -476,6 +476,10 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - `/api/usage/me` endpoint — analiz için
   - Settings'te UsageStatsCard
 - [x] **T7.3 tamam [session-A]** Stripe shadow billing (checkout + webhook + portal)
+  - [x] **T7.3b tamam [session-A]** Checkout completion UX
+    - NEW endpoints: GET /api/billing/checkout-complete + /checkout-cancel (self-closing HTML)
+    - `STRIPE_SUCCESS_URL`/`STRIPE_CANCEL_URL` default güncellendi
+    - SettingsPage: 3sn polling (5dk timeout) + free→pro flip detection + success toast
   - MOD `sadik-backend/requirements.txt` — `stripe>=8.0.0,<10.0.0` eklendi
   - MOD `sadik-backend/app/config.py` — `stripe_secret_key`, `stripe_webhook_secret`, `stripe_price_id`, `stripe_success_url`, `stripe_cancel_url` env fields
   - MOD `sadik-backend/app/main.py` — `stripe_customer_id`, `stripe_subscription_id`, `billing_enabled` DEFAULT_SETTINGS + billing router register

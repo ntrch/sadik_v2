@@ -6,6 +6,7 @@ NO AI flow is ever blocked by billing logic.
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,50 @@ from app.services.tier_guard import get_effective_tier
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 logger = logging.getLogger(__name__)
+
+_SUCCESS_HTML = """<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>SADIK — Ödeme Başarılı</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; background:#0e0e10; color:#fff;
+           display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
+    .card { text-align:center; max-width:420px; padding:32px; }
+    h1 { font-size:24px; margin:0 0 12px; }
+    p { color:#aaa; margin:8px 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>✅ Ödeme alındı</h1>
+    <p>SADIK Pro aboneliğiniz aktif. Bu sekme birkaç saniye içinde kapanacak.</p>
+    <p style="font-size:13px;">Kapanmazsa elle kapatabilirsiniz.</p>
+  </div>
+  <script>setTimeout(()=>{ try { window.close(); } catch(e){} }, 1800);</script>
+</body>
+</html>"""
+
+_CANCEL_HTML = """<!doctype html>
+<html lang="tr">
+<head><meta charset="utf-8"><title>SADIK — İptal Edildi</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;background:#0e0e10;color:#fff;
+display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
+.card{text-align:center;max-width:420px;padding:32px;}h1{font-size:24px;margin:0 0 12px;}
+p{color:#aaa;}</style></head>
+<body><div class="card"><h1>Ödeme iptal edildi</h1>
+<p>Bu sekme birkaç saniye içinde kapanacak.</p></div>
+<script>setTimeout(()=>{ try { window.close(); } catch(e){} }, 1500);</script></body></html>"""
+
+
+@router.get("/checkout-complete", response_class=HTMLResponse)
+async def checkout_complete():
+    return HTMLResponse(content=_SUCCESS_HTML)
+
+
+@router.get("/checkout-cancel", response_class=HTMLResponse)
+async def checkout_cancel():
+    return HTMLResponse(content=_CANCEL_HTML)
 
 
 async def _get_settings_map(session: AsyncSession) -> dict:

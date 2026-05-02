@@ -182,6 +182,8 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
   // Billing (feature flag — hidden when enabled=false)
   const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
+  const [polling, setPolling] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [showWeatherKey, setShowWeatherKey] = useState(false);
   const [weatherKeyDraft, setWeatherKeyDraft] = useState('');
   const [locQuery, setLocQuery] = useState('');
@@ -239,6 +241,39 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
     telemetryApi.getConsent().then((r) => setTelemetryConsent(r.enabled)).catch(() => {});
     billingApi.getStatus().then(setBillingStatus).catch(() => {});
   }, []);
+
+  // Polling effect — starts when user clicks "Pro'ya Yükselt", detects free→pro flip.
+  useEffect(() => {
+    if (!polling) return;
+    const startedAt = Date.now();
+    const previousTier = billingStatus?.tier; // "free" snapshot at polling start
+    const interval = setInterval(async () => {
+      if (Date.now() - startedAt > 5 * 60 * 1000) {
+        // 5 min hard timeout, silently stop
+        clearInterval(interval);
+        setPolling(false);
+        return;
+      }
+      try {
+        const status = await billingApi.getStatus();
+        if (previousTier === 'free' && status.tier === 'pro') {
+          clearInterval(interval);
+          setPolling(false);
+          setBillingStatus(status); // UI refresh — button switches to "Aboneliği Yönet"
+          setShowSuccess(true);
+        }
+      } catch { /* ignore, retry next tick */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polling, billingStatus?.tier]);
+
+  // Auto-dismiss success toast after 6 seconds.
+  useEffect(() => {
+    if (!showSuccess) return;
+    const timer = setTimeout(() => setShowSuccess(false), 6000);
+    return () => clearTimeout(timer);
+  }, [showSuccess]);
 
   // ---------------------------------------------------------------------------
   // Dirty tracking — recompute whenever any draft / settings field changes.
@@ -1358,6 +1393,7 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
                   try {
                     const { url } = await billingApi.createCheckout();
                     window.open(url, '_blank');
+                    setPolling(true);
                   } catch {
                     showToast('Ödeme sayfası açılamadı. Lütfen tekrar dene.', 'error');
                   } finally {
@@ -1663,6 +1699,23 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
       </div>
     )}
     {onOpenFeedback && <FeedbackButton onClick={onOpenFeedback} />}
+
+    {/* Pro upgrade success toast */}
+    {showSuccess && (
+      <div
+        className="fixed top-4 right-4 z-[70] flex items-center gap-3 bg-bg-card border border-accent-purple/40 rounded-card px-4 py-3 shadow-lg text-sm text-text-primary"
+        style={{ maxWidth: 320 }}
+      >
+        <span>🎉 Pro aboneliğiniz aktif — teşekkürler!</span>
+        <button
+          onClick={() => setShowSuccess(false)}
+          className="ml-auto text-text-muted hover:text-text-primary transition-colors flex-shrink-0"
+          aria-label="Kapat"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    )}
     </>
   );
 }
