@@ -67,4 +67,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   captureScreenshot: () => ipcRenderer.invoke('feedback:capture-screenshot'),
   // Forward a renderer crash report to the main process (which POSTs to backend).
   reportCrash: (payload) => ipcRenderer.invoke('telemetry:crash', payload),
+  // Auto-updater bridge
+  onUpdateAvailable: (cb) => { ipcRenderer.on('updater:update-available', cb); },
+  onUpdateDownloaded: (cb) => { ipcRenderer.on('updater:update-downloaded', cb); },
+  quitAndInstall: () => ipcRenderer.send('updater:quit-and-install'),
 });

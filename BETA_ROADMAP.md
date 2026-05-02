@@ -449,9 +449,12 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - `sadik-app/build/installer.nsh` (NEW) — `customInstall` macro: `pnputil /add-driver ... /install`
   - `sadik-app/package.json` — `extraResources` driver klasörü, `win.requestedExecutionLevel: asInvoker`, `nsis.perMachine: true`, `nsis.include: build/installer.nsh`; perMachine:true → installer UAC bir kez prompt eder, kurulu app normal user olarak açılır
   - **Sebep:** ESP32-WROOM-32 CP210x USB-UART bridge kullanıyor; Windows'ta default driver yok → temiz makinede cihaz COM port almıyordu.
-- [ ] **T6.3** Auto-update (electron-updater)
-  - Publish target: GitHub Releases (private repo OK) veya S3
-  - Frontend update notification UI
+- [x] **T6.3 tamam [session-A]** Auto-update (electron-updater + GitHub Releases)
+  - `sadik-app/package.json` — `electron-updater ^6.8.3` dep, `build.publish` GitHub provider (`ntrch/sadik-releases`), `"release": "electron-builder --publish always"` script
+  - `sadik-app/electron/main.js` — `autoUpdater` import; `checkForUpdatesAndNotify()` on ready (packaged-only); `update-available` / `update-downloaded` / `error` event handlers; `updater:quit-and-install` ipcMain handler
+  - `sadik-app/electron/preload.js` — `onUpdateAvailable`, `onUpdateDownloaded`, `quitAndInstall` exposed on `electronAPI`
+  - `sadik-app/src/components/updater/UpdateBanner.tsx` (NEW) — fixed bottom banner: "indiriliyor" state → "hazır + Yeniden başlat" buton; `App.tsx`'e mount edildi
+  - **Manuel gerekli:** `gh repo create ntrch/sadik-releases --public --description "SADIK release artifacts"` ile repo aç; release publish için `GH_TOKEN` env ile `npm run release` çalıştır
 - [ ] **T6.4** Basit landing page (markdown'dan statik)
   - Download links, changelog, support email
 - [x] **T6.5 KARAR + IMPLEMENTATION** — Option A (PyInstaller embedded) ✅ yukarıda detay

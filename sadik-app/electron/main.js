@@ -9,6 +9,7 @@ const os      = require('os');
 const http    = require('http');
 const zlib    = require('zlib');
 const { startBackend, stopBackend } = require('./backend-launcher');
+const { autoUpdater } = require('electron-updater');
 
 // =============================================================================
 // Startup proof marker — written before anything else
@@ -1735,7 +1736,29 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send('sadik:idle-tick', { idleSeconds });
   }, 30000);
 
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+      tlog(`[updater] checkForUpdatesAndNotify failed: ${e.message}`);
+    });
+  }
+
   tlog('[SADIK] Initialization sequence dispatched');
+});
+
+autoUpdater.on('update-available', () => {
+  if (mainWindow) mainWindow.webContents.send('updater:update-available');
+});
+
+autoUpdater.on('update-downloaded', () => {
+  if (mainWindow) mainWindow.webContents.send('updater:update-downloaded');
+});
+
+autoUpdater.on('error', (e) => {
+  tlog(`[updater] error: ${e.message}`);
+});
+
+ipcMain.on('updater:quit-and-install', () => {
+  autoUpdater.quitAndInstall();
 });
 
 // Only quit via window-all-closed when:

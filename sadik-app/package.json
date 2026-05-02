@@ -14,7 +14,8 @@
     "package:dir": "npm run build && electron-builder --dir",
     "package:win": "npm run build && electron-builder --win",
     "package:mac": "npm run build && electron-builder --mac",
-    "release:win": "powershell -ExecutionPolicy Bypass -File ../sadik-backend/build/build.ps1 && npm run package:win"
+    "release:win": "powershell -ExecutionPolicy Bypass -File ../sadik-backend/build/build.ps1 && npm run package:win",
+    "release": "electron-builder --publish always"
   },
   "build": {
     "appId": "com.sadik.app",
@@ -34,16 +35,27 @@
       {
         "from": "../sadik-backend/dist/sadik-backend",
         "to": "backend",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "build/drivers/cp210x",
         "to": "drivers/cp210x",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "requestedExecutionLevel": "asInvoker",
       "icon": "build/icon.png"
     },
@@ -62,10 +74,23 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "notarize": false,
       "icon": "build/icon.png",
-      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }]
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
     },
     "dmg": {
       "writeUpdateInfo": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "ntrch",
+      "repo": "sadik-releases"
     }
   },
   "dependencies": {
@@ -78,6 +103,7 @@
     "@tiptap/react": "^3.22.4",
     "@tiptap/starter-kit": "^3.22.4",
     "axios": "^1.6.7",
+    "electron-updater": "^6.8.3",
     "lucide-react": "^0.323.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

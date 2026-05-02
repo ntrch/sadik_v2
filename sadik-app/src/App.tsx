@@ -22,6 +22,7 @@ import AdminTelemetryPage from './pages/AdminTelemetryPage';
 import { settingsApi } from './api/settings';
 import { isInputFocused } from './utils/focus';
 import TelemetryConsentBanner from './components/telemetry/TelemetryConsentBanner';
+import UpdateBanner from './components/updater/UpdateBanner';
 
 /**
  * Tab selector for the /chat route. Lives at App level so the persistent
@@ -141,6 +142,7 @@ function AppShell() {
       )}
       {feedbackOpen && <FeedbackModal onClose={closeFeedback} />}
       <TelemetryConsentBanner />
+      <UpdateBanner />
     </div>
   );
 }
