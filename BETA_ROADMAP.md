@@ -423,12 +423,10 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - E2E verified: "Bağlan" → tarayıcı onayı → "Bağlandı ✓" → event'ler Ajanda'ya düştü
   - **Not:** Google Desktop OAuth client_secret'ı hâlâ token exchange için zorunlu tutar (native app için "confidential değil" kabul edilir, embed edilebilir). PKCE defense-in-depth olarak çalışır.
 
-- [ ] **T6.1b** OAuth consent screen — beta tester gating
-  - Google Cloud Console → OAuth consent screen → **Testing** modunda bırak
-  - Beta tester email'lerini "Test users" listesine ekle (max 100)
-  - Ship öncesi (T6.x) Google verification submit — privacy policy URL + demo video gerekir
-  - `providers/google_calendar.py` + Zoom + Notion PKCE'ye geçir
-  - Kullanıcı OAuth client create etmek zorunda kalmasın
+- [~] **T6.1b** OAuth consent screen — **Eren-only manuel adım, kod değişikliği YOK** (2026-05-02 atlandı)
+  - Eren tester email'lerini topladıkça Google Cloud Console → OAuth consent screen → Test users'a ekleyecek
+  - Ship öncesi (T6.x) Google verification submit — Eren manuel
+  - PKCE refactor T6.1 ile zaten land oldu; provider'lar embedded secret kullanıyor
 
 **Concurrency zone B (build + release):**
 - [x] **T6.2 tamam [session-A]** electron-builder config + embedded backend spawn ✅
