@@ -9,8 +9,8 @@
 }
 
 body {
-  background-color: #121212;
-  color: #e4e4e7;
+  background-color: #0e1116;
+  color: #e6e8ec;
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
   font-size: 14px;
   overflow: hidden;
@@ -37,12 +37,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #505050;
+  background: #3a414b;
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #666;
+  background: #4a525e;
 }
 
 /* ── Animations ────────────────────────────────────────────────────────────── */
@@ -82,13 +82,13 @@ body {
 /* ── Glass effect utility ──────────────────────────────────────────────────── */
 
 .glass {
-  background: rgba(45, 45, 45, 0.55);
+  background: rgba(38, 44, 53, 0.6);
   backdrop-filter: blur(18px) saturate(1.3);
   -webkit-backdrop-filter: blur(18px) saturate(1.3);
 }
 
 .glass-heavy {
-  background: rgba(30, 30, 30, 0.5);
+  background: rgba(22, 27, 34, 0.55);
   backdrop-filter: blur(24px) saturate(1.5);
   -webkit-backdrop-filter: blur(24px) saturate(1.5);
   border-color: rgba(255, 255, 255, 0.06) !important;
@@ -109,7 +109,7 @@ body {
 .bg-bg-card {
   backdrop-filter: blur(16px) saturate(1.3);
   -webkit-backdrop-filter: blur(16px) saturate(1.3);
-  border-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
 }
 
 /* ── OLED preview glow ─────────────────────────────────────────────────────── */
@@ -126,8 +126,8 @@ body {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #a78bfa;
-  box-shadow: 0 0 6px rgba(167, 139, 250, 0.6);
+  background: #22d3ee;
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.6);
 }
 
 /* ── Input field utility ───────────────────────────────────────────────────── */

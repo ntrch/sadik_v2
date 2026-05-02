@@ -112,6 +112,27 @@
 - **Settings draft-state refactor** — 17 draft mirror, dirty flag, Save zorunlu, unsaved-exit dialog (document-level click capture), beforeunload, tüm live-apply helper'ları kaldırıldı, handleSave merkezi sequential API call
 - Faz 0.5 OAuth refactor (Desktop+PKCE) ship-blocker
 
+### Aktif epic: **T-UI — Radikal UI Refresh (dream dili)**
+
+> **Source**: `ui_dream/` (5 png — dashboard, habits, screentime, think, workspace). Esinlenilen projenin tasarım dili tatbik edilir; logic dokunulmaz, çalışan hiçbir şey bozulmaz, zero-error hedefi. Navbar ikonları + sıralaması + HeaderBar content **korunur**; sadece container/spacing/tipografi kalibre edilir. Bizde olup dream'de olmayan tüm yüzeyler aynı tasarım gramerinde yeniden çizilir.
+>
+> **Workflow**: her sprint Sonnet sub-agent'a delege; commit `feat(ui-S{n}): … [session-master]`; her sprint sonu `npm run typecheck` + `npm run build` zero-error.
+
+| ID | Sprint | Durum |
+|---|---|---|
+| T-UI.S0 | Design tokens (slate palette, rounded scale, typography, accent-cyan) | ✅ tokens: slate palette + accent-primary cyan + radius bump (card 18px, pill) + border.focus cyan |
+| T-UI.S1 | Shell — BottomNav floating capsule + HeaderBar kalibre | ⏸ |
+| T-UI.S2 | DashboardPage — timeline + 2 stat + schedule | ⏸ |
+| T-UI.S3 | HabitsPage — due-now hero + week grid | ⏸ |
+| T-UI.S4 | WorkspacePage — chip tabs + hero + items grid | ⏸ |
+| T-UI.S5 | InsightsPage — hero metric + activity timeline | ⏸ |
+| T-UI.S6 | MemoryPage — filter chips + list + composer | ⏸ |
+| T-UI.S7 | Tasks/Agenda/Chat/Settings dream dili tatbiki | ⏸ |
+| T-UI.S8 | Özgün yüzeyler (Voice, GlobalInsight, Feedback, OledPreview, DeviceStatus, Onboarding, UpdateBanner, TelemetryConsent) | ⏸ |
+| T-UI.S9 | Polish + regression sweep | ⏸ |
+
+---
+
 ### Aktif sprint: **Sprint 3 — Behavioral learning (opt-in)**
 
 **İlerleme:**
