@@ -453,8 +453,10 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - `sadik-app/electron/preload.js` — `onUpdateAvailable`, `onUpdateDownloaded`, `quitAndInstall` exposed on `electronAPI`
   - `sadik-app/src/components/updater/UpdateBanner.tsx` (NEW) — fixed bottom banner: "indiriliyor" state → "hazır + Yeniden başlat" buton; `App.tsx`'e mount edildi
   - **Manuel gerekli:** `gh repo create ntrch/sadik-releases --public --description "SADIK release artifacts"` ile repo aç; release publish için `GH_TOKEN` env ile `npm run release` çalıştır
-- [ ] **T6.4** Basit landing page (markdown'dan statik)
-  - Download links, changelog, support email
+- [x] **T6.4 tamamlandı [session-A]** Basit landing page (statik tek dosya)
+  - `landing/index.html` — inline CSS, koyu tema, hero + 4 özellik kartı + 3-tier gizlilik + cihaz bölümü + changelog link + footer
+  - `landing/icon.png` — `sadik-app/build/icon.png` kopyalandı
+  - Deploy: `landing/` klasörünü gh-pages branch'e push et; repo ayarlarından Pages source = `gh-pages / (root)` seç
 - [x] **T6.5 KARAR + IMPLEMENTATION** — Option A (PyInstaller embedded) ✅ yukarıda detay
 
 **Exit criteria:** Temiz Windows + macOS makinede `.exe` / `.dmg` çift tıkla → app çalışır.

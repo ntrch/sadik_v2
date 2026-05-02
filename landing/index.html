@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SADIK — Kişisel Asistan</title>
+  <meta name="description" content="Senin verini senin makinende tutan, sesli komutlarla çalışan kişisel masaüstü asistanı." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0a0f;
+      --bg-card:   #13131a;
+      --bg-card2:  #18181f;
+      --border:    #2a2a38;
+      --text:      #e8e8f0;
+      --muted:     #888899;
+      --accent1:   #6366f1;
+      --accent2:   #a855f7;
+      --accent3:   #3b82f6;
+      --radius:    12px;
+      --font:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent1); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 clamp(1.5rem, 5vw, 4rem);
+      height: 56px;
+      background: rgba(10, 10, 15, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-brand {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      background: linear-gradient(90deg, #818cf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .nav-links { display: flex; gap: 1.5rem; font-size: 0.875rem; color: var(--muted); }
+    .nav-links a { color: var(--muted); }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* ── HERO ── */
+    .hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: clamp(4rem, 10vw, 8rem) clamp(1.5rem, 5vw, 4rem) clamp(3rem, 6vw, 5rem);
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 50% -10%, rgba(99,102,241,0.18) 0%, transparent 70%),
+        radial-gradient(ellipse 40% 40% at 80% 60%, rgba(168,85,247,0.10) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .hero-logo {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 0 40px rgba(99,102,241,0.25);
+    }
+    .hero-badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #818cf8;
+      background: rgba(99,102,241,0.12);
+      border: 1px solid rgba(99,102,241,0.25);
+      border-radius: 100px;
+      padding: 0.25rem 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .hero h1 {
+      font-size: clamp(2.5rem, 7vw, 5rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      background: linear-gradient(135deg, #e8e8f0 30%, #a5b4fc 70%, #c084fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 1.25rem;
+    }
+    .hero-pitch {
+      font-size: clamp(1rem, 2.5vw, 1.25rem);
+      color: var(--muted);
+      max-width: 520px;
+      margin-bottom: 2.5rem;
+    }
+    .cta-group {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 1.5rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.15s;
+      white-space: nowrap;
+    }
+    .btn:hover { opacity: 0.88; transform: translateY(-1px); text-decoration: none; }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent1), var(--accent2));
+      color: #fff;
+      border: none;
+    }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: #4a4a60; }
+
+    /* ── SECTIONS ── */
+    section {
+      padding: clamp(3rem, 6vw, 5rem) clamp(1.5rem, 5vw, 4rem);
+    }
+    .section-inner {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    .section-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent1);
+      margin-bottom: 0.6rem;
+    }
+    .section-title {
+      font-size: clamp(1.6rem, 4vw, 2.25rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.75rem;
+    }
+    .section-sub {
+      font-size: 1rem;
+      color: var(--muted);
+      max-width: 560px;
+      margin-bottom: 2.5rem;
+    }
+
+    /* ── FEATURE CARDS ── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 1rem;
+    }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: #3a3a52; }
+    .card-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+      font-size: 1.1rem;
+    }
+    .card h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+    .card p {
+      font-size: 0.85rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    /* ── PRIVACY SECTION ── */
+    .privacy-section {
+      background: linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(168,85,247,0.04) 100%);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .privacy-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.25rem;
+      margin-top: 0;
+    }
+    .privacy-tier {
+      background: var(--bg-card2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+    }
+    .privacy-tier .tier-name {
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.35rem;
+    }
+    .tier-full   { color: #34d399; }
+    .tier-hybrid { color: #fbbf24; }
+    .tier-local  { color: #60a5fa; }
+    .privacy-tier p { font-size: 0.85rem; color: var(--muted); }
+
+    /* ── DEVICE SECTION ── */
+    .device-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      align-items: flex-start;
+    }
+    .device-card {
+      flex: 1 1 220px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+    }
+    .device-card h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+    .device-card p { font-size: 0.85rem; color: var(--muted); }
+    .device-note {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 1.25rem;
+      padding: 0.75rem 1rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    /* ── DIVIDER ── */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      padding: 2rem clamp(1.5rem, 5vw, 4rem);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+    }
+    .footer-links { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+    .footer-links a { color: var(--muted); }
+    .footer-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 600px) {
+      .nav-links { display: none; }
+      .cta-group { flex-direction: column; align-items: stretch; }
+      .btn { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <span class="nav-brand">SADIK</span>
+    <div class="nav-links">
+      <a href="#ozellikler">Özellikler</a>
+      <a href="#gizlilik">Gizlilik</a>
+      <a href="#cihaz">Cihaz</a>
+      <a href="https://github.com/ntrch/sadik-releases/releases" target="_blank" rel="noopener">Değişiklikler</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <img src="icon.png" alt="SADIK logosu" class="hero-logo" />
+    <span class="hero-badge">Beta &mdash; Windows &amp; macOS</span>
+    <h1>SADIK</h1>
+    <p class="hero-pitch">
+      Senin verini senin makinende tutan, sesle çalışan kişisel masaüstü asistanı.
+    </p>
+    <div class="cta-group">
+      <a
+        class="btn btn-primary"
+        href="https://github.com/ntrch/sadik-releases/releases/latest"
+        target="_blank" rel="noopener"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2M8 2v8M5 7l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Windows İndir
+      </a>
+      <a
+        class="btn btn-secondary"
+        href="https://github.com/ntrch/sadik-releases/releases/latest"
+        target="_blank" rel="noopener"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2M8 2v8M5 7l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        macOS İndir
+      </a>
+    </div>
+  </section>
+
+  <hr class="divider" />
+
+  <!-- FEATURES -->
+  <section id="ozellikler">
+    <div class="section-inner">
+      <div class="section-label">Özellikler</div>
+      <h2 class="section-title">Ne işe yarar?</h2>
+      <p class="section-sub">Günlük iş akışını sesle veya yazıyla yönet. Sadık seninle çalışır, senin adına değil.</p>
+      <div class="cards">
+        <div class="card">
+          <div class="card-icon">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <circle cx="9" cy="9" r="6.5" stroke="#818cf8" stroke-width="1.5"/>
+              <path d="M6.5 9c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5" stroke="#818cf8" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="9" cy="9" r="1" fill="#818cf8"/>
+            </svg>
+          </div>
+          <h3>Sesli Komut &amp; Araç Kullanımı</h3>
+          <p>Türkçe konuş, Sadık görevi yapsın. Görev sil, alışkanlık sorgula, Pomodoro başlat, mod değiştir &mdash; hepsi sesle.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <rect x="2.5" y="2.5" width="13" height="13" rx="3" stroke="#c084fc" stroke-width="1.5"/>
+              <path d="M5.5 9h7M5.5 6h4M5.5 12h5" stroke="#c084fc" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h3>Takvim &amp; Notion Entegrasyonu</h3>
+          <p>Google Takvim etkinliklerini ve Notion sayfalarını çek, görev listene aktar. Toplantı başlamadan önce bildir.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M9 2.5L11.5 7l5 .5-3.5 3.5 1 5-4.5-2.5L5 16l1-5L2.5 7.5 7.5 7 9 2.5z" stroke="#fbbf24" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h3>Davranış Öğrenme (Opt-in)</h3>
+          <p>Uygulama kullanım kalıpların kümelenir, profil çıkarılır, LLM bağlamına enjekte edilir. "Normalde pazartesi sabahları kod yazardın" diyebilsin.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M9 3v1M9 14v1M3 9H2M16 9h-1M5.05 5.05l-.71-.71M13.66 13.66l-.71-.71M5.05 12.95l-.71.71M13.66 4.34l-.71.71" stroke="#34d399" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="9" cy="9" r="3" stroke="#34d399" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <h3>Çalışma Modları</h3>
+          <p>Kodlama, Yazarlık, Toplantı, Mola ve daha fazlası. Her mod farklı odak seviyesi ve bildirim kuralı getirir.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider" />
+
+  <!-- PRIVACY -->
+  <section id="gizlilik" class="privacy-section">
+    <div class="section-inner">
+      <div class="section-label">Gizlilik</div>
+      <h2 class="section-title">Ham verin cloud'a gitmez.</h2>
+      <p class="section-sub">
+        Ses kaydı STT işleminden hemen sonra silinir. Bellek içerikleri, aktivite geçmişi ve uygulama kullanımı yalnızca kendi makinende kalır.
+        Üç hazır preset ile gizlilik seviyeni kendin seç.
+      </p>
+      <div class="privacy-grid">
+        <div class="privacy-tier">
+          <div class="tier-name tier-full">Full</div>
+          <p>Davranış öğrenme ve takvim/Notion entegrasyonu açık. Sadık seni en iyi tanır &mdash; özet veriler opt-in ile cloud'a gider.</p>
+        </div>
+        <div class="privacy-tier">
+          <div class="tier-name tier-hybrid">Hybrid</div>
+          <p>Entegrasyonlar açık, davranış öğrenme kapalı. Anlık sorgular için yeterli bağlam, minimum veri çıkışı.</p>
+        </div>
+        <div class="privacy-tier">
+          <div class="tier-name tier-local">Local-only</div>
+          <p>Hiçbir özet veya bağlam cloud'a gitmez. Yalnızca aktif sesli/yazılı prompt içeriği LLM'e iletilir.</p>
+        </div>
+      </div>
+      <p style="margin-top:1.25rem; font-size:0.82rem; color:var(--muted);">
+        Her LLM isteğinde ayarlar ekranında canlı önizleme: "şu an şu veriler gidiyor." Redaksiyon katmanı e-posta, telefon ve API anahtarı gibi hassas kalıpları otomatik maskeler.
+      </p>
+    </div>
+  </section>
+
+  <hr class="divider" />
+
+  <!-- DEVICE -->
+  <section id="cihaz">
+    <div class="section-inner">
+      <div class="section-label">Cihaz</div>
+      <h2 class="section-title">Opsiyonel ESP32 yüz cihazı</h2>
+      <p class="section-sub">
+        SADIK masaüstü uygulamasının yanı sıra, USB bağlantılı bir cihaz da kullanabilirsin.
+        Cihaz olmadan uygulama eksiksiz çalışır.
+      </p>
+      <div class="device-strip">
+        <div class="device-card">
+          <h3>SADIK Mini</h3>
+          <p>0.96&quot; mono OLED ekran. Yüz animasyonları ve durum göstergesi. ESP32 WROOM-32 tabanlı.</p>
+        </div>
+        <div class="device-card">
+          <h3>SADIK Color</h3>
+          <p>1.8&quot; TFT renkli ekran (160&times;128). Akıcı clip animasyonları. ESP32-S3 N16R8 tabanlı.</p>
+        </div>
+      </div>
+      <p class="device-note">
+        Cihaz USB ile bağlanır; masaüstü uygulaması otomatik algılar. Donanım satışı beta sonrası planlanmaktadır.
+      </p>
+    </div>
+  </section>
+
+  <hr class="divider" />
+
+  <!-- CHANGELOG -->
+  <section>
+    <div class="section-inner" style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:1.5rem;">
+      <div>
+        <div class="section-label">Sürüm Notları</div>
+        <h2 class="section-title" style="margin-bottom:0.4rem;">Changelog</h2>
+        <p style="font-size:0.9rem; color:var(--muted);">Her yeni sürümün değişiklikleri GitHub Releases'ta listelenir.</p>
+      </div>
+      <a
+        class="btn btn-secondary"
+        href="https://github.com/ntrch/sadik-releases/releases"
+        target="_blank" rel="noopener"
+        style="flex-shrink:0;"
+      >
+        Sürümlere git &nbsp;&rarr;
+      </a>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <span>&copy; 2026 SADIK</span>
+    <div class="footer-links">
+      <a href="mailto:eeren7495@gmail.com">eeren7495@gmail.com</a>
+      <a href="https://github.com/ntrch/sadik-releases" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/ntrch/sadik-releases/releases" target="_blank" rel="noopener">Sürümler</a>
+    </div>
+  </footer>
+
+</body>
+</html>
