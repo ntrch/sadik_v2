@@ -122,7 +122,7 @@
 |---|---|---|
 | T-UI.S0 | Design tokens (slate palette, rounded scale, typography, accent-cyan) | ✅ tokens: slate palette + accent-primary cyan + radius bump (card 18px, pill) + border.focus cyan |
 | T-UI.S1 | Shell — BottomNav floating capsule + HeaderBar kalibre | ✅ BottomNav pill capsule (rounded-full, gap-0.5, p-2.5, icon 20) + HeaderBar flat slate (bg-bg-main/80 backdrop-blur-xl, tracking-tight clock, muted date, compact buttons p-2, accent-primary pill & popover) |
-| T-UI.S2 | DashboardPage — timeline + 2 stat + schedule | ⏸ |
+| T-UI.S2 | DashboardPage — timeline + 2 stat + schedule | ✅ greeting H1 + flat stat cards + schedule stripes + accent-primary tümünü gör |
 | T-UI.S3 | HabitsPage — due-now hero + week grid | ⏸ |
 | T-UI.S4 | WorkspacePage — chip tabs + hero + items grid | ⏸ |
 | T-UI.S5 | InsightsPage — hero metric + activity timeline | ⏸ |

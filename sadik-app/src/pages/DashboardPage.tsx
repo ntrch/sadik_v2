@@ -1,11 +1,12 @@
 import React, { useState, useContext, useEffect, useRef } from 'react';
-import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Lightbulb, Calendar, ArrowRight, Briefcase, Code, Coffee, Users, Check, X as XIcon, Flag, CalendarClock, ListTodo, BarChart2, Settings, Pencil, GraduationCap, Palette, BookOpen, Gamepad2 } from 'lucide-react';
+import { Clock, CheckSquare, Flame, Activity, Edit3, ChevronDown, ChevronUp, Calendar, ArrowRight, Briefcase, Code, Coffee, Users, Flag, CalendarClock, ListTodo, BarChart2, Settings, Pencil, GraduationCap, Palette, BookOpen, Gamepad2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { modesApi } from '../api/modes';
 import { pomodoroApi } from '../api/pomodoro';
 import { tasksApi, Task } from '../api/tasks';
-import { statsApi, ModeStat, AppUsageStat, AppInsight } from '../api/stats';
+import { statsApi, ModeStat, AppUsageStat } from '../api/stats';
+import { settingsApi } from '../api/settings';
 import ActivityChart from '../components/stats/ActivityChart';
 import { AnimationEventType } from '../engine/types';
 import { useModeColors } from '../utils/modeColors';
@@ -13,16 +14,35 @@ import { getIconByKey, DEFAULT_PRESET_ICONS } from '../utils/modeIcons';
 import ModeSettingsPopup, { DraftState } from '../components/mode/ModeSettingsPopup';
 import WeeklyProfileCard from '../components/dashboard/WeeklyProfileCard';
 
-const PRESET_MODES = [
-  { key: 'working',  label: 'Çalışıyor',  oledText: 'ÇALIŞIYOR' },
-  { key: 'coding',   label: 'Kod Yazıyor', oledText: 'KOD YAZIYOR' },
-  { key: 'break',    label: 'Mola',        oledText: 'MOLA' },
-  { key: 'meeting',  label: 'Toplantı',    oledText: 'TOPLANTI' },
-  { key: 'writing',  label: 'Yazarlık',    oledText: 'YAZARLIK' },
-  { key: 'learning', label: 'Öğrenme',     oledText: 'OGRENME' },
-  { key: 'design',   label: 'Tasarım',     oledText: 'TASARIM' },
-  { key: 'reading',  label: 'Okuma',       oledText: 'OKUMA' },
-  { key: 'gaming',   label: 'Oyun',        oledText: 'OYUN' },
+// ── Mod adları — canonical Türkçe label sözlüğü ──────────────────────────────
+// Bu sözlük tek merkezi kaynak; WorkspacePage ve burada aynı yer kullanılacak.
+// ID'ler değiştirilmedi, sadece display label güncellendi.
+export const MODE_DISPLAY_LABELS: Record<string, string> = {
+  working:  'Çalışma',
+  coding:   'Kodlama',
+  break:    'Mola',
+  meeting:  'Toplantı Modu',
+  writing:  'Yazma Akışı',
+  learning: 'Odaklı Öğrenme',
+  design:   'Tasarım',
+  reading:  'Okuma Modu',
+  gaming:   'Oyun Modu',
+};
+
+// ── Persona → görünür mod listesi ────────────────────────────────────────────
+// 'all' etiketliler her personaya görünür.
+type PersonaId = 'developer' | 'writer' | 'student' | 'designer' | 'general';
+
+const PRESET_MODES: { key: string; label: string; oledText: string; personas: PersonaId[] | 'all' }[] = [
+  { key: 'working',  label: MODE_DISPLAY_LABELS.working,  oledText: 'ÇALIŞIYOR',   personas: 'all' },
+  { key: 'coding',   label: MODE_DISPLAY_LABELS.coding,   oledText: 'KOD YAZIYOR', personas: ['developer'] },
+  { key: 'break',    label: MODE_DISPLAY_LABELS.break,    oledText: 'MOLA',         personas: 'all' },
+  { key: 'meeting',  label: MODE_DISPLAY_LABELS.meeting,  oledText: 'TOPLANTI',     personas: 'all' },
+  { key: 'writing',  label: MODE_DISPLAY_LABELS.writing,  oledText: 'YAZMA',        personas: ['writer', 'student'] },
+  { key: 'learning', label: MODE_DISPLAY_LABELS.learning, oledText: 'OGRENME',      personas: ['student', 'general'] },
+  { key: 'design',   label: MODE_DISPLAY_LABELS.design,   oledText: 'TASARIM',      personas: ['designer'] },
+  { key: 'reading',  label: MODE_DISPLAY_LABELS.reading,  oledText: 'OKUMA',        personas: 'all' },
+  { key: 'gaming',   label: MODE_DISPLAY_LABELS.gaming,   oledText: 'OYUN',         personas: 'all' },
 ];
 
 // Maps mode keys to a one-shot intro clip + a looping text clip.
@@ -85,10 +105,8 @@ function beautifyAppName(raw: string): string {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const MODE_LABELS: Record<string, string> = {
-  working: 'Çalışıyor', coding: 'Kod Yazıyor', break: 'Mola', meeting: 'Toplantı',
-  writing: 'Yazarlık', learning: 'Öğrenme', design: 'Tasarım', reading: 'Okuma', gaming: 'Oyun',
-};
+// Backward-compat alias — bileşenler bu adla kullanıyordu
+const MODE_LABELS = MODE_DISPLAY_LABELS;
 
 const MODE_ICON_MAP: Record<string, React.ComponentType<any>> = {
   working:  Briefcase,
@@ -118,9 +136,9 @@ function heatColor(rank: number, total: number): string {
 function formatDuration(secs: number): string {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
-  if (h > 0 && m > 0) return `${h} sa ${m} dk`;
-  if (h > 0) return `${h} sa`;
-  return `${Math.max(m, 1)} dk`;
+  if (h > 0 && m > 0) return `${h} sa ${m} dakika`;
+  if (h > 0) return `${h} saat`;
+  return `${Math.max(m, 1)} dakika`;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -129,7 +147,7 @@ export default function DashboardPage() {
   const {
     currentMode, setCurrentMode, showToast, pomodoroState,
     triggerEvent, showText, returnToIdle, playClipDirect, playModClip, playModSequence, getLoadedClipNames,
-    engineState, activeInsight, acceptInsight, denyInsight,
+    engineState,
     debugForcePoll, debugTestTTS, debugResetCounters, debugSimulateInsight,
     setDndActive,
   } = useContext(AppContext);
@@ -153,6 +171,8 @@ export default function DashboardPage() {
   const [modeStatsOpen, setModeStatsOpen] = useState(true);
   const [appUsageOpen, setAppUsageOpen] = useState(true);
   const [todayTasksOpen, setTodayTasksOpen] = useState(true);
+  const [customModesOpen, setCustomModesOpen] = useState(false);
+  const [userPersona, setUserPersona] = useState<PersonaId>('general');
   const modeReturnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -161,6 +181,11 @@ export default function DashboardPage() {
     // so midnight behaviour matches what the user sees on the clock.
     const _now = new Date();
     const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
+    // Load user persona for mode filtering
+    settingsApi.getAll().then((s) => {
+      const persona = (s['user_persona'] ?? 'general') as PersonaId;
+      setUserPersona(persona);
+    }).catch(() => {});
     tasksApi.list().then((all) => {
       const relevant = all.filter((t) => {
         const due = t.due_date as string | null | undefined;
@@ -298,12 +323,22 @@ export default function DashboardPage() {
     showToast(`"${name}" modu silindi`, 'info');
   };
 
+  // Toplam aktiflik = break + gaming hariç tüm modlar
   const totalWorkSeconds = modeStats
-    .filter((s) => ['working', 'coding', 'meeting', 'writing', 'learning', 'design', 'reading'].includes(s.mode))
+    .filter((s) => !['break', 'gaming'].includes(s.mode))
     .reduce((acc, s) => acc + s.total_seconds, 0);
 
   const doneToday = todayTasks.filter((t) => t.status === 'done').length;
   const activeTasks = todayTasks.filter((t) => t.status !== 'done');
+
+  // Persona'ya göre gösterilecek preset modlar
+  const visiblePresetModes = PRESET_MODES.filter(({ key, personas }) => {
+    if (personas === 'all') return true;
+    if (userPersona === 'general') return true; // genel persona: hepsini göster
+    // Aktif mod her zaman görünsün (seçili olduğunda kaybolmasın)
+    if (currentMode === key) return true;
+    return (personas as PersonaId[]).includes(userPersona);
+  });
 
   const loadedClips = getLoadedClipNames();
   const [selectedClip, setSelectedClip] = useState('');
@@ -311,21 +346,41 @@ export default function DashboardPage() {
 
   return (
     <div className="h-full overflow-y-auto p-6 page-transition">
-      {/* Proactive insight — pinned at top */}
-      <InsightCard insight={activeInsight} onAccept={acceptInsight} onDeny={denyInsight} />
-
+      {/* Greeting */}
+      <div className="mb-6">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted mb-1.5">
+          {(() => {
+            const h = new Date().getHours();
+            if (h < 6) return 'Gece yarısı';
+            if (h < 12) return 'Sabah';
+            if (h < 17) return 'Öğleden sonra';
+            if (h < 21) return 'Akşam';
+            return 'Gece';
+          })()}
+        </p>
+        <h1 className="text-[32px] font-bold text-text-primary tracking-tight leading-tight">
+          {(() => {
+            const h = new Date().getHours();
+            if (h < 6) return 'İyi geceler';
+            if (h < 12) return 'Günaydın';
+            if (h < 17) return 'İyi günler';
+            if (h < 21) return 'İyi akşamlar';
+            return 'İyi geceler';
+          })()}
+        </h1>
+      </div>
       {/* Stat cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
-        <StatCard icon={<Clock size={18} className="text-accent-blue" />} label="Toplam Aktiflik" value={formatDuration(totalWorkSeconds)} color="blue" />
+        <StatCard icon={<Clock size={18} className="text-accent-blue" />} label="Toplam Aktiflik" value={totalWorkSeconds > 0 ? formatDuration(totalWorkSeconds) : '0 dakika'} color="blue" />
         <StatCard icon={<CheckSquare size={18} className="text-accent-green" />} label="Tamamlanan" value={`${doneToday} görev`} color="green" />
         <StatCard icon={<Flame size={18} className="text-accent-orange" />} label="Pomodoro" value={`${pomodoroState.current_session} oturum`} color="orange" />
         <StatCard icon={<Activity size={18} className="text-accent-purple" />} label="Aktif Mod" value={currentMode ? (MODE_LABELS[currentMode] || currentMode) : '—'} color="purple" />
       </div>
 
-      {/* Mode selector — compact inline */}
-      <div data-tutorial="mode-selector" className="bg-bg-card border border-border rounded-card p-4 mb-5 shadow-card">
+      {/* Mode selector — preset modlar */}
+      <div data-tutorial="mode-selector" className="bg-bg-card border border-border-subtle rounded-card p-4 mb-3">
         <div className="flex items-center gap-2 flex-wrap">
-          {PRESET_MODES.map(({ key, label, oledText }) => {
+          {visiblePresetModes.map(({ key, label, oledText }) => {
             const isActive = currentMode === key;
             const color = getModeColor(key);
             const iconKey = getModeIcon(key) ?? DEFAULT_PRESET_ICONS[key];
@@ -365,45 +420,6 @@ export default function DashboardPage() {
               </React.Fragment>
             );
           })}
-          {/* Saved custom modes */}
-          {customModes.map(({ name, color, icon }) => {
-            const IconComp = getIconByKey(icon);
-            const chipKey = `custom-${name}`;
-            return (
-              <React.Fragment key={chipKey}>
-                <ModeChip
-                  label={name}
-                  color={color}
-                  active={currentMode === name}
-                  disabled={loading}
-                  icon={IconComp ? <IconComp size={16} /> : null}
-                  onClick={() => handleSetMode(name, name.toUpperCase())}
-                  settingsBtnRef={(el) => { settingsBtnRefs.current[chipKey] = el; }}
-                  onOpenSettings={() => setSettingsOpenFor(settingsOpenFor === chipKey ? null : chipKey)}
-                  settingsOpen={settingsOpenFor === chipKey}
-                />
-                {settingsOpenFor === chipKey && (
-                  <ModeSettingsPopup
-                    anchorRef={{ current: settingsBtnRefs.current[chipKey] } as React.RefObject<HTMLElement>}
-                    open={true}
-                    onClose={() => setSettingsOpenFor(null)}
-                    mode={{
-                      kind: 'custom',
-                      name,
-                      color,
-                      iconKey: icon ?? 'briefcase',
-                      dnd: getModeDnd(name),
-                      onApply: () => handleSetMode(name, name.toUpperCase()),
-                      onDelete: () => { handleDeleteCustomMode(name); setSettingsOpenFor(null); },
-                      onColorChange: (c) => setCustomModeColor(name, c),
-                      onIconChange: (ic) => setCustomModeIcon(name, ic),
-                      onDndChange: (d) => setModeDnd(name, d),
-                    }}
-                  />
-                )}
-              </React.Fragment>
-            );
-          })}
           {/* +Özel button */}
           <div className="relative">
             <button
@@ -432,9 +448,72 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Özel Modlar akordiyon — default kapalı */}
+      <div className="bg-bg-card border border-border-subtle rounded-card overflow-hidden mb-5">
+        <button
+          onClick={() => setCustomModesOpen((o) => !o)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <Edit3 size={14} className="text-accent-purple" />
+            Özel Modlar
+            <span className="text-[10px] font-normal text-text-muted">({customModes.length})</span>
+          </span>
+          {customModesOpen ? <ChevronUp size={14} className="text-text-muted" /> : <ChevronDown size={14} className="text-text-muted" />}
+        </button>
+        {customModesOpen && (
+          <div className="px-4 pb-4 border-t border-border-subtle pt-3">
+            {customModes.length === 0 ? (
+              <p className="text-xs text-text-muted py-2 text-center">Henüz özel mod yok. Yukarıdaki "+ Özel" butonuyla ekle.</p>
+            ) : (
+              <div className="flex items-center gap-2 flex-wrap">
+                {customModes.map(({ name, color, icon }) => {
+                  const IconComp = getIconByKey(icon);
+                  const chipKey = `custom-${name}`;
+                  return (
+                    <React.Fragment key={chipKey}>
+                      <ModeChip
+                        label={name}
+                        color={color}
+                        active={currentMode === name}
+                        disabled={loading}
+                        icon={IconComp ? <IconComp size={16} /> : null}
+                        onClick={() => handleSetMode(name, name.toUpperCase())}
+                        settingsBtnRef={(el) => { settingsBtnRefs.current[chipKey] = el; }}
+                        onOpenSettings={() => setSettingsOpenFor(settingsOpenFor === chipKey ? null : chipKey)}
+                        settingsOpen={settingsOpenFor === chipKey}
+                      />
+                      {settingsOpenFor === chipKey && (
+                        <ModeSettingsPopup
+                          anchorRef={{ current: settingsBtnRefs.current[chipKey] } as React.RefObject<HTMLElement>}
+                          open={true}
+                          onClose={() => setSettingsOpenFor(null)}
+                          mode={{
+                            kind: 'custom',
+                            name,
+                            color,
+                            iconKey: icon ?? 'briefcase',
+                            dnd: getModeDnd(name),
+                            onApply: () => handleSetMode(name, name.toUpperCase()),
+                            onDelete: () => { handleDeleteCustomMode(name); setSettingsOpenFor(null); },
+                            onColorChange: (c) => setCustomModeColor(name, c),
+                            onIconChange: (ic) => setCustomModeIcon(name, ic),
+                            onDndChange: (d) => setModeDnd(name, d),
+                          }}
+                        />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Mode duration summary — accordion */}
       {modeStats.length > 0 && (
-        <div className="bg-bg-card border border-border rounded-card overflow-hidden mb-5 shadow-card">
+        <div className="bg-bg-card border border-border-subtle rounded-card overflow-hidden mb-5">
           <button
             onClick={() => setModeStatsOpen((o) => !o)}
             className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors"
@@ -446,7 +525,7 @@ export default function DashboardPage() {
             </div>
           </button>
           {modeStatsOpen && (
-            <div className="px-5 pb-4 border-t border-border pt-3 space-y-2">
+            <div className="px-5 pb-4 border-t border-border-subtle pt-3 space-y-2">
               {[...modeStats].sort((a, b) => b.total_seconds - a.total_seconds).map((m) => {
                 const iconKey = getModeIcon(m.mode) ?? DEFAULT_PRESET_ICONS[m.mode];
                 const IconComp = getIconByKey(iconKey) ?? MODE_ICON_MAP[m.mode] ?? Edit3;
@@ -471,7 +550,7 @@ export default function DashboardPage() {
       )}
 
       {/* Today's tasks — accordion */}
-      <div className="bg-bg-card border border-border rounded-card overflow-hidden mb-5 shadow-card">
+      <div className="bg-bg-card border border-border-subtle rounded-card overflow-hidden mb-5">
         <div
           role="button"
           tabIndex={0}
@@ -489,7 +568,7 @@ export default function DashboardPage() {
             <span className="text-[10px] text-text-muted">{activeTasks.length} görev</span>
             <button
               onClick={(e) => { e.stopPropagation(); navigate('/tasks'); }}
-              className="text-[11px] text-accent-purple hover:text-accent-purple-hover transition-colors flex items-center gap-1"
+              className="text-[11px] text-accent-primary hover:text-accent-primary-hover transition-colors flex items-center gap-1"
             >
               Tümünü Gör <ArrowRight size={10} />
             </button>
@@ -497,7 +576,7 @@ export default function DashboardPage() {
           </div>
         </div>
         {todayTasksOpen && (
-          <div className="px-5 pb-4 border-t border-border pt-3">
+          <div className="px-5 pb-4 border-t border-border-subtle pt-3">
             {activeTasks.length === 0 ? (
               <p className="text-xs text-text-muted py-3 text-center">Aktif görev yok</p>
             ) : (
@@ -512,7 +591,7 @@ export default function DashboardPage() {
       </div>
 
       {/* App usage — accordion */}
-      <div className="bg-bg-card border border-border rounded-card overflow-hidden mb-5 shadow-card">
+      <div className="bg-bg-card border border-border-subtle rounded-card overflow-hidden mb-5">
         <button
           onClick={() => setAppUsageOpen((o) => !o)}
           className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors"
@@ -529,7 +608,7 @@ export default function DashboardPage() {
           </div>
         </button>
         {appUsageOpen && (
-          <div className="px-5 pb-4 border-t border-border pt-3">
+          <div className="px-5 pb-4 border-t border-border-subtle pt-3">
             {appUsage.length === 0 ? (
               <p className="text-xs text-text-muted text-center py-3">Henüz veri yok</p>
             ) : (() => {
@@ -574,7 +653,7 @@ export default function DashboardPage() {
       <ActivityChart />
 
       {/* Debug panel */}
-      <div className="mt-6 bg-bg-card border border-border rounded-card overflow-hidden shadow-card">
+      <div className="mt-6 bg-bg-card border border-border-subtle rounded-card overflow-hidden">
         <button
           onClick={() => setDebugOpen((o) => !o)}
           className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-secondary hover:text-text-primary transition-colors"
@@ -693,107 +772,6 @@ export default function DashboardPage() {
   );
 }
 
-// ── Proactive Insight Card ────────────────────────────────────────────────────
-
-const LEVEL_LABEL: Record<string, string> = {
-  gentle: 'Nazik öneri',
-  strong: 'Güçlü öneri',
-};
-
-const SOURCE_LABEL: Record<string, string> = {
-  habit: 'Alışkanlık',
-  task:  'Görev',
-};
-
-const LEVEL_COLORS: Record<string, { card: string; badge: string; icon: string; text: string }> = {
-  gentle: {
-    card:  'border-accent-yellow/30 bg-accent-yellow/5',
-    badge: 'bg-accent-yellow/10 text-accent-yellow border-accent-yellow/20',
-    icon:  'text-accent-yellow',
-    text:  'text-accent-yellow',
-  },
-  strong: {
-    card:  'border-accent-orange/30 bg-accent-orange/5',
-    badge: 'bg-accent-orange/10 text-accent-orange border-accent-orange/20',
-    icon:  'text-accent-orange',
-    text:  'text-accent-orange',
-  },
-};
-
-function InsightCard({ insight, onAccept, onDeny }: { insight: AppInsight | null; onAccept: () => void; onDeny: () => void }) {
-  if (!insight?.has_insight) {
-    return (
-      <div className="bg-bg-card border border-border rounded-card p-4 mb-5 flex items-center gap-3 shadow-card">
-        <Lightbulb size={16} className="text-accent-yellow flex-shrink-0" />
-        <p className="text-xs text-text-muted">Şu an öneri yok. SADIK kullanımını izliyor.</p>
-      </div>
-    );
-  }
-
-  const level   = insight.level ?? 'gentle';
-  const colors  = LEVEL_COLORS[level] ?? LEVEL_COLORS.gentle;
-  const isMeeting = insight.source === 'meeting';
-  const label   = (insight.source && SOURCE_LABEL[insight.source]) ?? LEVEL_LABEL[level] ?? 'Öneri';
-
-  return (
-    <div className={`border rounded-card p-4 mb-5 shadow-card ${colors.card}`}>
-      <div className="flex items-start gap-3">
-        <Lightbulb size={18} className={`flex-shrink-0 mt-0.5 ${colors.icon}`} />
-        <div className="flex-1 min-w-0">
-          {!isMeeting && (
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colors.badge}`}>
-                {label}
-              </span>
-            </div>
-          )}
-          <p className={`text-sm leading-relaxed font-medium ${colors.text}`}>{insight.message}</p>
-          <div className="flex items-center gap-2 mt-3">
-            {insight.source === 'task' || insight.source === 'habit' ? (
-              <button
-                onClick={onDeny}
-                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-btn bg-bg-input text-text-muted border border-border hover:text-text-primary hover:bg-bg-hover transition-colors"
-              >
-                <Check size={12} /> Tamam
-              </button>
-            ) : isMeeting ? (
-              <>
-                <button
-                  onClick={onAccept}
-                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-btn bg-accent-green/15 text-accent-green border border-accent-green/30 hover:bg-accent-green/25 transition-colors"
-                >
-                  <Check size={12} /> Kabul Et
-                </button>
-                <button
-                  onClick={onDeny}
-                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-btn bg-bg-input text-text-muted border border-border hover:text-text-primary hover:bg-bg-hover transition-colors"
-                >
-                  <XIcon size={12} /> Reddet
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={onAccept}
-                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-btn bg-accent-green/15 text-accent-green border border-accent-green/30 hover:bg-accent-green/25 transition-colors"
-                >
-                  <Check size={12} /> Molaya Geç
-                </button>
-                <button
-                  onClick={onDeny}
-                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-btn bg-bg-input text-text-muted border border-border hover:text-text-primary hover:bg-bg-hover transition-colors"
-                >
-                  <XIcon size={12} /> Reddet
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Mode chip ────────────────────────────────────────────────────────────────
 
 interface ModeChipProps {
@@ -864,28 +842,19 @@ function DebugRow({ label, value }: { label: string; value: string }) {
 }
 
 function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: string; color: string }) {
-  const cardBg: Record<string, string> = {
-    purple: 'bg-gradient-to-br from-accent-purple/25 via-accent-purple/15 to-accent-purple/5 border-accent-purple/40',
-    green:  'bg-gradient-to-br from-accent-green/25  via-accent-green/15  to-accent-green/5  border-accent-green/40',
-    orange: 'bg-gradient-to-br from-accent-orange/25 via-accent-orange/15 to-accent-orange/5 border-accent-orange/40',
-    cyan:   'bg-gradient-to-br from-accent-cyan/25   via-accent-cyan/15   to-accent-cyan/5   border-accent-cyan/40',
-    blue:   'bg-gradient-to-br from-accent-blue/25   via-accent-blue/15   to-accent-blue/5   border-accent-blue/40',
-    yellow: 'bg-gradient-to-br from-accent-yellow/25 via-accent-yellow/15 to-accent-yellow/5 border-accent-yellow/40',
-  };
-  const iconBg: Record<string, string> = {
-    purple: 'bg-accent-purple/30 ring-1 ring-accent-purple/40',
-    green:  'bg-accent-green/30  ring-1 ring-accent-green/40',
-    orange: 'bg-accent-orange/30 ring-1 ring-accent-orange/40',
-    cyan:   'bg-accent-cyan/30   ring-1 ring-accent-cyan/40',
-    blue:   'bg-accent-blue/30   ring-1 ring-accent-blue/40',
-    yellow: 'bg-accent-yellow/30 ring-1 ring-accent-yellow/40',
+  const accentMap: Record<string, string> = {
+    purple: 'text-accent-purple',
+    green:  'text-accent-green',
+    orange: 'text-accent-orange',
+    cyan:   'text-accent-cyan',
+    blue:   'text-accent-blue',
+    yellow: 'text-accent-yellow',
   };
   return (
-    <div className={`relative overflow-hidden border rounded-card p-4 shadow-card backdrop-blur-md saturate-150 ${cardBg[color] ?? cardBg.purple}`}>
-      <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full bg-white/5 blur-2xl pointer-events-none" />
-      <div className={`w-9 h-9 rounded-xl ${iconBg[color] ?? iconBg.purple} flex items-center justify-center mb-3`}>{icon}</div>
-      <p className="text-xl font-bold text-text-primary mb-0.5">{value}</p>
-      <p className="text-xs text-text-muted">{label}</p>
+    <div className="bg-bg-card border border-border-subtle rounded-card px-5 py-4 transition-all hover:border-border">
+      <div className={`mb-2 ${accentMap[color] ?? 'text-accent-primary'}`}>{icon}</div>
+      <p className="text-[11px] uppercase tracking-wider text-text-muted mb-1">{label}</p>
+      <p className="text-2xl font-bold text-text-primary tabular-nums leading-tight">{value}</p>
     </div>
   );
 }
@@ -922,9 +891,10 @@ function TaskMiniCard({ task, onOpen }: { task: Task; onOpen: () => void }) {
   return (
     <div
       onClick={onOpen}
-      className="relative border rounded-card p-2.5 cursor-pointer transition-all shadow-card hover:-translate-y-0.5"
+      className="relative border rounded-card p-2.5 pl-3 cursor-pointer transition-all hover:-translate-y-0.5"
       style={{ backgroundColor: withAlpha(tint, '1f'), borderColor: withAlpha(tint, '66') }}
     >
+      <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full" style={{ backgroundColor: tint }} />
       <div className="flex items-start gap-2 mb-2">
         <span
           className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${inProgress ? 'animate-pulse' : ''}`}
