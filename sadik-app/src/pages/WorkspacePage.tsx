@@ -668,6 +668,20 @@ function WorkspaceModal({ workspace, onClose, onSaved }: ModalProps) {
   );
 }
 
+// ── formatRelative helper ─────────────────────────────────────────────────────
+
+function formatRelative(ts: number | null): string {
+  if (!ts) return 'Henüz çalıştırılmadı';
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return 'Az önce';
+  const m = Math.floor(diff / 60_000);
+  if (m < 60) return `${m}dk önce`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}sa önce`;
+  const d = Math.floor(h / 24);
+  return `${d}g önce`;
+}
+
 // ── Run snapshot (for Stop/Undo) ──────────────────────────────────────────────
 
 interface SnapRect { left: number; top: number; right: number; bottom: number }
@@ -705,9 +719,9 @@ function WorkspaceSelectorCard({ workspace: ws, selected, onSelect }: SelectorCa
           : 'border-border hover:border-border/80 hover:bg-bg-hover/30'
       }`}
     >
-      {/* Left accent stripe */}
+      {/* Left accent stripe — short, centered */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl"
+        className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r-full"
         style={{ background: ws.color }}
       />
       <div className="pl-2 flex items-center gap-2.5 min-w-0">
@@ -733,13 +747,14 @@ interface HeroProps {
   workspace: Workspace;
   running: boolean;
   snapshot?: RunSnapshot;
+  lastRun: number | null;
   onEdit: (w: Workspace) => void;
   onDelete: (id: number) => void;
   onRun: (w: Workspace) => void;
   onStop: (w: Workspace) => void;
 }
 
-function WorkspaceHero({ workspace: ws, running, snapshot, onEdit, onDelete, onRun, onStop }: HeroProps) {
+function WorkspaceHero({ workspace: ws, running, snapshot, lastRun, onEdit, onDelete, onRun, onStop }: HeroProps) {
   return (
     <div className="bg-bg-card border border-border rounded-2xl p-5 mb-5 relative overflow-hidden">
       {/* Left accent stripe */}
@@ -758,7 +773,9 @@ function WorkspaceHero({ workspace: ws, running, snapshot, onEdit, onDelete, onR
           <div className="min-w-0">
             <h2 className="text-xl font-bold tracking-tight text-text-primary">{ws.name}</h2>
             <div className="flex items-center gap-2 flex-wrap mt-0.5">
-              <span className="text-xs text-text-muted">{ws.actions.length} aksiyon</span>
+              <span className="text-xs text-text-muted">
+                {ws.actions.length} aksiyon · Son çalıştırıldı: {formatRelative(lastRun)}
+              </span>
               {ws.mode_sync && (
                 <span className="text-[10px] text-text-muted bg-bg-main border border-border rounded-full px-2 py-0.5">
                   Mod: {MODE_DISPLAY_LABELS[ws.mode_sync] ?? ws.mode_sync}
@@ -832,7 +849,16 @@ function getActionDisplayName(type: ActionType, payload: Record<string, unknown>
       return String(payload.url ?? 'URL');
     }
   }
-  if (type === 'system_setting') return 'SADIK Ayarı';
+  if (type === 'system_setting') {
+    const settingsIncluded = (payload?.settingsIncluded ?? {}) as Record<string, boolean>;
+    const includedKeys = Object.keys(settingsIncluded).filter((k) => settingsIncluded[k]);
+    const labels = includedKeys
+      .map((k) => SADIK_SETTINGS.find((s) => s.key === k)?.label)
+      .filter(Boolean) as string[];
+    if (labels.length === 0) return 'SADIK Ayarı';
+    if (labels.length === 1) return labels[0];
+    return `${labels[0]} +${labels.length - 1}`;
+  }
   if (type === 'window_snap') return 'Pencere Snap';
   return 'Aksiyon';
 }
@@ -923,6 +949,8 @@ export default function WorkspacePage() {
   const [toast, setToast]             = useState<ToastState | null>(null);
   const [snapshots, setSnapshots]     = useState<Record<number, RunSnapshot>>({});
   const [selectedId, setSelectedId]   = useState<number | null>(null);
+  // last-run timestamps (localStorage-backed, Senaryo B)
+  const [lastRunMap, setLastRunMap]   = useState<Record<number, number>>({});
   const snapshotsRef = useRef<Record<number, RunSnapshot>>({});
   snapshotsRef.current = snapshots;
   const modeReturnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -963,6 +991,20 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (selectedId !== null) localStorage.setItem('workspace_selected_id', String(selectedId));
   }, [selectedId]);
+
+  // Initialize lastRunMap from localStorage whenever workspaces load
+  useEffect(() => {
+    if (workspaces.length === 0) return;
+    const map: Record<number, number> = {};
+    for (const ws of workspaces) {
+      const raw = localStorage.getItem(`workspace_last_run_${ws.id}`);
+      if (raw) {
+        const n = Number(raw);
+        if (!isNaN(n)) map[ws.id] = n;
+      }
+    }
+    setLastRunMap(map);
+  }, [workspaces]);
 
   const selected = workspaces.find(w => w.id === selectedId) ?? null;
 
@@ -1145,6 +1187,11 @@ export default function WorkspacePage() {
           return { ...prev, [ws.id]: { ...cur, launchedPids: launched } };
         });
 
+        // Persist last-run timestamp
+        const nowTs = Date.now();
+        localStorage.setItem(`workspace_last_run_${ws.id}`, String(nowTs));
+        setLastRunMap((prev) => ({ ...prev, [ws.id]: nowTs }));
+
         const failed = result.results?.filter((r: { ok: boolean }) => !r.ok).length ?? 0;
         if (failed > 0) {
           showToast(`${ws.name} başlatıldı (${failed} aksiyon başarısız)`, 'info');
@@ -1275,6 +1322,7 @@ export default function WorkspacePage() {
               workspace={selected}
               running={runningId === selected.id}
               snapshot={snapshots[selected.id]}
+              lastRun={lastRunMap[selected.id] ?? null}
               onEdit={openEdit}
               onDelete={handleDelete}
               onRun={handleRun}
@@ -1286,7 +1334,7 @@ export default function WorkspacePage() {
           {selected && (
             <div>
               <h2 className="text-xs uppercase tracking-wider text-text-muted font-semibold mb-3">
-                Items ({selected.actions.length})
+                Aksiyonlar ({selected.actions.length})
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {selected.actions.map((a, i) => (
