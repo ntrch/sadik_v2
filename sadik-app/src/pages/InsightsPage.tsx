@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart2, Shield, ChevronDown, ChevronUp } from 'lucide-react';
+import { Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import { statsApi, AppUsageStat, AppUsageRangeSummary } from '../api/stats';
 
 // ── Duration formatting ───────────────────────────────────────────────────────
@@ -38,6 +38,20 @@ const PERIOD_TABS: { key: Period; label: string }[] = [
   { key: '14',    label: '14 Gün' },
   { key: '30',    label: '30 Gün' },
 ];
+
+const PERIOD_SUBTITLE: Record<Period, string> = {
+  today: 'Bugün',
+  '7':   'Son 7 gün',
+  '14':  'Son 14 gün',
+  '30':  'Son 30 gün',
+};
+
+const HERO_SUBLABEL: Record<Period, string> = {
+  today: 'bugün toplam ekran süresi',
+  '7':   'günlük ortalama',
+  '14':  'günlük ortalama',
+  '30':  'günlük ortalama',
+};
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -79,31 +93,37 @@ function DailyBarChart({ dailyTotals }: {
   const maxSeconds = Math.max(...dailyTotals.map((d) => d.duration_seconds), 1);
 
   return (
-    <div>
-      <p className="text-xs text-text-muted mb-3">Günlük toplam kullanım</p>
-      <div className="flex items-end gap-1 h-20">
-        {dailyTotals.map((d) => {
-          const rawPct = d.duration_seconds > 0
-            ? Math.max(Math.round((d.duration_seconds / maxSeconds) * 100), 5)
-            : 0;
-          return (
+    <div className="flex items-end gap-1 h-20">
+      {dailyTotals.map((d) => {
+        const rawPct = d.duration_seconds > 0
+          ? Math.max(Math.round((d.duration_seconds / maxSeconds) * 100), 5)
+          : 0;
+        return (
+          <div
+            key={d.date}
+            className="flex flex-col items-center flex-1 h-full justify-end"
+            title={`${d.date}: ${d.duration_seconds > 0 ? formatAppDuration(d.duration_seconds) : 'Veri yok'}`}
+          >
             <div
-              key={d.date}
-              className="flex flex-col items-center flex-1 h-full justify-end"
-              title={`${d.date}: ${d.duration_seconds > 0 ? formatAppDuration(d.duration_seconds) : 'Veri yok'}`}
-            >
-              <div
-                className="w-full bg-accent-green/60 hover:bg-accent-green rounded-t-sm transition-all duration-500"
-                style={{ height: `${rawPct}%` }}
-              />
-              <span className="text-[9px] text-text-muted mt-1.5 leading-none select-none">
-                {shortDayLabel(d.date)}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+              className="w-full bg-accent-green/60 hover:bg-accent-green rounded-t-sm transition-all duration-500"
+              style={{ height: `${rawPct}%` }}
+            />
+            <span className="text-[9px] text-text-muted mt-1.5 leading-none select-none">
+              {shortDayLabel(d.date)}
+            </span>
+          </div>
+        );
+      })}
     </div>
+  );
+}
+
+/** Small-caps section heading — dream grammar */
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] uppercase tracking-wide text-text-muted mb-2">
+      {children}
+    </p>
   );
 }
 
@@ -139,97 +159,150 @@ export default function InsightsPage() {
     }
   }, [period]);
 
-  // Derived stats for subtitle
+  // Derived stats
   const currentApps: AppUsageStat[] =
     period === 'today' ? todayUsage : (rangeSummary?.top_apps ?? []);
   const totalSeconds = currentApps.reduce((s, a) => s + a.duration_seconds, 0);
+
+  // For range: avg = totalSeconds / days
+  const heroSeconds =
+    period === 'today'
+      ? totalSeconds
+      : (() => {
+          const days = parseInt(period);
+          const dayTotals = rangeSummary?.daily_totals ?? [];
+          const activeDays = dayTotals.filter((d) => d.duration_seconds > 0).length;
+          if (activeDays === 0) return 0;
+          const sum = dayTotals.reduce((s, d) => s + d.duration_seconds, 0);
+          return Math.round(sum / activeDays);
+        })();
+
+  const hasData = !loading && !error && currentApps.length > 0;
 
   return (
     <div className="h-full overflow-y-auto p-6 page-transition">
       <div className="max-w-4xl mx-auto">
 
         {/* ── Page header ────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-xl bg-accent-green/20 ring-1 ring-accent-green/40 flex items-center justify-center">
-            <BarChart2 className="text-accent-green" size={22} />
-          </div>
+        <div className="flex items-start justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-text-primary">Kullanım</h1>
-            <p className="text-xs text-text-muted">
-              Hangi uygulamaları ne kadar kullanıyorsun — Sadık bu verilerle sana daha iyi hizmet veriyor.
-            </p>
+            <h1 className="text-2xl font-bold text-text-primary leading-tight">Kullanım</h1>
+            <p className="text-xs text-text-muted mt-0.5">{PERIOD_SUBTITLE[period]}</p>
+          </div>
+          {/* Segmented period pill */}
+          <div className="flex items-center gap-1 bg-bg-card border border-border rounded-btn px-1 py-1">
+            {PERIOD_TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setPeriod(t.key)}
+                className={`text-xs px-3 py-1 rounded-btn transition-colors ${
+                  period === t.key
+                    ? 'bg-accent-green text-white'
+                    : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* ── Unified usage card ─────────────────────────────────────────── */}
-        <div className="bg-bg-card border border-border rounded-card shadow-card p-5 mb-5">
-          {/* Period tabs + aggregate stats */}
-          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-            <div className="flex gap-1">
-              {PERIOD_TABS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setPeriod(t.key)}
-                  className={`text-xs px-3 py-1.5 rounded-btn transition-colors ${
-                    period === t.key
-                      ? 'bg-accent-green text-white'
-                      : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            {!loading && !error && currentApps.length > 0 && (
-              <div className="flex items-center gap-3 text-[11px] text-text-muted tabular-nums">
-                <span>{currentApps.length} uygulama</span>
-                <span className="w-px h-3 bg-border" />
-                <span>{formatTotalDuration(totalSeconds)} toplam</span>
-              </div>
+        {/* ── Hero metric flat card ──────────────────────────────────────── */}
+        <div className="bg-bg-card border border-border rounded-card p-4 mb-4 flex items-center gap-4">
+          {/* Accent şerit */}
+          <div className="w-1 h-7 rounded bg-accent-green flex-shrink-0" />
+          {/* Metric */}
+          <div className="flex-1 min-w-0">
+            {loading ? (
+              <p className="text-xs text-text-muted">Yükleniyor…</p>
+            ) : error ? (
+              <>
+                <p className="text-4xl font-bold tabular-nums text-text-primary leading-none">—</p>
+                <p className="text-xs text-text-muted mt-1">Veri yüklenemedi</p>
+              </>
+            ) : hasData ? (
+              <>
+                <p className="text-4xl font-bold tabular-nums text-text-primary leading-none">
+                  {formatTotalDuration(heroSeconds)}
+                </p>
+                <p className="text-xs text-text-muted mt-1">{HERO_SUBLABEL[period]}</p>
+              </>
+            ) : (
+              <>
+                <p className="text-4xl font-bold tabular-nums text-text-primary leading-none">—</p>
+                <p className="text-xs text-text-muted mt-1">Henüz veri yok</p>
+              </>
             )}
           </div>
+          {/* App count pill */}
+          {hasData && (
+            <span className="flex-shrink-0 text-xs font-medium tabular-nums px-2.5 py-1 rounded-btn bg-accent-green/15 text-accent-green">
+              {currentApps.length} uygulama
+            </span>
+          )}
+        </div>
 
-          {/* Card body */}
-          {loading ? (
-            <div className="py-10 text-center text-xs text-text-muted">Yükleniyor…</div>
-          ) : error ? (
-            <div className="py-10 text-center text-xs text-text-muted">
+        {/* ── Body sections ─────────────────────────────────────────────── */}
+        {loading ? (
+          <div className="bg-bg-card border border-border rounded-card p-5">
+            <div className="py-8 text-center text-xs text-text-muted">Yükleniyor…</div>
+          </div>
+        ) : error ? (
+          <div className="bg-bg-card border border-border rounded-card p-5">
+            <div className="py-8 text-center text-xs text-text-muted">
               Kullanım verisi şu an yüklenemedi.
             </div>
-          ) : period === 'today' ? (
-            todayUsage.length === 0 ? (
-              <div className="py-10 text-center">
+          </div>
+        ) : period === 'today' ? (
+          todayUsage.length === 0 ? (
+            <div className="bg-bg-card border border-border rounded-card p-5">
+              <div className="py-8 text-center">
                 <p className="text-xs text-text-muted">Bugün henüz uygulama kullanım verisi yok.</p>
                 <p className="text-[11px] text-text-muted mt-1">
                   Arka plan izleyici aktifken veriler otomatik olarak kaydedilir.
                 </p>
               </div>
-            ) : (
-              <HorizontalBars items={todayUsage} />
-            )
+            </div>
           ) : (
-            !rangeSummary || rangeSummary.top_apps.length === 0 ? (
-              <div className="py-10 text-center">
+            <div className="mb-4">
+              <SectionHeading>En çok kullanılan</SectionHeading>
+              <div className="bg-bg-card border border-border rounded-card p-4">
+                <HorizontalBars items={todayUsage} />
+              </div>
+            </div>
+          )
+        ) : (
+          !rangeSummary || rangeSummary.top_apps.length === 0 ? (
+            <div className="bg-bg-card border border-border rounded-card p-5">
+              <div className="py-8 text-center">
                 <p className="text-xs text-text-muted">Bu dönemde kayıtlı kullanım verisi yok.</p>
                 <p className="text-[11px] text-text-muted mt-1">
                   Uygulama kullanıldıkça bu bölüm dolmaya başlayacak.
                 </p>
               </div>
-            ) : (
-              <div className="space-y-5">
-                <DailyBarChart dailyTotals={rangeSummary.daily_totals} />
-                <div className="border-t border-border" />
-                <div>
-                  <p className="text-xs text-text-muted mb-3">En çok kullanılan uygulamalar</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Daily totals */}
+              <div>
+                <SectionHeading>Günlük toplam</SectionHeading>
+                <div className="bg-bg-card border border-border rounded-card p-4">
+                  <DailyBarChart dailyTotals={rangeSummary.daily_totals} />
+                </div>
+              </div>
+              {/* Top apps */}
+              <div>
+                <SectionHeading>En çok kullanılan</SectionHeading>
+                <div className="bg-bg-card border border-border rounded-card p-4">
                   <HorizontalBars items={rangeSummary.top_apps.slice(0, 7)} />
                 </div>
               </div>
-            )
-          )}
-        </div>
+            </div>
+          )
+        )}
 
         {/* ── Privacy / explainability — collapsible ─────────────────────── */}
-        <div className="bg-bg-card border border-border rounded-card shadow-card overflow-hidden mb-5">
+        <div className="bg-bg-card border border-border rounded-card overflow-hidden mt-4 mb-5">
           <button
             onClick={() => setPrivacyOpen((o) => !o)}
             className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors"
