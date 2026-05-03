@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, ChevronDown, ChevronUp, CheckCircle2, Repeat2, Monitor } from 'lucide-react';
-import { statsApi, AppUsageStat, AppUsageRangeSummary } from '../api/stats';
+import { statsApi, AppUsageStat, AppUsageRangeSummary, AppUsageEvent } from '../api/stats';
 import { tasksApi, Task } from '../api/tasks';
 import { habitsApi, Habit, HabitLog } from '../api/habits';
 
@@ -256,7 +256,8 @@ export default function InsightsPage() {
       tasksApi.list('done'),
       habitsApi.getLogs(today, today),
       habitsApi.list(),
-    ]).then(([tasksResult, logsResult, habitsListResult]) => {
+      statsApi.appUsageEvents(today),
+    ]).then(([tasksResult, logsResult, habitsListResult, appEventsResult]) => {
       const events: TimelineEvent[] = [];
 
       // Task completed events — use updated_at as proxy for completion time
@@ -294,10 +295,28 @@ export default function InsightsPage() {
         });
       }
 
+      // App usage events — each raw session as a separate timeline entry
+      if (appEventsResult.status === 'fulfilled') {
+        appEventsResult.value.forEach((ev: AppUsageEvent, idx: number) => {
+          const mins = Math.round(ev.duration_seconds / 60);
+          const durStr = mins >= 60
+            ? `${Math.floor(mins / 60)} sa ${mins % 60 > 0 ? `${mins % 60} dk` : ''}`.trim()
+            : mins > 0 ? `${mins} dk` : '< 1 dk';
+          events.push({
+            id: `app-${idx}-${ev.start_time}`,
+            type: 'app_used',
+            time: new Date(ev.start_time),
+            label: ev.app_name,
+            sublabel: '—',
+            duration: durStr,
+          });
+        });
+      }
+
       // Sort ASC (morning first)
       events.sort((a, b) => a.time.getTime() - b.time.getTime());
 
-      setTimelineEvents(events.slice(0, 20));
+      setTimelineEvents(events.slice(0, 30));
     });
   }, [period]);
 

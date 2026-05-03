@@ -183,6 +183,52 @@ async def get_app_usage_range(
     return {"days": days, "top_apps": top_apps, "daily_totals": daily_totals}
 
 
+# ── App usage — raw event list ───────────────────────────────────────────────
+
+@router.get("/app-usage/events")
+async def get_app_usage_events(
+    date: str = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """Return today's raw app-usage sessions (start_time DESC, limit 50).
+    Filters out events shorter than 60 seconds (noise).
+    Response: [{app_name, start_time, end_time, duration_seconds}]
+    """
+    if date:
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        target_date = datetime.now().date()
+
+    day_start = datetime.combine(target_date, dt_time.min)
+    day_end   = datetime.combine(target_date, dt_time.max)
+
+    result = await session.execute(
+        select(
+            AppUsageSession.app_name,
+            AppUsageSession.started_at,
+            AppUsageSession.ended_at,
+            AppUsageSession.duration_seconds,
+        )
+        .where(AppUsageSession.started_at >= day_start)
+        .where(AppUsageSession.started_at <= day_end)
+        .where(AppUsageSession.duration_seconds >= 60)
+        .order_by(AppUsageSession.started_at.desc())
+        .limit(50)
+    )
+    return [
+        {
+            "app_name":         row.app_name,
+            "start_time":       row.started_at.isoformat(),
+            "end_time":         row.ended_at.isoformat(),
+            "duration_seconds": int(row.duration_seconds),
+        }
+        for row in result
+    ]
+
+
 # ── App usage — proactive insights ───────────────────────────────────────────
 #
 # Rule A: same app has >= 3 600 s (60 min) today  → level "gentle"

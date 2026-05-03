@@ -166,6 +166,7 @@ export default function DashboardPage() {
   const [todayTasks, setTodayTasks] = useState<Task[]>([]);
   const [modeStats, setModeStats] = useState<ModeStat[]>([]);
   const [appUsage, setAppUsage] = useState<AppUsageStat[]>([]);
+  const [totalScreenSeconds, setTotalScreenSeconds] = useState(0);
   const [loading, setLoading] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [modeStatsOpen, setModeStatsOpen] = useState(true);
@@ -203,11 +204,17 @@ export default function DashboardPage() {
     // Mode stats — pin to local today so the label matches what we show.
     statsApi.daily(today).then(setModeStats).catch(() => {});
     // App usage
-    statsApi.appUsageDaily().then(setAppUsage).catch(() => {});
+    statsApi.appUsageDaily().then((data) => {
+      setAppUsage(data);
+      setTotalScreenSeconds(data.reduce((s, a) => s + a.duration_seconds, 0));
+    }).catch(() => {});
     const poll = setInterval(() => {
       const _now = new Date();
       const t = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`;
-      statsApi.appUsageDaily().then(setAppUsage).catch(() => {});
+      statsApi.appUsageDaily().then((data) => {
+        setAppUsage(data);
+        setTotalScreenSeconds(data.reduce((s, a) => s + a.duration_seconds, 0));
+      }).catch(() => {});
       statsApi.daily(t).then(setModeStats).catch(() => {});
     }, 60_000);
     return () => clearInterval(poll);
@@ -326,11 +333,6 @@ export default function DashboardPage() {
     showToast(`"${name}" modu silindi`, 'info');
   };
 
-  // Toplam aktiflik = break + gaming hariç tüm modlar
-  const totalWorkSeconds = modeStats
-    .filter((s) => !['break', 'gaming'].includes(s.mode))
-    .reduce((acc, s) => acc + s.total_seconds, 0);
-
   const doneToday = todayTasks.filter((t) => t.status === 'done').length;
   const activeTasks = todayTasks.filter((t) => t.status !== 'done');
 
@@ -374,7 +376,7 @@ export default function DashboardPage() {
       </div>
       {/* Stat cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
-        <StatCard icon={<Clock size={18} className="text-accent-blue" />} label="Toplam Aktiflik" value={totalWorkSeconds > 0 ? formatDuration(totalWorkSeconds) : '0 dakika'} color="blue" />
+        <StatCard icon={<Clock size={18} className="text-accent-blue" />} label="Toplam Ekran Süresi" value={totalScreenSeconds > 0 ? formatDuration(totalScreenSeconds) : '0 dakika'} color="blue" />
         <StatCard icon={<CheckSquare size={18} className="text-accent-green" />} label="Tamamlanan" value={`${doneToday} görev`} color="green" />
         <StatCard icon={<Flame size={18} className="text-accent-orange" />} label="Pomodoro" value={`${pomodoroState.current_session} oturum`} color="orange" />
         <StatCard icon={<Activity size={18} className="text-accent-purple" />} label="Aktif Mod" value={currentMode ? (MODE_LABELS[currentMode] || currentMode) : '—'} color="purple" />

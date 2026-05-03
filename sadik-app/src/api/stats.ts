@@ -45,6 +45,13 @@ export interface AppInsight {
   habit_id?: number | null;
 }
 
+export interface AppUsageEvent {
+  app_name: string;
+  start_time: string;
+  end_time: string;
+  duration_seconds: number;
+}
+
 export interface AppUsageDailyTotal {
   date: string;
   duration_seconds: number;
@@ -68,6 +75,10 @@ export const statsApi = {
   appUsageRange: (days = 7) =>
     http
       .get<AppUsageRangeSummary>('/api/stats/app-usage/range', { params: { days } })
+      .then((r) => r.data),
+  appUsageEvents: (date?: string) =>
+    http
+      .get<AppUsageEvent[]>('/api/stats/app-usage/events', { params: date ? { date } : {} })
       .then((r) => r.data),
   appInsights: () =>
     http.get<AppInsight>('/api/stats/app-usage/insights').then((r) => r.data),
