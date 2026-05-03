@@ -19,6 +19,19 @@ import { useAnimationEngine } from '../hooks/useAnimationEngine';
 import { getAnimationEngine } from '../engine/AnimationEngine';
 import { EngineState, AnimationEventType } from '../engine/types';
 
+// ── Focus guard ───────────────────────────────────────────────────────────────
+// Returns true when an editable element currently holds keyboard focus.
+// Used to prevent proactive STT auto-arm from stealing focus / swallowing
+// keystrokes while the user is typing.  Local copy mirrors VoiceAssistant.tsx.
+function isInputFocused(): boolean {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+  if ((el as HTMLElement).isContentEditable) return true;
+  return false;
+}
+
 interface AppContextType {
   currentMode: string | null;
   setCurrentMode: (mode: string | null) => void;
@@ -960,7 +973,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         //   - not already armed for this exact suggestion (dedup guard)
         const sttKey = insightKey ?? text;
         const alreadyArmed = _sttArmedForKeyRef.current === sttKey;
-        if (!voiceAssistantActiveRef.current && intensity !== undefined && !alreadyArmed) {
+        // Focus guard: if user started typing while TTS was playing, skip STT arm.
+        const inputBusy = isInputFocused();
+        if (!voiceAssistantActiveRef.current && intensity !== undefined && !alreadyArmed && !inputBusy) {
           _sttArmedForKeyRef.current = sttKey;
           armProactiveSttWindowRef.current();
         } else {
@@ -992,6 +1007,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const armProactiveSttWindow = useCallback(async () => {
     // Skip entirely if voice assistant is busy — buttons remain the only path.
     if (voiceAssistantActiveRef.current) return;
+    // Focus guard: if the user is typing in an input/textarea, skip the STT
+    // window entirely — opening the mic and cycling wakeWordService would steal
+    // focus and swallow keystrokes (Electron WASAPI contention side-effect).
+    if (isInputFocused()) {
+      console.log('[Proactive][STT] skipped — input element is focused (focus guard)');
+      _returnToIdleRef.current();
+      return;
+    }
 
     const ACCEPT_WORDS = ['evet', 'tamam', 'olur', 'kabul', 'mola ver', 'başlat'];
     const REJECT_WORDS = ['hayır', 'yok', 'reddet', 'istemiyorum', 'sonra', 'geç'];
