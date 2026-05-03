@@ -2086,6 +2086,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             level: 'strong',
             message: panelMessage,
             source: 'habit',
+            habit_id: msg.data.habit_id as number | null | undefined,
           });
 
           // Toast — always show

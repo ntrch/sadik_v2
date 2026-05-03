@@ -41,6 +41,8 @@ export interface AppInsight {
   action?: InsightAction;
   /** Nested behavioral insight — present when app-usage fired but behavioral also qualifies. */
   behavioral?: AppInsight;
+  /** Present when source === 'habit' — used to log completion via habitsApi. */
+  habit_id?: number | null;
 }
 
 export interface AppUsageDailyTotal {
