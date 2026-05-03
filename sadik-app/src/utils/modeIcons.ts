@@ -13,6 +13,7 @@ import {
   Clock, Timer, Calendar, Hourglass, Bell, BellOff, Star, Trophy,
   Activity, Heart as HeartPulse, Stethoscope, Pill, Syringe, Thermometer,
   Snowflake, Droplet, Umbrella, Rainbow, Wind, Waves,
+  Repeat, Droplets, GlassWater, Salad, Watch, RefreshCw,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -127,6 +128,15 @@ export const ICON_CATEGORIES: { name: string; icons: { key: string; Icon: Lucide
       { key: 'calendar',  Icon: Calendar },  { key: 'hourglass',Icon: Hourglass },
       { key: 'bell',      Icon: Bell },      { key: 'belloff',  Icon: BellOff },
       { key: 'star',      Icon: Star },      { key: 'trophy',   Icon: Trophy },
+      { key: 'repeat',    Icon: Repeat },    { key: 'refreshcw', Icon: RefreshCw },
+      { key: 'watch',     Icon: Watch },
+    ],
+  },
+  {
+    name: 'Sağlık & Su',
+    icons: [
+      { key: 'droplets',   Icon: Droplets },  { key: 'glasswater', Icon: GlassWater },
+      { key: 'salad',      Icon: Salad },
     ],
   },
 ];

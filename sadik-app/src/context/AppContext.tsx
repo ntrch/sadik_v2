@@ -1488,7 +1488,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []); // Intentional: uses latest-ref pattern — no deps needed
 
   // ── Google Meet presence → meeting-mode suggestion ────────────────────────
-  // Polls /api/integrations/google_meet/state every 60 s. When the backend
+  // Polls /api/integrations/google_meet/state every 20 s. When the backend
   // confirms (via participants.list) that the user IS in a live Meet
   // conference and the app isn't already in "meeting" mode, surface a
   // proactive switch_mode insight. Once a meeting_code has been suggested
@@ -1546,9 +1546,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    // First poll after 15 s (let calendar sync run once), then every 60 s.
+    // First poll after 15 s (let calendar sync run once), then every 20 s (matches backend meeting poll cadence).
     const initial = setTimeout(pollMeet, 15_000);
-    const interval = setInterval(pollMeet, 60_000);
+    const interval = setInterval(pollMeet, 20_000);
     return () => {
       clearTimeout(initial);
       clearInterval(interval);
@@ -2067,14 +2067,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const habitName        = msg.data.name as string;
           const habitDesc        = msg.data.description as string | null | undefined;
           const minutesBefore    = msg.data.minutes_before as number;
+          const isSilent         = msg.data.silent === true;  // interval habits are silent
+          const intervalMin      = msg.data.interval_minutes as number | null | undefined;
           const spokenName       = (habitDesc ? `${habitName}. ${habitDesc}` : habitName);
           const whenPhrase       = minutesBefore > 0 ? `${minutesBefore} dakika sonra başlayacak` : 'şimdi başlıyor';
           const ttsText          = `Alışkanlık hatırlatması: ${spokenName}. ${whenPhrase}.`;
-          const panelMessage     = habitDesc
-            ? `${habitName} — ${habitDesc} (${minutesBefore > 0 ? `${minutesBefore} dk sonra` : 'şimdi'})`
-            : `${habitName} (${minutesBefore > 0 ? `${minutesBefore} dk sonra` : 'şimdi'})`;
+          const panelMessage     = isSilent
+            ? (habitDesc
+                ? `${habitName} — ${habitDesc} (her ${intervalMin} dk)`
+                : `${habitName} — her ${intervalMin} dk`)
+            : (habitDesc
+                ? `${habitName} — ${habitDesc} (${minutesBefore > 0 ? `${minutesBefore} dk sonra` : 'şimdi'})`
+                : `${habitName} (${minutesBefore > 0 ? `${minutesBefore} dk sonra` : 'şimdi'})`);
 
-          // Dashboard suggestion panel
+          // Dashboard suggestion panel — always show
           setActiveInsight({
             has_insight: true,
             level: 'strong',
@@ -2082,7 +2088,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             source: 'habit',
           });
 
-          // Toast
+          // Toast — always show
           showToast(`Alışkanlık: ${habitName}`, 'info');
 
           // OLED
@@ -2098,39 +2104,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
           } catch { /* best-effort */ }
 
-          // TTS — pause/resume wake word around playback.
-          // Mark isProactiveSpeaking so app-usage poll gates TTS during habit playback.
-          // Record lastHabitFiredAt so app-usage insights are deferred 1 min (spec).
-          lastHabitFiredAtRef.current = Date.now();
-          (async () => {
-            try {
-              isProactiveSpeakingRef.current = true;
-              pauseWakeWord();
-              const blob  = await voiceApi.tts(ttsText);
-              const url   = URL.createObjectURL(blob);
-              const audio = new Audio(url);
-              audio.onended = () => {
-                URL.revokeObjectURL(url);
+          // TTS — only for daily (non-silent) habits
+          if (!isSilent) {
+            // Mark isProactiveSpeaking so app-usage poll gates TTS during habit playback.
+            // Record lastHabitFiredAt so app-usage insights are deferred 1 min (spec).
+            lastHabitFiredAtRef.current = Date.now();
+            (async () => {
+              try {
+                isProactiveSpeakingRef.current = true;
+                pauseWakeWord();
+                const blob  = await voiceApi.tts(ttsText);
+                const url   = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                audio.onended = () => {
+                  URL.revokeObjectURL(url);
+                  isProactiveSpeakingRef.current = false;
+                  resumeWakeWord();
+                  returnToIdle();
+                };
+                audio.onerror = () => {
+                  URL.revokeObjectURL(url);
+                  isProactiveSpeakingRef.current = false;
+                  resumeWakeWord();
+                  returnToIdle();
+                };
+                // Show speaking animation while habit reminder TTS plays
+                getAnimationEngine().triggerEvent('assistant_speaking');
+                await audio.play();
+              } catch {
+                // TTS failed — wake word was paused; resume it
                 isProactiveSpeakingRef.current = false;
                 resumeWakeWord();
                 returnToIdle();
-              };
-              audio.onerror = () => {
-                URL.revokeObjectURL(url);
-                isProactiveSpeakingRef.current = false;
-                resumeWakeWord();
-                returnToIdle();
-              };
-              // Show speaking animation while habit reminder TTS plays
-              getAnimationEngine().triggerEvent('assistant_speaking');
-              await audio.play();
-            } catch {
-              // TTS failed — wake word was paused; resume it
-              isProactiveSpeakingRef.current = false;
-              resumeWakeWord();
-              returnToIdle();
-            }
-          })();
+              }
+            })();
+          }
           break;
         }
       }

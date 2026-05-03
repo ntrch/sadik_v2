@@ -25,10 +25,38 @@ def _get_user_tz(tz_name: str):
         return timezone.utc
 
 
+async def _get_today_snooze(session, habit_id: int, log_date: str, now_local: datetime):
+    """Returns snoozed_until datetime if there's an active snooze log, else None."""
+    from sqlalchemy import select
+    from app.models.habit import HabitLog
+    result = await session.execute(
+        select(HabitLog)
+        .where(
+            HabitLog.habit_id == habit_id,
+            HabitLog.log_date == log_date,
+            HabitLog.status == "snoozed",
+        )
+        .order_by(HabitLog.id.desc())
+        .limit(1)
+    )
+    log = result.scalar_one_or_none()
+    if log and log.snoozed_until is not None:
+        su = log.snoozed_until
+        if su.tzinfo is None:
+            try:
+                from zoneinfo import ZoneInfo
+                su = su.replace(tzinfo=now_local.tzinfo)
+            except Exception:
+                su = su.replace(tzinfo=timezone.utc)
+        if now_local < su:
+            return su
+    return None
+
+
 async def _run_scheduler():
     """Check all enabled habits every 30 seconds and fire reminders."""
     from app.database import AsyncSessionLocal
-    from app.models.habit import Habit
+    from app.models.habit import Habit, HabitLog
     from app.services.ws_manager import ws_manager
     from sqlalchemy import select
 
@@ -39,6 +67,7 @@ async def _run_scheduler():
                 tz_name = await _get_setting(session, "timezone", "UTC")
                 user_tz = _get_user_tz(tz_name)
                 now_local = datetime.now(user_tz)
+                today_str = now_local.strftime("%Y-%m-%d")
 
                 dnd_raw = await _get_setting(session, "dnd_active", "false")
                 dnd_active = dnd_raw.lower() == "true"
@@ -55,56 +84,18 @@ async def _run_scheduler():
 
                 for habit in habits:
                     try:
-                        days = habit.get_days()
-                        if now_local.weekday() not in days:
-                            logger.info(f"[habits] skip '{habit.name}' — weekday {now_local.weekday()} not in {days}")
-                            continue
+                        freq = getattr(habit, "frequency_type", "daily")
 
-                        # Parse HH:MM → compute trigger time (habit.time - minutes_before)
-                        hh, mm = map(int, habit.time.split(":"))
-                        scheduled_dt = now_local.replace(
-                            hour=hh, minute=mm, second=0, microsecond=0
-                        )
-                        trigger_dt = scheduled_dt - timedelta(minutes=habit.minutes_before)
-
-                        delta = (now_local - trigger_dt).total_seconds()
-                        logger.info(
-                            f"[habits] check '{habit.name}' time={habit.time} before={habit.minutes_before}m "
-                            f"trigger={trigger_dt.strftime('%H:%M:%S')} delta={delta:+.0f}s"
-                        )
-                        if abs(delta) > 30:
-                            continue
-
-                        # Already triggered today?
-                        if habit.last_triggered_at is not None:
-                            last = habit.last_triggered_at
-                            # Make last_triggered_at timezone-aware for comparison
-                            if last.tzinfo is None:
-                                last = last.replace(tzinfo=user_tz)
-                            if last.date() == now_local.date():
-                                continue
-
-                        # DND check — update last_triggered_at regardless to prevent retry loop
-                        habit.last_triggered_at = now_local.replace(tzinfo=None)
-                        await session.commit()
-
-                        if habit.respect_dnd and dnd_active:
-                            logger.info(
-                                f"[habits] Skipping '{habit.name}' (DND active)"
+                        if freq == "interval":
+                            await _handle_interval_habit(
+                                session, habit, now_local, today_str,
+                                dnd_active, user_tz, ws_manager
                             )
-                            continue
-
-                        await ws_manager.broadcast({
-                            "type": "habit_reminder",
-                            "data": {
-                                "habit_id": habit.id,
-                                "name": habit.name,
-                                "description": habit.description,
-                                "minutes_before": habit.minutes_before,
-                                "scheduled_time": habit.time,
-                            },
-                        })
-                        logger.info(f"[habits] Fired reminder for '{habit.name}'")
+                        else:
+                            await _handle_daily_habit(
+                                session, habit, now_local, today_str,
+                                dnd_active, user_tz, ws_manager
+                            )
 
                     except Exception as habit_err:
                         logger.error(f"[habits] Error processing habit id={habit.id}: {habit_err}")
@@ -116,6 +107,100 @@ async def _run_scheduler():
             logger.error(f"[habits] Scheduler tick error: {e}")
 
         await asyncio.sleep(30)
+
+
+async def _handle_daily_habit(session, habit, now_local, today_str, dnd_active, user_tz, ws_manager):
+    """Original daily habit scheduler logic."""
+    days = habit.get_days()
+    if now_local.weekday() not in days:
+        logger.info(f"[habits] skip '{habit.name}' — weekday {now_local.weekday()} not in {days}")
+        return
+
+    # Parse HH:MM → compute trigger time (habit.time - minutes_before)
+    hh, mm = map(int, habit.time.split(":"))
+    scheduled_dt = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    trigger_dt = scheduled_dt - timedelta(minutes=habit.minutes_before)
+
+    delta = (now_local - trigger_dt).total_seconds()
+    logger.info(
+        f"[habits] check '{habit.name}' time={habit.time} before={habit.minutes_before}m "
+        f"trigger={trigger_dt.strftime('%H:%M:%S')} delta={delta:+.0f}s"
+    )
+    if abs(delta) > 30:
+        return
+
+    # Already triggered today?
+    if habit.last_triggered_at is not None:
+        last = habit.last_triggered_at
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=user_tz)
+        if last.date() == now_local.date():
+            return
+
+    # DND check — update last_triggered_at regardless to prevent retry loop
+    habit.last_triggered_at = now_local.replace(tzinfo=None)
+    await session.commit()
+
+    if habit.respect_dnd and dnd_active:
+        logger.info(f"[habits] Skipping '{habit.name}' (DND active)")
+        return
+
+    await ws_manager.broadcast({
+        "type": "habit_reminder",
+        "data": {
+            "habit_id": habit.id,
+            "name": habit.name,
+            "description": habit.description,
+            "minutes_before": habit.minutes_before,
+            "scheduled_time": habit.time,
+            "frequency_type": "daily",
+            "interval_minutes": None,
+            "silent": False,
+        },
+    })
+    logger.info(f"[habits] Fired daily reminder for '{habit.name}'")
+
+
+async def _handle_interval_habit(session, habit, now_local, today_str, dnd_active, user_tz, ws_manager):
+    """Interval habit: broadcast every interval_minutes, respecting snooze/skip."""
+    im = getattr(habit, "interval_minutes", None) or 30
+
+    # Check snooze
+    snooze_until = await _get_today_snooze(session, habit.id, today_str, now_local)
+    if snooze_until is not None:
+        logger.info(f"[habits] interval '{habit.name}' snoozed until {snooze_until}")
+        return
+
+    last = habit.last_triggered_at
+    if last is not None:
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=user_tz)
+        elapsed_min = (now_local - last).total_seconds() / 60
+        if elapsed_min < im:
+            return
+
+    # DND check
+    habit.last_triggered_at = now_local.replace(tzinfo=None)
+    await session.commit()
+
+    if habit.respect_dnd and dnd_active:
+        logger.info(f"[habits] Skipping interval '{habit.name}' (DND active)")
+        return
+
+    await ws_manager.broadcast({
+        "type": "habit_reminder",
+        "data": {
+            "habit_id": habit.id,
+            "name": habit.name,
+            "description": habit.description,
+            "minutes_before": 0,
+            "scheduled_time": None,
+            "frequency_type": "interval",
+            "interval_minutes": im,
+            "silent": True,
+        },
+    })
+    logger.info(f"[habits] Fired interval reminder for '{habit.name}' (every {im} min)")
 
 
 async def start_scheduler():

@@ -5,7 +5,7 @@ from app.models.setting import Setting
 from app.models.app_usage_session import AppUsageSession
 from app.models.memory import ClipboardItem, BrainstormNote
 from app.models.workspace import Workspace, WorkspaceAction
-from app.models.habit import Habit
+from app.models.habit import Habit, HabitLog
 from app.models.event import Event
 from app.models.integration import Integration
 from app.models.external_event import ExternalEvent

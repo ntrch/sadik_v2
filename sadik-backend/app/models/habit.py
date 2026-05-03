@@ -1,5 +1,5 @@
 import json
-from sqlalchemy import Integer, String, Text, Boolean, DateTime, func
+from sqlalchemy import Integer, String, Text, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 from datetime import datetime
@@ -22,6 +22,12 @@ class Habit(Base):
     last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+    # S3.5 new columns (added via ALTER TABLE in main.py for existing DBs)
+    color: Mapped[str] = mapped_column(String(9), nullable=False, default="#fdba74")
+    icon: Mapped[str] = mapped_column(String(64), nullable=False, default="repeat")
+    target_days: Mapped[int] = mapped_column(Integer, nullable=False, default=66)
+    frequency_type: Mapped[str] = mapped_column(String(16), nullable=False, default="daily")
+    interval_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     def get_days(self) -> list[int]:
         try:
@@ -31,3 +37,17 @@ class Habit(Base):
 
     def set_days(self, days: list[int]):
         self.days_of_week = json.dumps(sorted(set(days)))
+
+
+class HabitLog(Base):
+    __tablename__ = "habit_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    habit_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("habits.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    log_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)  # YYYY-MM-DD
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # 'done' | 'skipped' | 'snoozed'
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    snoozed_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

@@ -6,7 +6,7 @@ from sqlalchemy import select, text
 import logging
 
 from app.database import engine, Base, AsyncSessionLocal
-from app.models import Task, ModeLog, ChatMessage, Setting, AppUsageSession, Workspace, WorkspaceAction, Habit, Event, Integration, ExternalEvent, NotionSyncedPage, FeedbackSubmission, VoiceTurnEvent, CrashReport  # noqa: F401
+from app.models import Task, ModeLog, ChatMessage, Setting, AppUsageSession, Workspace, WorkspaceAction, Habit, HabitLog, Event, Integration, ExternalEvent, NotionSyncedPage, FeedbackSubmission, VoiceTurnEvent, CrashReport  # noqa: F401
 from app.routers import tasks, modes, stats, pomodoro, device, chat, voice, settings, ws, memory, workspace as workspace_router_mod
 from app.routers import habits as habits_router_mod
 from app.routers import weather as weather_router_mod
@@ -149,6 +149,26 @@ async def lifespan(app: FastAPI):
                     logger.info("tasks: added icon_image column")
     except Exception as e:
         logger.warning(f"tasks migration skip: {e}")
+
+    # S3.5 habit column migration — add new columns to existing habits table
+    try:
+        async with engine.begin() as conn:
+            result = await conn.execute(text("PRAGMA table_info(habits)"))
+            existing_habit_cols = {row[1] for row in result.fetchall()}
+            if existing_habit_cols:
+                new_habit_cols = [
+                    ("color",            "TEXT NOT NULL DEFAULT '#fdba74'"),
+                    ("icon",             "TEXT NOT NULL DEFAULT 'repeat'"),
+                    ("target_days",      "INTEGER NOT NULL DEFAULT 66"),
+                    ("frequency_type",   "TEXT NOT NULL DEFAULT 'daily'"),
+                    ("interval_minutes", "INTEGER"),
+                ]
+                for col, defn in new_habit_cols:
+                    if col not in existing_habit_cols:
+                        await conn.execute(text(f"ALTER TABLE habits ADD COLUMN {col} {defn}"))
+                        logger.info(f"habits: added column {col}")
+    except Exception as e:
+        logger.warning(f"habits migration skip: {e}")
 
     try:
         async with engine.begin() as conn:
