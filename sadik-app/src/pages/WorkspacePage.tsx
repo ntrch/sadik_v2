@@ -15,6 +15,7 @@ import { AppContext } from '../context/AppContext';
 import {
   nextFreeColor, PALETTE, DEFAULT_PRESET_COLORS, useModeColors,
 } from '../utils/modeColors';
+import { MODE_DISPLAY_LABELS } from './DashboardPage';
 
 // ── Mode clip map (mirrors DashboardPage) ───────────────────────────────────
 
@@ -151,7 +152,7 @@ function AppPickerModal({ onSelect, onClose }: AppPickerProps) {
           </button>
         </div>
         <div className="px-4 py-2 border-b border-border">
-          <div className="flex items-center gap-2 bg-bg-main border border-border rounded-lg px-3 py-1.5">
+          <div className="flex items-center gap-2 bg-bg-main border border-border rounded-xl px-3 py-1.5 focus-within:border-accent-primary">
             <Search size={14} className="text-text-muted flex-shrink-0" />
             <input
               autoFocus
@@ -236,7 +237,7 @@ function ActionRow({ action, index, total, onChange, onDelete, onMoveUp, onMoveD
           onClose={() => setShowAppPicker(false)}
         />
       )}
-      <div className="relative flex flex-col gap-2 p-3 bg-bg-main border border-border rounded-xl">
+      <div className="relative flex flex-col gap-2 p-3 bg-bg-card border border-border rounded-xl">
         {/* Delete button — top-right absolute */}
         <button
           onClick={() => onDelete(index)}
@@ -251,7 +252,7 @@ function ActionRow({ action, index, total, onChange, onDelete, onMoveUp, onMoveD
           <select
             value={action.type === 'window_snap' ? 'launch_app' : action.type}
             onChange={(e) => setType(e.target.value as ActionType)}
-            className="flex-1 bg-bg-card border border-border rounded-lg px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-cyan"
+            className="flex-1 bg-bg-main border border-border rounded-xl px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
           >
             {Object.entries(ACTION_TYPE_LABELS).map(([k, v]) => (
               <option key={k} value={k}>{v}</option>
@@ -293,7 +294,7 @@ function ActionRow({ action, index, total, onChange, onDelete, onMoveUp, onMoveD
                   });
                 }
               }}
-              className="flex-1 flex items-center gap-2 px-3 py-1.5 bg-bg-card border border-border rounded-lg text-sm text-text-secondary hover:text-text-primary hover:border-accent-cyan/60 transition-colors text-left min-w-0"
+              className="flex-1 flex items-center gap-2 px-3 py-1.5 bg-bg-main border border-border rounded-xl text-sm text-text-secondary hover:text-text-primary hover:border-accent-primary/60 transition-colors text-left min-w-0"
             >
               <span className="truncate text-text-primary flex-1 min-w-0">
                 {String(p._appName ?? '') || (String(p.path ?? '').split(/[\\/]/).pop()?.replace('.lnk', '')) || 'Uygulama Seç'}
@@ -312,7 +313,7 @@ function ActionRow({ action, index, total, onChange, onDelete, onMoveUp, onMoveD
                     onClick={() => setPayload({ snap: selected ? undefined : side })}
                     className={`p-1.5 rounded-lg transition-colors ${
                       selected
-                        ? 'bg-accent-cyan/20 text-accent-cyan ring-1 ring-accent-cyan/40'
+                        ? 'bg-accent-primary/15 text-accent-primary ring-1 ring-accent-primary/40'
                         : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'
                     }`}
                   >
@@ -331,7 +332,7 @@ function ActionRow({ action, index, total, onChange, onDelete, onMoveUp, onMoveD
             placeholder="https://example.com"
             value={String(p.url ?? '')}
             onChange={(e) => setPayload({ url: e.target.value })}
-            className="w-full bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-cyan"
+            className="w-full bg-bg-main border border-border rounded-xl px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-primary"
           />
         )}
 
@@ -349,7 +350,7 @@ function ActionRow({ action, index, total, onChange, onDelete, onMoveUp, onMoveD
                       type="checkbox"
                       checked={included}
                       onChange={(e) => toggleSettingIncluded(key, e.target.checked)}
-                      className="w-3.5 h-3.5 accent-accent-cyan flex-shrink-0"
+                      className="w-3.5 h-3.5 accent-accent-primary flex-shrink-0"
                     />
                     <span className={`text-xs truncate ${included ? 'text-text-primary' : 'text-text-muted'}`}>{label}</span>
                   </label>
@@ -358,7 +359,7 @@ function ActionRow({ action, index, total, onChange, onDelete, onMoveUp, onMoveD
                     <button
                       onClick={() => updateSetting(key, !value)}
                       className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ml-auto ${
-                        value ? 'bg-accent-cyan' : 'bg-bg-card border border-border'
+                        value ? 'bg-accent-primary' : 'bg-bg-card border border-border'
                       }`}
                     >
                       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
@@ -496,10 +497,10 @@ function WorkspaceModal({ workspace, onClose, onSaved }: ModalProps) {
       <div className="bg-bg-card border border-border rounded-2xl w-[min(90vw,640px)] max-w-2xl max-h-[90vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <span className="font-semibold text-text-primary">
+          <span className="font-semibold tracking-tight text-text-primary">
             {workspace ? 'Çalışma Alanını Düzenle' : 'Yeni Çalışma Alanı'}
           </span>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-bg-hover text-text-secondary">
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-bg-hover text-text-muted">
             <X size={18} />
           </button>
         </div>
@@ -515,7 +516,7 @@ function WorkspaceModal({ workspace, onClose, onSaved }: ModalProps) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Kodlama, Toplantı..."
-              className="w-full bg-bg-main border border-border rounded-xl px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-cyan"
+              className="w-full bg-bg-main border border-border rounded-xl px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-primary"
             />
           </div>
 
@@ -530,7 +531,7 @@ function WorkspaceModal({ workspace, onClose, onSaved }: ModalProps) {
                     key={c}
                     onClick={() => setColor(c)}
                     style={{ background: c }}
-                    className={`w-6 h-6 rounded-full transition-transform ${color === c ? 'ring-2 ring-white scale-125' : 'hover:scale-110'}`}
+                    className={`w-6 h-6 rounded-full transition-transform ${color === c ? 'ring-2 ring-accent-primary scale-125' : 'hover:scale-110'}`}
                   />
                 ))}
               </div>
@@ -554,7 +555,7 @@ function WorkspaceModal({ workspace, onClose, onSaved }: ModalProps) {
                     title={iname}
                     className={`p-2 rounded-lg flex items-center justify-center transition-all ${
                       icon === iname
-                        ? 'bg-accent-cyan/20 text-accent-cyan ring-1 ring-accent-cyan/50'
+                        ? 'bg-accent-primary/15 text-accent-primary ring-1 ring-accent-primary/40'
                         : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
                     }`}
                   >
@@ -567,8 +568,8 @@ function WorkspaceModal({ workspace, onClose, onSaved }: ModalProps) {
                   title="Özel İkon Yükle"
                   className={`p-2 rounded-lg flex items-center justify-center transition-all text-xs font-bold border border-dashed ${
                     icon.startsWith('data:')
-                      ? 'bg-accent-cyan/20 border-accent-cyan/50 text-accent-cyan ring-1 ring-accent-cyan/50'
-                      : 'border-border text-text-muted hover:border-accent-cyan/40 hover:text-text-primary'
+                      ? 'bg-accent-primary/15 border-accent-primary/50 text-accent-primary ring-1 ring-accent-primary/40'
+                      : 'border-border text-text-muted hover:border-accent-primary/50 hover:text-text-primary'
                   }`}
                 >
                   {icon.startsWith('data:') ? (
@@ -605,11 +606,11 @@ function WorkspaceModal({ workspace, onClose, onSaved }: ModalProps) {
             <select
               value={modeSync}
               onChange={(e) => setModeSync(e.target.value)}
-              className="w-full bg-bg-main border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-cyan"
+              className="w-full bg-bg-main border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
             >
               <option value="">Yok</option>
               {presetKeys.map((k) => (
-                <option key={k} value={k}>{k}</option>
+                <option key={k} value={k}>{MODE_DISPLAY_LABELS[k] ?? k}</option>
               ))}
               {customModes.map((m) => (
                 <option key={m.name} value={m.name}>{m.name}</option>
@@ -636,7 +637,7 @@ function WorkspaceModal({ workspace, onClose, onSaved }: ModalProps) {
             </div>
             <button
               onClick={addAction}
-              className="mt-2 flex items-center gap-2 text-sm text-accent-cyan hover:text-accent-cyan/80 transition-colors"
+              className="mt-2 flex items-center gap-2 text-sm text-accent-primary hover:text-accent-primary/80 transition-colors"
             >
               <Plus size={14} />
               Aksiyon Ekle
@@ -657,7 +658,7 @@ function WorkspaceModal({ workspace, onClose, onSaved }: ModalProps) {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-5 py-2 rounded-xl text-sm font-semibold bg-accent-cyan text-bg-main hover:bg-accent-cyan/90 disabled:opacity-50 transition-colors"
+            className="px-5 py-2 rounded-full text-sm font-semibold bg-accent-primary text-bg-main hover:bg-accent-primary/90 disabled:opacity-50 transition-colors"
           >
             {saving ? 'Kaydediliyor...' : 'Kaydet'}
           </button>
@@ -700,16 +701,14 @@ interface CardProps {
 
 function WorkspaceCard({ workspace: ws, onEdit, onDelete, onRun, onStop, running, snapshot }: CardProps) {
   return (
-    <div
-      className="bg-bg-card border rounded-2xl p-5 flex flex-col gap-3 shadow-card"
-      style={{ borderColor: ws.color + '55' }}
-    >
+    <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-3 shadow-card relative overflow-hidden">
+      {/* Left accent stripe */}
+      <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl" style={{ background: ws.color }} />
       {/* Top row */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: ws.color + '22' }}
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-bg-main"
           >
             {renderWorkspaceIcon(ws.icon, 20, ws.color)}
           </div>
@@ -739,7 +738,7 @@ function WorkspaceCard({ workspace: ws, onEdit, onDelete, onRun, onStop, running
       {/* Mode badge */}
       {ws.mode_sync && (
         <span className="text-[11px] text-text-muted bg-bg-main border border-border rounded-full px-2 py-0.5 w-fit">
-          Mod: {ws.mode_sync}
+          Mod: {MODE_DISPLAY_LABELS[ws.mode_sync] ?? ws.mode_sync}
         </span>
       )}
 
@@ -748,12 +747,7 @@ function WorkspaceCard({ workspace: ws, onEdit, onDelete, onRun, onStop, running
         <button
           onClick={() => onRun(ws)}
           disabled={running}
-          className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-50"
-          style={{
-            background: ws.color + '22',
-            color: ws.color,
-            border: `1px solid ${ws.color}44`,
-          }}
+          className="flex-1 flex items-center justify-center gap-2 py-2 rounded-full text-sm font-semibold transition-all bg-accent-primary text-bg-main hover:bg-accent-primary/90 disabled:opacity-50"
         >
           <Rocket size={15} />
           {running ? 'Çalışıyor...' : 'Başlat'}
@@ -761,7 +755,7 @@ function WorkspaceCard({ workspace: ws, onEdit, onDelete, onRun, onStop, running
         {snapshot && (
           <button
             onClick={() => onStop(ws)}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25"
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full text-sm font-semibold transition-all bg-transparent border border-red-500/40 text-red-400 hover:bg-red-500/10"
             title="Geri Al"
           >
             <Square size={14} />
@@ -1069,21 +1063,16 @@ export default function WorkspacePage() {
     <div className="p-5 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-accent-pink/15 flex items-center justify-center">
-            <LayoutGrid size={20} className="text-accent-pink" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-text-primary">Çalışma Alanı</h1>
-            <p className="text-xs text-text-muted">Tek tıkla iş akışı otomasyonu</p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-text-primary">Çalışma Alanları</h1>
+          <p className="text-sm text-text-muted">Tek tıkla iş akışı otomasyonu</p>
         </div>
         <button
           onClick={openCreate}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/30 hover:bg-accent-cyan/25 transition-colors"
+          className="flex items-center gap-2 bg-accent-primary text-bg-main hover:bg-accent-primary/90 rounded-full px-5 py-2 text-sm font-semibold transition-colors"
         >
           <Plus size={16} />
-          Yeni Çalışma Alanı
+          Yeni
         </button>
       </div>
 

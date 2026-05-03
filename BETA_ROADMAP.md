@@ -125,7 +125,7 @@
 | T-UI.S2 | DashboardPage — timeline + 2 stat + schedule | ✅ greeting H1 + flat stat cards + schedule stripes + accent-primary tümünü gör |
 | T-UI.S3 | HabitsPage — due-now hero + week grid | ✅ habits — H1 + cyan pill CTA + flat card dili (due-now/grid backend yok, scope-out) |
 | T-UI.S3.5 | Habits feature delivery — logs + Did it/Snooze/Skip/Reschedule + week grid + per-habit color/icon + interval (sub-daily) habit type | ✅ HabitLog model + habit_logs table + 4 new endpoints (log, snooze, due, logs) + interval scheduler + silent WS broadcast + frontend HabitModal (color/icon/target_days/freqType) + DueHabitCard + WeekGrid + streak derive |
-| T-UI.S4 | WorkspacePage — chip tabs + hero + items grid | ⏸ |
+| T-UI.S4 | WorkspacePage — H1 + flat card + cyan run pill + modal dream dili | ✅ workspace — flat card (sol kenar accent şeridi) + cyan run pill + modal/ActionRow dream gramerinde (chip-tabs/hero/items-grid scope-out: tek-WS yapısı + action-as-modal feature paterni korunur) |
 | T-UI.S5 | InsightsPage — hero metric + activity timeline | ⏸ |
 | T-UI.S6 | MemoryPage — filter chips + list + composer | ⏸ |
 | T-UI.S7 | Tasks/Agenda/Chat/Settings dream dili tatbiki | ⏸ |
