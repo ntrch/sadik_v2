@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, ChevronDown, ChevronUp } from 'lucide-react';
+import { Shield, ChevronDown, ChevronUp, CheckCircle2, Repeat2, Monitor } from 'lucide-react';
 import { statsApi, AppUsageStat, AppUsageRangeSummary } from '../api/stats';
+import { tasksApi, Task } from '../api/tasks';
+import { habitsApi, Habit, HabitLog } from '../api/habits';
 
 // ── Duration formatting ───────────────────────────────────────────────────────
 
@@ -127,6 +129,86 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ── Timeline types & helpers ──────────────────────────────────────────────────
+
+type TimelineEventType = 'task_completed' | 'habit_logged' | 'app_used';
+
+interface TimelineEvent {
+  id: string;
+  type: TimelineEventType;
+  time: Date;
+  label: string;
+  sublabel?: string;
+  duration?: string;
+}
+
+function formatTimeHHMM(d: Date): string {
+  return d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function todayISO(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function isToday(isoStr: string): boolean {
+  if (!isoStr) return false;
+  return isoStr.startsWith(todayISO());
+}
+
+const DOT_CLASS: Record<TimelineEventType, string> = {
+  task_completed: 'bg-accent-green',
+  habit_logged:   'bg-accent-purple',
+  app_used:       'bg-blue-400',
+};
+
+function TimelineIcon({ type }: { type: TimelineEventType }) {
+  const cls = 'text-text-muted';
+  if (type === 'task_completed') return <CheckCircle2 size={14} className={cls} />;
+  if (type === 'habit_logged')   return <Repeat2      size={14} className={cls} />;
+  return <Monitor size={14} className={cls} />;
+}
+
+function ActivityTimeline({ events }: { events: TimelineEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <p className="text-xs text-text-muted text-center py-4">
+        Bugün henüz aktivite yok
+      </p>
+    );
+  }
+  return (
+    <div className="relative pl-6">
+      <div className="absolute left-1.5 top-2 bottom-2 w-px bg-border" />
+      {events.map((ev) => (
+        <div key={ev.id} className="relative pb-4 last:pb-0">
+          <div
+            className={`absolute -left-[18px] top-1.5 w-2 h-2 rounded-full ${DOT_CLASS[ev.type]}`}
+          />
+          <p className="text-[11px] text-text-muted mb-1">{formatTimeHHMM(ev.time)}</p>
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-bg-input flex items-center justify-center flex-shrink-0">
+              <TimelineIcon type={ev.type} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-text-primary truncate">{ev.label}</p>
+              {ev.sublabel && (
+                <p className="text-[11px] text-text-muted">{ev.sublabel}</p>
+              )}
+            </div>
+            {ev.duration && (
+              <span className="text-xs text-text-muted tabular-nums flex-shrink-0">{ev.duration}</span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function InsightsPage() {
@@ -136,6 +218,9 @@ export default function InsightsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
+
+  // Timeline state (today only)
+  const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
 
   useEffect(() => {
     setLoading(true);
@@ -157,6 +242,63 @@ export default function InsightsPage() {
         .catch(() => setError(true))
         .finally(() => setLoading(false));
     }
+  }, [period]);
+
+  // Fetch timeline data when period=today
+  useEffect(() => {
+    if (period !== 'today') {
+      setTimelineEvents([]);
+      return;
+    }
+    const today = todayISO();
+
+    Promise.allSettled([
+      tasksApi.list('done'),
+      habitsApi.getLogs(today, today),
+      habitsApi.list(),
+    ]).then(([tasksResult, logsResult, habitsListResult]) => {
+      const events: TimelineEvent[] = [];
+
+      // Task completed events — use updated_at as proxy for completion time
+      if (tasksResult.status === 'fulfilled') {
+        const doneTasks: Task[] = tasksResult.value.filter(
+          (t) => t.status === 'done' && isToday(t.updated_at)
+        );
+        doneTasks.forEach((t) => {
+          events.push({
+            id: `task-${t.id}`,
+            type: 'task_completed',
+            time: new Date(t.updated_at),
+            label: t.title,
+            sublabel: 'Görev tamamlandı',
+          });
+        });
+      }
+
+      // Habit logged events — use completed_at from log
+      if (logsResult.status === 'fulfilled' && habitsListResult.status === 'fulfilled') {
+        const habitMap = new Map<number, Habit>(
+          habitsListResult.value.map((h) => [h.id, h])
+        );
+        const doneLogs: HabitLog[] = logsResult.value.filter((l) => l.status === 'done');
+        doneLogs.forEach((log) => {
+          const habit = habitMap.get(log.habit_id);
+          const timeStr = log.completed_at ?? `${log.log_date}T00:00:00`;
+          events.push({
+            id: `habit-${log.id}`,
+            type: 'habit_logged',
+            time: new Date(timeStr),
+            label: habit?.name ?? 'Alışkanlık',
+            sublabel: 'Alışkanlık tamamlandı',
+          });
+        });
+      }
+
+      // Sort ASC (morning first)
+      events.sort((a, b) => a.time.getTime() - b.time.getTime());
+
+      setTimelineEvents(events.slice(0, 20));
+    });
   }, [period]);
 
   // Derived stats
@@ -254,23 +396,34 @@ export default function InsightsPage() {
             </div>
           </div>
         ) : period === 'today' ? (
-          todayUsage.length === 0 ? (
-            <div className="bg-bg-card border border-border rounded-card p-5">
-              <div className="py-8 text-center">
-                <p className="text-xs text-text-muted">Bugün henüz uygulama kullanım verisi yok.</p>
-                <p className="text-[11px] text-text-muted mt-1">
-                  Arka plan izleyici aktifken veriler otomatik olarak kaydedilir.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="mb-4">
-              <SectionHeading>En çok kullanılan</SectionHeading>
+          <div className="space-y-4">
+            {/* Today activity timeline */}
+            <div>
+              <SectionHeading>Bugün aktivite</SectionHeading>
               <div className="bg-bg-card border border-border rounded-card p-4">
-                <HorizontalBars items={todayUsage} />
+                <ActivityTimeline events={timelineEvents} />
               </div>
             </div>
-          )
+
+            {/* Top apps */}
+            {todayUsage.length === 0 ? (
+              <div className="bg-bg-card border border-border rounded-card p-5">
+                <div className="py-8 text-center">
+                  <p className="text-xs text-text-muted">Bugün henüz uygulama kullanım verisi yok.</p>
+                  <p className="text-[11px] text-text-muted mt-1">
+                    Arka plan izleyici aktifken veriler otomatik olarak kaydedilir.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <SectionHeading>En çok kullanılan</SectionHeading>
+                <div className="bg-bg-card border border-border rounded-card p-4">
+                  <HorizontalBars items={todayUsage} />
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           !rangeSummary || rangeSummary.top_apps.length === 0 ? (
             <div className="bg-bg-card border border-border rounded-card p-5">
