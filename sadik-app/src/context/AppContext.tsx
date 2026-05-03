@@ -2006,10 +2006,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
             is_running: isRunning,
             phase,
           }));
-          // OLED countdown is only shown during the break phase, and only
-          // after the mod_break intro clip has finished rendering.
+          // OLED countdown: break phase (after intro finishes) AND work phase
+          // (manual start — shows MM:SS so the device mirrors the timer).
           const isBreakPhase = phase === 'break' || phase === 'long_break';
+          const isWorkPhase  = phase === 'work';
           if (isRunning && isBreakPhase && !suppressBreakTimerDisplayRef.current) {
+            const mins = Math.floor(remaining / 60).toString().padStart(2, '0');
+            const secs = (remaining % 60).toString().padStart(2, '0');
+            showText(`${mins}:${secs}`);
+          } else if (isRunning && isWorkPhase) {
             const mins = Math.floor(remaining / 60).toString().padStart(2, '0');
             const secs = (remaining % 60).toString().padStart(2, '0');
             showText(`${mins}:${secs}`);

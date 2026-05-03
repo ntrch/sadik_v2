@@ -136,9 +136,9 @@ function heatColor(rank: number, total: number): string {
 function formatDuration(secs: number): string {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
-  if (h > 0 && m > 0) return `${h} sa ${m} dakika`;
-  if (h > 0) return `${h} saat`;
-  return `${Math.max(m, 1)} dakika`;
+  if (h > 0 && m > 0) return `${h} Saat ${m} Dakika`;
+  if (h > 0) return `${h} Saat`;
+  return `${Math.max(m, 1)} Dakika`;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -205,7 +205,10 @@ export default function DashboardPage() {
     // App usage
     statsApi.appUsageDaily().then(setAppUsage).catch(() => {});
     const poll = setInterval(() => {
+      const _now = new Date();
+      const t = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`;
       statsApi.appUsageDaily().then(setAppUsage).catch(() => {});
+      statsApi.daily(t).then(setModeStats).catch(() => {});
     }, 60_000);
     return () => clearInterval(poll);
   }, []);

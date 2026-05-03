@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Pencil, Trash2, Repeat } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Pencil, Trash2, Repeat, Check, Clock, SkipForward, Calendar } from 'lucide-react';
 import { habitsApi, Habit, HabitCreate, HabitUpdate, HabitLog, HabitDue } from '../api/habits';
 import EmptyState from '../components/common/EmptyState';
 import IconPicker from '../components/mode/IconPicker';
@@ -492,16 +492,18 @@ function DueHabitCard({ due, onDidIt, onSnooze, onSkip, onReschedule }: DueCardP
       <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={onDidIt}
-          className="px-3 py-1.5 rounded-btn text-xs font-semibold border transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-xs font-semibold border transition-colors"
           style={{ backgroundColor: `${color}22`, color, borderColor: `${color}44` }}
         >
+          <Check size={14} />
           Yaptım
         </button>
         <div className="relative">
           <button
             onClick={() => setSnoozeOpen(!snoozeOpen)}
-            className="px-3 py-1.5 rounded-btn text-xs font-semibold bg-bg-card border border-border text-text-secondary hover:text-text-primary transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-xs font-semibold bg-bg-card border border-border text-text-secondary hover:text-text-primary transition-colors"
           >
+            <Clock size={14} />
             Ertele
           </button>
           {snoozeOpen && (
@@ -513,15 +515,17 @@ function DueHabitCard({ due, onDidIt, onSnooze, onSkip, onReschedule }: DueCardP
         </div>
         <button
           onClick={onSkip}
-          className="px-3 py-1.5 rounded-btn text-xs font-semibold bg-bg-card border border-border text-text-secondary hover:text-text-primary transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-xs font-semibold bg-bg-card border border-border text-text-secondary hover:text-text-primary transition-colors"
         >
+          <SkipForward size={14} />
           Atla
         </button>
         {habit.frequency_type === 'daily' && (
           <button
             onClick={onReschedule}
-            className="px-3 py-1.5 rounded-btn text-xs font-semibold bg-bg-card border border-border text-text-secondary hover:text-text-primary transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-xs font-semibold bg-bg-card border border-border text-text-secondary hover:text-text-primary transition-colors"
           >
+            <Calendar size={14} />
             Saati Değiştir
           </button>
         )}
@@ -603,7 +607,7 @@ function WeekGrid({ habits, logs, weekOffset, onEditHabit, onDeleteHabit }: Week
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold text-text-primary truncate">{habit.name}</p>
                   <p className="text-[10px] text-text-muted">
-                    {streak > 0 ? `🔥${streak}d/${habit.target_days}d` : `0d/${habit.target_days}d`}
+                    {streak > 0 ? `🔥${streak}g/${habit.target_days}g` : `0g/${habit.target_days}g`}
                     {' · '}
                     {habit.frequency_type === 'interval'
                       ? `🔁 her ${habit.interval_minutes} dk`
@@ -735,7 +739,17 @@ export default function HabitsPage() {
     await Promise.all([load(), loadLogs(), loadDue()]);
   }, [load, loadLogs, loadDue]);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => {
+    loadAll();
+    // Poll every 30s so "Yaptım" actions from GlobalInsightCard are reflected
+    const interval = setInterval(loadAll, 30_000);
+    // Refresh immediately when the window regains focus (e.g. after closing InsightCard)
+    window.addEventListener('focus', loadAll);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', loadAll);
+    };
+  }, [loadAll]);
 
   const openCreate = () => {
     setModalKey((k) => k + 1);
