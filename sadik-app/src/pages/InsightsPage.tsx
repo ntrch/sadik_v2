@@ -347,8 +347,8 @@ export default function InsightsPage() {
         {/* ── Page header ────────────────────────────────────────────────── */}
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-text-primary leading-tight">Kullanım</h1>
-            <p className="text-xs text-text-muted mt-0.5">{PERIOD_SUBTITLE[period]}</p>
+            <h1 className="text-[40px] font-bold text-text-primary leading-tight tracking-tight">Kullanım</h1>
+            <p className="text-xs text-text-muted mt-1">{PERIOD_SUBTITLE[period]}</p>
           </div>
           {/* Segmented period pill */}
           <div className="flex items-center gap-1 bg-bg-card border border-border rounded-btn px-1 py-1">
