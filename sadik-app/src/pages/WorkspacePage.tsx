@@ -6,7 +6,7 @@ import {
   Pencil, Trash2, Plus, ChevronUp, ChevronDown, X, Search,
   AlignHorizontalJustifyStart, AlignHorizontalJustifyEnd,
   AlignVerticalJustifyStart, AlignVerticalJustifyEnd, Maximize,
-  LucideIcon, LayoutGrid, Square,
+  LucideIcon, LayoutGrid, Square, Settings,
 } from 'lucide-react';
 import EmptyState from '../components/common/EmptyState';
 import { workspacesApi, Workspace, WorkspaceActionCreate, ActionType } from '../api/workspaces';
@@ -687,83 +687,214 @@ interface ToastState {
   type: 'success' | 'error' | 'info';
 }
 
-// ── Workspace card ────────────────────────────────────────────────────────────
+// ── WorkspaceSelectorCard (Layer 1) ───────────────────────────────────────────
 
-interface CardProps {
+interface SelectorCardProps {
   workspace: Workspace;
+  selected: boolean;
+  onSelect: (id: number) => void;
+}
+
+function WorkspaceSelectorCard({ workspace: ws, selected, onSelect }: SelectorCardProps) {
+  return (
+    <button
+      onClick={() => onSelect(ws.id)}
+      className={`bg-bg-card border rounded-xl p-3 cursor-pointer transition-all text-left relative overflow-hidden ${
+        selected
+          ? 'border-accent-primary ring-1 ring-accent-primary/40'
+          : 'border-border hover:border-border/80 hover:bg-bg-hover/30'
+      }`}
+    >
+      {/* Left accent stripe */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl"
+        style={{ background: ws.color }}
+      />
+      <div className="pl-2 flex items-center gap-2.5 min-w-0">
+        {/* Icon */}
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-bg-main"
+        >
+          {renderWorkspaceIcon(ws.icon, 16, ws.color)}
+        </div>
+        {/* Name + meta */}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-text-primary truncate">{ws.name}</p>
+          <p className="text-[10px] text-text-muted">{ws.actions.length} aksiyon</p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ── WorkspaceHero (Layer 2) ───────────────────────────────────────────────────
+
+interface HeroProps {
+  workspace: Workspace;
+  running: boolean;
+  snapshot?: RunSnapshot;
   onEdit: (w: Workspace) => void;
   onDelete: (id: number) => void;
   onRun: (w: Workspace) => void;
   onStop: (w: Workspace) => void;
-  running: boolean;
-  snapshot?: RunSnapshot;
 }
 
-function WorkspaceCard({ workspace: ws, onEdit, onDelete, onRun, onStop, running, snapshot }: CardProps) {
+function WorkspaceHero({ workspace: ws, running, snapshot, onEdit, onDelete, onRun, onStop }: HeroProps) {
   return (
-    <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-3 shadow-card relative overflow-hidden">
+    <div className="bg-bg-card border border-border rounded-2xl p-5 mb-5 relative overflow-hidden">
       {/* Left accent stripe */}
-      <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl" style={{ background: ws.color }} />
-      {/* Top row */}
-      <div className="flex items-start justify-between">
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl"
+        style={{ background: ws.color }}
+      />
+      <div className="pl-3 flex items-center justify-between gap-4">
+        {/* Left: icon + name + meta */}
         <div className="flex items-center gap-3 min-w-0">
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-bg-main"
+            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-bg-main"
           >
-            {renderWorkspaceIcon(ws.icon, 20, ws.color)}
+            {renderWorkspaceIcon(ws.icon, 22, ws.color)}
           </div>
           <div className="min-w-0">
-            <p className="font-semibold text-text-primary text-sm truncate">{ws.name}</p>
-            <p className="text-xs text-text-muted">{ws.actions.length} aksiyon</p>
+            <h2 className="text-xl font-bold tracking-tight text-text-primary">{ws.name}</h2>
+            <div className="flex items-center gap-2 flex-wrap mt-0.5">
+              <span className="text-xs text-text-muted">{ws.actions.length} aksiyon</span>
+              {ws.mode_sync && (
+                <span className="text-[10px] text-text-muted bg-bg-main border border-border rounded-full px-2 py-0.5">
+                  Mod: {MODE_DISPLAY_LABELS[ws.mode_sync] ?? ws.mode_sync}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+
+        {/* Right: Edit + Delete + Run/Stop */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => onEdit(ws)}
             className="p-2 rounded-lg hover:bg-bg-hover text-text-secondary hover:text-text-primary transition-colors"
             title="Düzenle"
           >
-            <Pencil size={15} />
+            <Pencil size={16} />
           </button>
           <button
             onClick={() => onDelete(ws.id)}
             className="p-2 rounded-lg hover:bg-red-500/10 text-text-secondary hover:text-red-400 transition-colors"
             title="Sil"
           >
-            <Trash2 size={15} />
+            <Trash2 size={16} />
+          </button>
+          {snapshot && (
+            <button
+              onClick={() => onStop(ws)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-all bg-transparent border border-red-500/40 text-red-400 hover:bg-red-500/10"
+              title="Geri Al"
+            >
+              <Square size={14} />
+              Durdur
+            </button>
+          )}
+          <button
+            onClick={() => onRun(ws)}
+            disabled={running}
+            className="flex items-center gap-2 bg-accent-primary text-bg-main rounded-full px-5 py-2 font-semibold text-sm hover:bg-accent-primary/90 disabled:opacity-50 transition-colors"
+          >
+            <Rocket size={15} />
+            {running ? 'Çalışıyor...' : 'Başlat'}
           </button>
         </div>
       </div>
-
-      {/* Mode badge */}
-      {ws.mode_sync && (
-        <span className="text-[11px] text-text-muted bg-bg-main border border-border rounded-full px-2 py-0.5 w-fit">
-          Mod: {MODE_DISPLAY_LABELS[ws.mode_sync] ?? ws.mode_sync}
-        </span>
-      )}
-
-      {/* Run / Stop buttons */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => onRun(ws)}
-          disabled={running}
-          className="flex-1 flex items-center justify-center gap-2 py-2 rounded-full text-sm font-semibold transition-all bg-accent-primary text-bg-main hover:bg-accent-primary/90 disabled:opacity-50"
-        >
-          <Rocket size={15} />
-          {running ? 'Çalışıyor...' : 'Başlat'}
-        </button>
-        {snapshot && (
-          <button
-            onClick={() => onStop(ws)}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full text-sm font-semibold transition-all bg-transparent border border-red-500/40 text-red-400 hover:bg-red-500/10"
-            title="Geri Al"
-          >
-            <Square size={14} />
-            Durdur
-          </button>
-        )}
-      </div>
     </div>
+  );
+}
+
+// ── ItemCard (Layer 3) ────────────────────────────────────────────────────────
+
+interface ItemCardProps {
+  action: { type: ActionType; payload: Record<string, unknown> };
+  index: number;
+  onDelete: (index: number) => void;
+}
+
+function getActionDisplayName(type: ActionType, payload: Record<string, unknown>): string {
+  if (type === 'launch_app') {
+    if (payload._appName) return String(payload._appName);
+    if (payload.path) {
+      const base = String(payload.path).split(/[\\/]/).pop() ?? '';
+      return base.replace('.lnk', '') || 'Uygulama';
+    }
+    return 'Uygulama';
+  }
+  if (type === 'open_url') {
+    try {
+      return new URL(String(payload.url ?? '')).hostname || String(payload.url ?? 'URL');
+    } catch {
+      return String(payload.url ?? 'URL');
+    }
+  }
+  if (type === 'system_setting') return 'SADIK Ayarı';
+  if (type === 'window_snap') return 'Pencere Snap';
+  return 'Aksiyon';
+}
+
+function getActionBadge(type: ActionType): string {
+  if (type === 'launch_app') return 'APP';
+  if (type === 'open_url') return 'URL';
+  if (type === 'system_setting') return 'SADIK';
+  return 'SNAP';
+}
+
+function getActionIcon(type: ActionType): LucideIcon {
+  if (type === 'launch_app') return Terminal;
+  if (type === 'open_url') return Globe;
+  if (type === 'system_setting') return Settings;
+  if (type === 'window_snap') return AlignHorizontalJustifyStart;
+  return Terminal;
+}
+
+function ItemCard({ action, index, onDelete }: ItemCardProps) {
+  const ActionIcon = getActionIcon(action.type);
+  const displayName = getActionDisplayName(action.type, action.payload);
+  const badge = getActionBadge(action.type);
+
+  return (
+    <div className="bg-bg-card border border-border rounded-xl p-3 flex items-center gap-2.5 group relative">
+      {/* Left: action icon */}
+      <div className="w-8 h-8 bg-bg-main rounded-lg flex items-center justify-center flex-shrink-0">
+        <ActionIcon size={15} className="text-text-secondary" />
+      </div>
+
+      {/* Middle: name + badge */}
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-text-primary truncate">{displayName}</p>
+        <span className="text-[10px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded bg-bg-main text-text-muted">
+          {badge}
+        </span>
+      </div>
+
+      {/* Right: delete button (hover-reveal) */}
+      <button
+        onClick={() => onDelete(index)}
+        className="p-1 rounded-md text-text-muted hover:bg-red-500/10 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+        title="Sil"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+// ── AddItemCard ───────────────────────────────────────────────────────────────
+
+function AddItemCard({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="bg-transparent border border-dashed border-border rounded-xl p-3 flex items-center justify-center gap-2 text-sm text-text-muted hover:text-accent-primary hover:border-accent-primary/50 cursor-pointer transition-colors"
+    >
+      <Plus size={15} />
+      Aksiyon Ekle
+    </button>
   );
 }
 
@@ -791,6 +922,7 @@ export default function WorkspacePage() {
   const [runningId, setRunningId]     = useState<number | null>(null);
   const [toast, setToast]             = useState<ToastState | null>(null);
   const [snapshots, setSnapshots]     = useState<Record<number, RunSnapshot>>({});
+  const [selectedId, setSelectedId]   = useState<number | null>(null);
   const snapshotsRef = useRef<Record<number, RunSnapshot>>({});
   snapshotsRef.current = snapshots;
   const modeReturnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -814,6 +946,25 @@ export default function WorkspacePage() {
   }, [showToast]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-select first (or previously stored) workspace after load
+  useEffect(() => {
+    if (workspaces.length > 0 && (selectedId === null || !workspaces.find(w => w.id === selectedId))) {
+      const stored = localStorage.getItem('workspace_selected_id');
+      const storedNum = stored ? Number(stored) : null;
+      if (storedNum && workspaces.find(w => w.id === storedNum)) {
+        setSelectedId(storedNum);
+      } else {
+        setSelectedId(workspaces[0].id);
+      }
+    }
+  }, [workspaces, selectedId]);
+
+  useEffect(() => {
+    if (selectedId !== null) localStorage.setItem('workspace_selected_id', String(selectedId));
+  }, [selectedId]);
+
+  const selected = workspaces.find(w => w.id === selectedId) ?? null;
 
   /**
    * Activates a mode using the exact same path as DashboardPage.handleSetMode:
@@ -886,6 +1037,24 @@ export default function WorkspacePage() {
       showToast('Silindi', 'success');
     } catch {
       showToast('Silinemedi', 'error');
+    }
+  };
+
+  const handleDeleteAction = async (ws: Workspace, actionIndex: number) => {
+    if (!window.confirm('Bu aksiyonu silmek istediğinize emin misiniz?')) return;
+    try {
+      const newActions = ws.actions
+        .filter((_, i) => i !== actionIndex)
+        .map((a, i) => ({
+          order_index: i,
+          type: a.type,
+          payload: a.payload as Record<string, unknown>,
+        }));
+      await workspacesApi.update(ws.id, { actions: newActions });
+      showToast('Aksiyon silindi', 'success');
+      await load();
+    } catch {
+      showToast('Aksiyon silinemedi', 'error');
     }
   };
 
@@ -1061,7 +1230,7 @@ export default function WorkspacePage() {
 
   return (
     <div className="p-5 max-w-5xl mx-auto">
-      {/* Header */}
+      {/* Header — unchanged from S4 */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-text-primary">Çalışma Alanları</h1>
@@ -1076,7 +1245,6 @@ export default function WorkspacePage() {
         </button>
       </div>
 
-      {/* Grid — responsive */}
       {loading ? (
         <p className="text-text-muted text-sm text-center py-12">Yükleniyor...</p>
       ) : workspaces.length === 0 ? (
@@ -1088,23 +1256,55 @@ export default function WorkspacePage() {
           onCta={openCreate}
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {workspaces.map((ws) => (
-            <WorkspaceCard
-              key={ws.id}
-              workspace={ws}
+        <>
+          {/* Layer 1 — Workspace selector */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+            {workspaces.map((ws) => (
+              <WorkspaceSelectorCard
+                key={ws.id}
+                workspace={ws}
+                selected={selectedId === ws.id}
+                onSelect={setSelectedId}
+              />
+            ))}
+          </div>
+
+          {/* Layer 2 — Hero */}
+          {selected && (
+            <WorkspaceHero
+              workspace={selected}
+              running={runningId === selected.id}
+              snapshot={snapshots[selected.id]}
               onEdit={openEdit}
               onDelete={handleDelete}
               onRun={handleRun}
               onStop={handleStop}
-              running={runningId === ws.id}
-              snapshot={snapshots[ws.id]}
             />
-          ))}
-        </div>
+          )}
+
+          {/* Layer 3 — Items grid */}
+          {selected && (
+            <div>
+              <h2 className="text-xs uppercase tracking-wider text-text-muted font-semibold mb-3">
+                Items ({selected.actions.length})
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {selected.actions.map((a, i) => (
+                  <ItemCard
+                    key={i}
+                    action={{ type: a.type, payload: a.payload as Record<string, unknown> }}
+                    index={i}
+                    onDelete={(idx) => handleDeleteAction(selected, idx)}
+                  />
+                ))}
+                <AddItemCard onClick={() => openEdit(selected)} />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {/* Modal */}
+      {/* Modal — unchanged */}
       {modalOpen && (
         <WorkspaceModal
           key={editTarget?.id ?? 'new-' + modalKey}
@@ -1114,7 +1314,7 @@ export default function WorkspacePage() {
         />
       )}
 
-      {/* Toast */}
+      {/* Toast — unchanged */}
       {toast && (
         <div
           className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl text-sm font-medium shadow-lg transition-all ${
