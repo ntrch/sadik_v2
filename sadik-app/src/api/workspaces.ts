@@ -28,7 +28,7 @@ export type ActionPayload =
   | WindowSnapPayload
   | Record<string, unknown>;
 
-export type ActionType = 'launch_app' | 'open_url' | 'system_setting' | 'window_snap';
+export type ActionType = 'launch_app' | 'open_url' | 'system_setting' | 'window_snap' | 'open_file' | 'open_folder';
 
 // ── Workspace types ────────────────────────────────────────────────────────
 

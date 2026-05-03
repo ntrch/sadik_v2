@@ -1224,6 +1224,15 @@ Write-Output "OK"
           await shell.openExternal(payload.url ?? '');
           results.push({ type, ok: true });
 
+        } else if (type === 'open_file' || type === 'open_folder') {
+          const targetPath = payload.path ?? '';
+          const errMsg = await shell.openPath(targetPath);
+          if (errMsg) {
+            results.push({ type, ok: false, error: errMsg, target: targetPath });
+          } else {
+            results.push({ type, ok: true, target: targetPath });
+          }
+
         } else if (type === 'system_setting') {
           if (payload.setting === 'night_light') {
             // Opens the Night Light settings panel — best-effort only.
@@ -1395,6 +1404,19 @@ Write-Output "OK"
         { name: 'All Files', extensions: ['*'] },
       ],
     });
+  });
+
+  // ── File / Folder pickers ─────────────────────────────────────────────────
+  ipcMain.handle('dialog:pickFile', async () => {
+    const { dialog } = require('electron');
+    const result = await dialog.showOpenDialog(win, { properties: ['openFile'] });
+    return result;
+  });
+
+  ipcMain.handle('dialog:pickFolder', async () => {
+    const { dialog } = require('electron');
+    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
+    return result;
   });
 
   // ── Proactive notification IPC ───────────────────────────────────────────

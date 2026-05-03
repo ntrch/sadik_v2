@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Opens a native file picker filtered to executables. Returns Electron's
   // dialog result: { canceled: boolean, filePaths: string[] }.
   pickExe: () => ipcRenderer.invoke('workspace:pick-exe'),
+  // Opens a native file picker (any file). Returns { canceled, filePaths }.
+  pickFile: () => ipcRenderer.invoke('dialog:pickFile'),
+  // Opens a native folder picker. Returns { canceled, filePaths }.
+  pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
   // Returns a list of installed apps from Start Menu .lnk files (Windows only).
   // Returns { name: string, path: string }[] sorted alphabetically.
   listApps: () => ipcRenderer.invoke('workspace:list-apps'),

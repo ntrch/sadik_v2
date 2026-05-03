@@ -6,7 +6,7 @@ import {
   Pencil, Trash2, Plus, ChevronUp, ChevronDown, X, Search,
   AlignHorizontalJustifyStart, AlignHorizontalJustifyEnd,
   AlignVerticalJustifyStart, AlignVerticalJustifyEnd, Maximize,
-  LucideIcon, LayoutGrid, Square, Settings,
+  LucideIcon, LayoutGrid, Square, Settings, File, Folder,
 } from 'lucide-react';
 import EmptyState from '../components/common/EmptyState';
 import { workspacesApi, Workspace, WorkspaceActionCreate, ActionType } from '../api/workspaces';
@@ -77,6 +77,8 @@ function renderWorkspaceIcon(icon: string, size = 20, color?: string) {
 const ACTION_TYPE_LABELS: Partial<Record<ActionType, string>> = {
   launch_app:     'Uygulama Başlat',
   open_url:       'URL Aç',
+  open_file:      'Dosya Aç',
+  open_folder:    'Klasör Aç',
   system_setting: 'SADIK Ayarı',
 };
 
@@ -334,6 +336,30 @@ function ActionRow({ action, index, total, onChange, onDelete, onMoveUp, onMoveD
             onChange={(e) => setPayload({ url: e.target.value })}
             className="w-full bg-bg-main border border-border rounded-xl px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-primary"
           />
+        )}
+
+        {/* open_file / open_folder: native file/folder picker */}
+        {(action.type === 'open_file' || action.type === 'open_folder') && (
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const api = (window as any).electronAPI;
+                const picker = action.type === 'open_file' ? api?.pickFile : api?.pickFolder;
+                if (!picker) return;
+                picker().then((result: { canceled: boolean; filePaths: string[] }) => {
+                  if (!result.canceled && result.filePaths?.length) {
+                    setPayload({ path: result.filePaths[0] });
+                  }
+                });
+              }}
+              className="flex-1 flex items-center gap-2 px-3 py-2 bg-bg-main border border-border rounded-xl text-sm text-text-secondary hover:text-text-primary hover:border-accent-primary/60 transition-colors text-left"
+            >
+              <span className="truncate text-text-primary flex-1">
+                {String(p.path ?? '').split(/[\\/]/).pop() || (action.type === 'open_file' ? 'Dosya Seç' : 'Klasör Seç')}
+              </span>
+            </button>
+          </div>
         )}
 
         {/* system_setting: SADIK app boolean settings */}
@@ -719,9 +745,9 @@ function WorkspaceSelectorCard({ workspace: ws, selected, onSelect }: SelectorCa
           : 'border-border hover:border-border/80 hover:bg-bg-hover/30'
       }`}
     >
-      {/* Left accent stripe — short, centered */}
+      {/* Left accent stripe */}
       <div
-        className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r-full"
+        className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full"
         style={{ background: ws.color }}
       />
       <div className="pl-2 flex items-center gap-2.5 min-w-0">
@@ -759,7 +785,7 @@ function WorkspaceHero({ workspace: ws, running, snapshot, lastRun, onEdit, onDe
     <div className="bg-bg-card border border-border rounded-2xl p-5 mb-5 relative overflow-hidden">
       {/* Left accent stripe */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl"
+        className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full"
         style={{ background: ws.color }}
       />
       <div className="pl-3 flex items-center justify-between gap-4">
@@ -773,15 +799,16 @@ function WorkspaceHero({ workspace: ws, running, snapshot, lastRun, onEdit, onDe
           <div className="min-w-0">
             <h2 className="text-xl font-bold tracking-tight text-text-primary">{ws.name}</h2>
             <div className="flex items-center gap-2 flex-wrap mt-0.5">
-              <span className="text-xs text-text-muted">
-                {ws.actions.length} aksiyon · Son çalıştırıldı: {formatRelative(lastRun)}
-              </span>
               {ws.mode_sync && (
                 <span className="text-[10px] text-text-muted bg-bg-main border border-border rounded-full px-2 py-0.5">
                   Mod: {MODE_DISPLAY_LABELS[ws.mode_sync] ?? ws.mode_sync}
                 </span>
               )}
+              <span className="text-[11px] text-text-muted bg-bg-main border border-border rounded-full px-2.5 py-0.5 w-fit">
+                {lastRun ? `Son çalıştırıldı: ${formatRelative(lastRun)}` : 'Henüz çalıştırılmadı'}
+              </span>
             </div>
+            <p className="text-xs text-text-muted mt-0.5">{ws.actions.length} aksiyon</p>
           </div>
         </div>
 
@@ -859,13 +886,23 @@ function getActionDisplayName(type: ActionType, payload: Record<string, unknown>
     if (labels.length === 1) return labels[0];
     return `${labels[0]} +${labels.length - 1}`;
   }
+  if (type === 'open_file') {
+    if (payload.path) return String(payload.path).split(/[\\/]/).pop() || 'Dosya';
+    return 'Dosya';
+  }
+  if (type === 'open_folder') {
+    if (payload.path) return String(payload.path).split(/[\\/]/).pop() || 'Klasör';
+    return 'Klasör';
+  }
   if (type === 'window_snap') return 'Pencere Snap';
   return 'Aksiyon';
 }
 
 function getActionBadge(type: ActionType): string {
-  if (type === 'launch_app') return 'APP';
+  if (type === 'launch_app') return 'Uygulama';
   if (type === 'open_url') return 'URL';
+  if (type === 'open_file') return 'Dosya';
+  if (type === 'open_folder') return 'Klasör';
   if (type === 'system_setting') return 'SADIK';
   return 'SNAP';
 }
@@ -873,6 +910,8 @@ function getActionBadge(type: ActionType): string {
 function getActionIcon(type: ActionType): LucideIcon {
   if (type === 'launch_app') return Terminal;
   if (type === 'open_url') return Globe;
+  if (type === 'open_file') return File;
+  if (type === 'open_folder') return Folder;
   if (type === 'system_setting') return Settings;
   if (type === 'window_snap') return AlignHorizontalJustifyStart;
   return Terminal;
@@ -893,7 +932,7 @@ function ItemCard({ action, index, onDelete }: ItemCardProps) {
       {/* Middle: name + badge */}
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-text-primary truncate">{displayName}</p>
-        <span className="text-[10px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded bg-bg-main text-text-muted">
+        <span className="text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-bg-main text-text-muted truncate">
           {badge}
         </span>
       </div>
@@ -1277,10 +1316,10 @@ export default function WorkspacePage() {
 
   return (
     <div className="p-5 max-w-5xl mx-auto">
-      {/* Header — unchanged from S4 */}
-      <div className="flex items-center justify-between mb-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-7">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-text-primary">Çalışma Alanları</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-text-primary">Çalışma Alanları</h1>
           <p className="text-sm text-text-muted">Tek tıkla iş akışı otomasyonu</p>
         </div>
         <button
