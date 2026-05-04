@@ -9,7 +9,7 @@ import { AppContext } from '../../context/AppContext';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/tasks', icon: ListTodo, label: 'Görevler' },
+  { to: '/tasks', icon: ListTodo, label: 'Yapılacaklar' },
   { to: '/focus', icon: Timer, label: 'Odaklanma' },
   { to: '/chat', icon: MessageSquare, label: 'Sohbet' },
   { to: '/voice', icon: Mic, label: 'Sesli Asistan' },

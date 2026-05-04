@@ -225,7 +225,9 @@ export default function OnboardingPage({ onComplete }: Props) {
                         : 'bg-bg-main border-border hover:border-accent-purple/40'
                     }`}
                   >
-                    <span className="text-base leading-none">{a.emoji}</span>
+                    <div className={`rounded-lg p-1.5 w-fit ${active ? 'bg-accent-purple/20' : 'bg-bg-input'}`}>
+                      <a.icon size={18} className={active ? 'text-accent-purple' : 'text-text-muted'} />
+                    </div>
                     <span className="text-xs font-semibold text-text-primary leading-tight">{a.label}</span>
                     <span className="text-[10px] text-text-muted leading-tight">{a.description}</span>
                     {active && (

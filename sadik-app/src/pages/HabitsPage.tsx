@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Pencil, Trash2, Repeat, Check, Clock, SkipForward, Calendar } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Pencil, Trash2, Repeat, Flame, Check, Clock, SkipForward, Calendar } from 'lucide-react';
 import { habitsApi, Habit, HabitCreate, HabitUpdate, HabitLog, HabitDue } from '../api/habits';
 import EmptyState from '../components/common/EmptyState';
 import IconPicker from '../components/mode/IconPicker';
@@ -605,13 +605,14 @@ function WeekGrid({ habits, logs, weekOffset, onEditHabit, onDeleteHabit }: Week
                   <HabitIcon iconKey={habit.icon} color={color} size={14} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-text-primary truncate">{habit.name}</p>
-                  <p className="text-[10px] text-text-muted">
-                    {streak > 0 ? `🔥${streak}g/${habit.target_days}g` : `0g/${habit.target_days}g`}
-                    {' · '}
+                  <p className="text-sm font-semibold text-text-primary truncate">{habit.name}</p>
+                  <p className="text-sm text-text-muted flex items-center gap-1 flex-wrap">
+                    <Flame size={12} className="text-accent-orange inline flex-shrink-0" />
+                    <span>{streak > 0 ? `${streak}g/${habit.target_days}g` : `0g/${habit.target_days}g`}</span>
+                    <span className="text-text-muted/50">·</span>
                     {habit.frequency_type === 'interval'
-                      ? `🔁 her ${habit.interval_minutes} dk`
-                      : `🕘 ${habit.time}`}
+                      ? <><Repeat size={14} className="inline flex-shrink-0" />Her {habit.interval_minutes} dk</>
+                      : <span>🕘 {habit.time}</span>}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
@@ -822,16 +823,15 @@ export default function HabitsPage() {
   return (
     <div className="p-5 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-start justify-between mb-7">
-        <div>
-          <h1 className="text-[32px] font-bold text-text-primary tracking-tight leading-tight">Alışkanlıklar</h1>
-          <p className="text-sm text-text-muted mt-1">
-            {loading
-              ? 'Yükleniyor...'
-              : habits.length === 0
-              ? 'Henüz alışkanlık yok'
-              : `${doneToday.length}/${enabledToday.length} tamamlandı bugün · ${habits.length} toplam`}
-          </p>
+      <div className="flex items-center justify-between mb-7">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-accent-orange/15">
+            <Flame size={24} className="text-accent-orange" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-text-primary">Alışkanlıklar</h1>
+            <p className="text-sm text-text-muted">Günlük rutinlerin</p>
+          </div>
         </div>
         <button
           onClick={openCreate}

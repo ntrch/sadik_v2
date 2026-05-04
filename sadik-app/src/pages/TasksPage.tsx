@@ -1,5 +1,5 @@
 import React, { useState, useContext } from 'react';
-import { Plus, ListTodo, Timer } from 'lucide-react';
+import { Plus, ListTodo, Timer, ClipboardList } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import TaskBoard from '../components/tasks/TaskBoard';
 import TaskModal from '../components/tasks/TaskModal';
@@ -43,6 +43,17 @@ export default function TasksPage() {
 
   return (
     <div className="h-full flex flex-col p-4 page-transition">
+      {/* Page header */}
+      <div className="flex items-center gap-4 mb-6">
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-accent-cyan/15">
+          <ListTodo size={24} className="text-accent-cyan" />
+        </div>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-text-primary">Yapılacaklar</h1>
+          <p className="text-sm text-text-muted">Görevini ekle, ne üzerinde çalışacağını planla</p>
+        </div>
+      </div>
+
       {/* Tab selector */}
       <div className="flex items-center gap-2 mb-4">
         <button
@@ -53,7 +64,7 @@ export default function TasksPage() {
               : 'bg-bg-card border border-border text-text-secondary hover:text-text-primary hover:bg-bg-hover'
           }`}
         >
-          <ListTodo size={18} className={activeTab === 'tasks' ? 'text-accent-purple' : ''} />
+          <ClipboardList size={18} className={activeTab === 'tasks' ? 'text-accent-purple' : ''} />
           Görevler
         </button>
         <button

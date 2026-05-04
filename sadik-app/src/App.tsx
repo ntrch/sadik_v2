@@ -23,6 +23,7 @@ import { settingsApi } from './api/settings';
 import { isInputFocused } from './utils/focus';
 import TelemetryConsentBanner from './components/telemetry/TelemetryConsentBanner';
 import UpdateBanner from './components/updater/UpdateBanner';
+import GlobalInsightCard from './components/common/GlobalInsightCard';
 
 /**
  * Tab selector for the /chat route. Lives at App level so the persistent
@@ -81,6 +82,11 @@ function AppShell() {
       if (e.shiftKey && e.key.toLowerCase() === 'f' && !isInputFocused()) {
         e.preventDefault();
         setFeedbackOpen((prev) => !prev);
+      }
+      // Ctrl+Shift+A — animation debug panel
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'a' && !isInputFocused()) {
+        e.preventDefault();
+        document.dispatchEvent(new CustomEvent('sadik:toggle-anim-debug'));
       }
     };
     document.addEventListener('keydown', handleKey);
@@ -141,6 +147,7 @@ function AppShell() {
         <FirstDayTutorial onDone={() => setTutorialDone(true)} />
       )}
       {feedbackOpen && <FeedbackModal onClose={closeFeedback} />}
+      <GlobalInsightCard />
       <TelemetryConsentBanner />
       <UpdateBanner />
     </div>

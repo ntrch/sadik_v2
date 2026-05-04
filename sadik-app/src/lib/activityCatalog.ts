@@ -9,21 +9,25 @@ export type ActivityId =
   | 'office'
   | 'gaming';
 
+import type { LucideIcon } from 'lucide-react';
+import { Code2, PenTool, Palette, Users, BookOpen, BarChart3, Film, Mail, Gamepad2 } from 'lucide-react';
+
 export const ACTIVITIES: {
   id: ActivityId;
   label: string;
   emoji: string;
+  icon: LucideIcon;
   description: string;
 }[] = [
-  { id: 'code',     label: 'Kod yazma',           emoji: '💻', description: 'Yazılım geliştirme, debug, code review' },
-  { id: 'writing',  label: 'Yazı / içerik',       emoji: '✍️', description: 'Makale, blog, döküman, not' },
-  { id: 'design',   label: 'Tasarım',             emoji: '🎨', description: 'UI, görsel, mockup, eskiz' },
-  { id: 'meeting',  label: 'Toplantı / iletişim', emoji: '💬', description: 'Online görüşme, async iletişim' },
-  { id: 'learning', label: 'Ders / araştırma',    emoji: '📚', description: 'Öğrenme, araştırma, okuma' },
-  { id: 'data',     label: 'Veri / tablo',        emoji: '📊', description: 'Analiz, hesap tablosu, raporlama' },
-  { id: 'creative', label: 'Yaratıcı medya',      emoji: '🎬', description: 'Müzik, video, podcast, edit' },
-  { id: 'office',   label: 'Ofis / email',        emoji: '📧', description: 'Email, döküman, idari işler' },
-  { id: 'gaming',   label: 'Oyun / eğlence',      emoji: '🎮', description: 'Oyun, video izleme, mola' },
+  { id: 'code',     label: 'Kod yazma',           emoji: '💻', icon: Code2,     description: 'Yazılım geliştirme, debug, code review' },
+  { id: 'writing',  label: 'Yazı / içerik',       emoji: '✍️', icon: PenTool,   description: 'Makale, blog, döküman, not' },
+  { id: 'design',   label: 'Tasarım',             emoji: '🎨', icon: Palette,   description: 'UI, görsel, mockup, eskiz' },
+  { id: 'meeting',  label: 'Toplantı / iletişim', emoji: '💬', icon: Users,     description: 'Online görüşme, async iletişim' },
+  { id: 'learning', label: 'Ders / araştırma',    emoji: '📚', icon: BookOpen,  description: 'Öğrenme, araştırma, okuma' },
+  { id: 'data',     label: 'Veri / tablo',        emoji: '📊', icon: BarChart3, description: 'Analiz, hesap tablosu, raporlama' },
+  { id: 'creative', label: 'Yaratıcı medya',      emoji: '🎬', icon: Film,      description: 'Müzik, video, podcast, edit' },
+  { id: 'office',   label: 'Ofis / email',        emoji: '📧', icon: Mail,      description: 'Email, döküman, idari işler' },
+  { id: 'gaming',   label: 'Oyun / eğlence',      emoji: '🎮', icon: Gamepad2,  description: 'Oyun, video izleme, mola' },
 ];
 
 export interface PresetModeDef {

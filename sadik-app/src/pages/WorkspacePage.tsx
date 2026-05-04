@@ -808,7 +808,7 @@ function WorkspaceHero({ workspace: ws, running, snapshot, lastRun, onEdit, onDe
                 {lastRun ? `Son çalıştırıldı: ${formatRelative(lastRun)}` : 'Henüz çalıştırılmadı'}
               </span>
             </div>
-            <p className="text-xs text-text-muted mt-0.5">{ws.actions.length} aksiyon</p>
+            <p className="text-sm text-text-muted mt-0.5">{ws.actions.length} aksiyon</p>
           </div>
         </div>
 
@@ -1318,9 +1318,14 @@ export default function WorkspacePage() {
     <div className="p-5 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-7">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-text-primary">Çalışma Alanları</h1>
-          <p className="text-sm text-text-muted">Tek tıkla iş akışı otomasyonu</p>
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-accent-pink/15">
+            <Rocket size={24} className="text-accent-pink" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-text-primary">Çalışma Alanları</h1>
+            <p className="text-sm text-text-muted">Tek tıkla iş akışı otomasyonu</p>
+          </div>
         </div>
         <button
           onClick={openCreate}

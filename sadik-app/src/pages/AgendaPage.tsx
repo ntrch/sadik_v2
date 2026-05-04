@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, ListTodo, Repeat, CalendarDays, Plus, X, Trash2 } from 'lucide-react';
 import EmptyState from '../components/common/EmptyState';
-import gcalLogo from '../assets/brand/icons8-google-calendar.svg';
+import gcalLogo from '../assets/brand/google-calender-icon.svg';
 import { tasksApi, Task } from '../api/tasks';
 import { habitsApi, Habit } from '../api/habits';
 import { eventsApi, CalendarEvent, EventColor } from '../api/events';
@@ -237,10 +237,18 @@ export default function AgendaPage() {
 
   return (
     <div className="px-6 py-4 h-full flex flex-col">
+      <div className="flex items-center gap-4 mb-4">
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-accent-purple/15">
+          <CalendarDays size={24} className="text-accent-purple" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-3xl font-bold tracking-tight text-text-primary">Ajanda</h1>
+          <p className="text-sm text-text-muted">Toplantı ve etkinliklerin</p>
+        </div>
+      </div>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <CalendarDays size={22} className="text-accent-purple" />
-          <h1 className="text-2xl font-bold text-text-primary">{title}</h1>
+          <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
         </div>
         <div className="flex items-center gap-2">
           <button

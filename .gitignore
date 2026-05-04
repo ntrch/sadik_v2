@@ -49,3 +49,6 @@ sadik-logs/
 
 # Personal notes
 feedbacks.txt
+
+# Local-only regression checklists
+T8_1_regression_checklist.md

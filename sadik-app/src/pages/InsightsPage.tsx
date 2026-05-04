@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, ChevronDown, ChevronUp, CheckCircle2, Repeat2, Monitor } from 'lucide-react';
+import { Shield, ChevronDown, ChevronUp, CheckCircle2, Repeat2, Monitor, BarChart2 } from 'lucide-react';
 import { statsApi, AppUsageStat, AppUsageRangeSummary, AppUsageEvent } from '../api/stats';
 import { tasksApi, Task } from '../api/tasks';
 import { habitsApi, Habit, HabitLog } from '../api/habits';
@@ -66,13 +66,13 @@ function HorizontalBars({ items }: { items: AppUsageStat[] }) {
         return (
           <div key={item.app_name}>
             <div className="flex items-center justify-between mb-1 gap-2">
-              <span className="text-xs text-text-muted tabular-nums flex-shrink-0 w-5">
+              <span className="text-sm text-text-muted tabular-nums flex-shrink-0 w-5">
                 #{idx + 1}
               </span>
-              <span className="text-xs font-medium text-text-primary truncate flex-1">
+              <span className="text-sm font-medium text-text-primary truncate flex-1">
                 {item.app_name}
               </span>
-              <span className="text-xs text-text-muted tabular-nums flex-shrink-0">
+              <span className="text-sm text-text-muted tabular-nums flex-shrink-0">
                 {formatAppDuration(item.duration_seconds)}
               </span>
             </div>
@@ -373,9 +373,14 @@ export default function InsightsPage() {
 
         {/* ── Page header ────────────────────────────────────────────────── */}
         <div className="flex items-start justify-between mb-6">
-          <div>
-            <h1 className="text-[40px] font-bold text-text-primary leading-tight tracking-tight">Kullanım</h1>
-            <p className="text-sm text-text-muted mt-2">{PERIOD_SUBTITLE[period]}</p>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-accent-green/15 flex-shrink-0">
+              <BarChart2 size={24} className="text-accent-green" />
+            </div>
+            <div>
+              <h1 className="text-[40px] font-bold text-text-primary leading-tight tracking-tight">Kullanım</h1>
+              <p className="text-sm text-text-muted mt-2">Ekran süresi ve aktivite günlüğü</p>
+            </div>
           </div>
           {/* Segmented period pill */}
           <div className="flex items-center gap-1 bg-bg-card border border-border rounded-btn px-1 py-1">

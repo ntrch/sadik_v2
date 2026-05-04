@@ -126,7 +126,7 @@
 | T-UI.S3 | HabitsPage — due-now hero + week grid | ✅ habits — H1 + cyan pill CTA + flat card dili (due-now/grid backend yok, scope-out) |
 | T-UI.S3.5 | Habits feature delivery — logs + Did it/Snooze/Skip/Reschedule + week grid + per-habit color/icon + interval (sub-daily) habit type | ✅ HabitLog model + habit_logs table + 4 new endpoints (log, snooze, due, logs) + interval scheduler + silent WS broadcast + frontend HabitModal (color/icon/target_days/freqType) + DueHabitCard + WeekGrid + streak derive |
 | T-UI.S4 | WorkspacePage — H1 + flat card + cyan run pill + modal dream dili | ✅ workspace — flat card (sol kenar accent şeridi) + cyan run pill + modal/ActionRow dream gramerinde (chip-tabs/hero/items-grid scope-out: tek-WS yapısı + action-as-modal feature paterni korunur) + S4b: dream layered (selector + hero + items grid + inline delete + + Add Item) + S4c: polish (Aksiyonlar başlığı, last-used, ayar adı, kısa şerit) + S4d: last-used pill + Uygulama tag + kısa şerit + H1 büyüt + open_file/folder action |
-| T-UI.S5 | InsightsPage — hero metric + activity timeline | ✅ insights — H1 + segmented pill + hero flat card (kısa accent şerit + büyük rakam + uygulama pill) + EN ÇOK KULLANILAN/GÜNLÜK TOPLAM section başlıkları + privacy korunur (timeline raw events backend yok, scope-out) + S5b: timeline (today only — task_completed + habit_logged + app_used events derived from existing endpoints) + S5c: timeline app_used events (yeni /stats/app-usage/events endpoint, raw event listesi, accent-blue dot) + S5d: header alt metin polish + "Bugün" büyük başlık + UI-side app event coalesce (≤5dk gap merge, backend granular kalır) + global tema #2A2A2C/#373639 |
+| T-UI.S5 | InsightsPage — hero metric + activity timeline | ✅ insights — H1 + segmented pill + hero flat card (kısa accent şerit + büyük rakam + uygulama pill) + EN ÇOK KULLANILAN/GÜNLÜK TOPLAM section başlıkları + privacy korunur (timeline raw events backend yok, scope-out) + S5b: timeline (today only — task_completed + habit_logged + app_used events derived from existing endpoints) + S5c: timeline app_used events (yeni /stats/app-usage/events endpoint, raw event listesi, accent-blue dot) + S5d: header alt metin polish + "Bugün" büyük başlık + UI-side app event coalesce (≤5dk gap merge, backend granular kalır) + global tema #2A2A2C/#373639 + S5f.1: page adları (Düşünceler, Görevler tab) + Dashboard akordiyon localStorage persist + "Bugünkü Özet" statik açık + Haftalık profilim+ActivityChart tek akordiyon |
 | T-UI.S6 | MemoryPage — filter chips + list + composer | ⏸ |
 | T-UI.S7 | Tasks/Agenda/Chat/Settings dream dili tatbiki | ⏸ |
 | T-UI.S8 | Özgün yüzeyler (Voice, GlobalInsight, Feedback, OledPreview, DeviceStatus, Onboarding, UpdateBanner, TelemetryConsent) | ⏸ |
@@ -167,6 +167,15 @@
   - Onboarding: Persona step → multi-select Aktivite step + "Önerilen Modlar" step (4 mod öneri + edit)
   - Dashboard: PRESET_MODES → havuz import + user_preset_modes filtresi (fallback: working/learning/break/meeting)
   - Settings: "Rol" → "Aktiviteler & Modlar" (checklist + havuzdan ekle/çıkar + öneriyi uygula)
+- **Sprint 5f tamamlandı ✅ — UI polish paketi (9 madde)**
+  - Page header pattern (Yapılacaklar/Ajanda/Alışkanlıklar/Beyin Fırtınası/Çalışma Alanları/Sohbet/Kullanım) + ikon kutusu
+  - Görevler → Yapılacaklar (BottomNav + Sidebar + page)
+  - Dashboard nav active beyaz, mod ayar ikonu büyütme, custom mod ikon çerçevesi
+  - Streak ikon (Flame) + habit interval emoji → Repeat ikon, küçük yazı %15-20 büyüt
+  - Aktiviteler emoji → lucide ikon (Code2/PenTool/Palette/Users/BookOpen/BarChart3/Film/Mail/Gamepad2)
+  - Header dark/light toggle → Settings "Görünüm" section
+  - MemoryPage thinking.png redesign (alt input, popup kaldır, liste scroll)
+  - Dashboard akordiyon (default kapalı) + animasyon debug Ctrl+Shift+A floating popup
 - **Sprint 6 T6.2 + T6.5 tamamlandı ✅** — electron-builder config + PyInstaller embedded backend + spawn lifecycle
   - Build sırası: `cd sadik-backend && .\build\build.ps1` (PyInstaller onedir → `sadik-backend/dist/sadik-backend/`) → `cd sadik-app && npm install && npm run build && npm run package:dir` (unsigned dev paket, NSIS sonra)
   - Test akışı: backend.exe standalone OK → SADIK.exe paket sıçraması (~5s) → UI/animations/wakeword/voice ✅ → Tray-Çıkış'ta backend kapanıyor ✅

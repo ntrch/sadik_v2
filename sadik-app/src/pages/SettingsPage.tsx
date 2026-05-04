@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
   Eye, EyeOff, RefreshCw, AlertTriangle, ChevronDown,
-  Bot, Sun, Radio, Timer, Sparkles, Mic, Headphones, Monitor, Bell,
-  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, X, Shield, User, BarChart3, RefreshCcw,
+  Bot, Sun, Moon, Radio, Timer, Sparkles, Mic, Headphones, Monitor, Bell,
+  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, X, Shield, User, BarChart3, RefreshCcw, Palette,
 } from 'lucide-react';
+import { useTheme } from '../hooks/useTheme';
 import {
   ACTIVITIES,
   PRESET_MODE_POOL,
@@ -77,6 +78,7 @@ interface SettingsPageProps {
 }
 
 export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {}) {
+  const { theme, toggle: toggleTheme } = useTheme();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
@@ -624,6 +626,38 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
             </p>
           </div>
         )}
+
+        {/* ── 0. GÖRÜNÜM ───────────────────────────────────────────────────────── */}
+        <Section title="Görünüm" icon={Palette} color="purple">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-text-primary">Tema</p>
+              <p className="text-xs text-text-muted mt-0.5">Arayüz renk temasını seç</p>
+            </div>
+            <div className="flex items-center gap-1 bg-bg-input border border-border rounded-btn p-0.5">
+              <button
+                onClick={() => theme === 'light' && toggleTheme()}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-sm font-medium transition-all ${
+                  theme === 'dark'
+                    ? 'bg-bg-card text-text-primary shadow-sm border border-border'
+                    : 'text-text-muted hover:text-text-secondary'
+                }`}
+              >
+                <Moon size={14} /> Koyu
+              </button>
+              <button
+                onClick={() => theme === 'dark' && toggleTheme()}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-sm font-medium transition-all ${
+                  theme === 'light'
+                    ? 'bg-bg-card text-text-primary shadow-sm border border-border'
+                    : 'text-text-muted hover:text-text-secondary'
+                }`}
+              >
+                <Sun size={14} /> Açık
+              </button>
+            </div>
+          </div>
+        </Section>
 
         {/* ── 1. GENEL ─────────────────────────────────────────────────────────── */}
         <Section title="Genel" icon={Monitor} color="green">
@@ -1211,13 +1245,15 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
                         set('user_persona', deriveDominantPersona(updated));
                       }
                     }}
-                    className={`text-left p-2 rounded-btn border transition-colors flex flex-col gap-0.5 ${
+                    className={`text-left p-2 rounded-btn border transition-colors flex flex-col gap-1 ${
                       active
                         ? 'bg-accent-purple/10 border-accent-purple'
                         : 'bg-bg-input border-border hover:border-accent-purple/40'
                     }`}
                   >
-                    <span className="text-sm leading-none">{a.emoji}</span>
+                    <div className={`rounded-lg bg-bg-input p-1.5 w-fit ${active ? 'bg-accent-purple/20' : ''}`}>
+                      <a.icon size={16} className={active ? 'text-accent-purple' : 'text-text-muted'} />
+                    </div>
                     <span className="text-[11px] font-semibold text-text-primary leading-tight">{a.label}</span>
                     {active && <span className="text-[10px] text-accent-purple">✓</span>}
                   </button>

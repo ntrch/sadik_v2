@@ -2,7 +2,7 @@ import React from 'react';
 import { Calendar, Clock, Timer, Flame, GripVertical } from 'lucide-react';
 import { Task } from '../../api/tasks';
 import { getIconByKey } from '../../utils/modeIcons';
-import notionLogo from '../../assets/brand/Notion_Symbol_0.svg';
+import notionLogo from '../../assets/brand/notion-icon.svg';
 
 const priorityLabels: Record<number, { label: string; color: string }> = {
   0: { label: 'Düşük', color: 'text-text-muted' },

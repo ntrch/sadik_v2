@@ -80,6 +80,22 @@ const APP_NAME_MAP: Record<string, string> = {
   'figma.exe': 'Figma',
 };
 
+function useAccordion(key: string, defaultOpen = false): [boolean, React.Dispatch<React.SetStateAction<boolean>>] {
+  const storageKey = `sadik.dash.acc.${key}`;
+  const [open, setOpen] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem(storageKey);
+      if (v === '1') return true;
+      if (v === '0') return false;
+    } catch {}
+    return defaultOpen;
+  });
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, open ? '1' : '0'); } catch {}
+  }, [open, storageKey]);
+  return [open, setOpen];
+}
+
 function beautifyAppName(raw: string): string {
   const lower = raw.toLowerCase().trim();
   if (APP_NAME_MAP[lower]) return APP_NAME_MAP[lower];
@@ -160,11 +176,12 @@ export default function DashboardPage() {
   const [appUsage, setAppUsage] = useState<AppUsageStat[]>([]);
   const [totalScreenSeconds, setTotalScreenSeconds] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [debugOpen, setDebugOpen] = useState(false);
-  const [modeStatsOpen, setModeStatsOpen] = useState(true);
-  const [appUsageOpen, setAppUsageOpen] = useState(true);
-  const [todayTasksOpen, setTodayTasksOpen] = useState(true);
-  const [customModesOpen, setCustomModesOpen] = useState(false);
+  const [debugFloating, setDebugFloating] = useState(false);
+  const [modeStatsOpen, setModeStatsOpen] = useAccordion('modeStats');
+  const [appUsageOpen, setAppUsageOpen] = useAccordion('appUsage');
+  const [todayTasksOpen, setTodayTasksOpen] = useAccordion('todayTasks');
+  const [customModesOpen, setCustomModesOpen] = useAccordion('customModes');
+  const [weeklyOpen, setWeeklyOpen] = useAccordion('weekly');
   const [userPresetModes, setUserPresetModes] = useState<string[]>([]);
   const modeReturnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -215,6 +232,13 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => () => { if (modeReturnTimer.current) clearTimeout(modeReturnTimer.current); }, []);
+
+  // Global Ctrl+Shift+A → toggle floating debug panel
+  useEffect(() => {
+    const handler = () => setDebugFloating((v) => !v);
+    document.addEventListener('sadik:toggle-anim-debug', handler);
+    return () => document.removeEventListener('sadik:toggle-anim-debug', handler);
+  }, []);
 
   // On mount only: if a mode was ALREADY active when this page mounted (app
   // reopened into an existing mode), play its intro→loop sequence once.
@@ -368,12 +392,18 @@ export default function DashboardPage() {
           })()}
         </h1>
       </div>
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
-        <StatCard icon={<Clock size={18} className="text-accent-blue" />} label="Toplam Ekran Süresi" value={totalScreenSeconds > 0 ? formatDuration(totalScreenSeconds) : '0 dakika'} color="blue" />
-        <StatCard icon={<CheckSquare size={18} className="text-accent-green" />} label="Tamamlanan" value={`${doneToday} görev`} color="green" />
-        <StatCard icon={<Flame size={18} className="text-accent-orange" />} label="Pomodoro" value={`${pomodoroState.current_session} oturum`} color="orange" />
-        <StatCard icon={<Activity size={18} className="text-accent-purple" />} label="Aktif Mod" value={currentMode ? (MODE_LABELS[currentMode] || currentMode) : '—'} color="purple" />
+      {/* Stat cards — statik açık, akordiyon değil */}
+      <div className="bg-bg-card border border-border-subtle rounded-card p-4 mb-5">
+        <div className="flex items-center gap-2 px-1 mb-3 text-sm font-semibold text-text-primary">
+          <Activity size={14} className="text-accent-purple" />
+          Bugünkü Özet
+        </div>
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+          <StatCard icon={<Clock size={18} className="text-accent-blue" />} label="Toplam Ekran Süresi" value={totalScreenSeconds > 0 ? formatDuration(totalScreenSeconds) : '0 dakika'} color="blue" />
+          <StatCard icon={<CheckSquare size={18} className="text-accent-green" />} label="Tamamlanan" value={`${doneToday} görev`} color="green" />
+          <StatCard icon={<Flame size={18} className="text-accent-orange" />} label="Pomodoro" value={`${pomodoroState.current_session} oturum`} color="orange" />
+          <StatCard icon={<Activity size={18} className="text-accent-purple" />} label="Aktif Mod" value={currentMode ? (MODE_LABELS[currentMode] || currentMode) : '—'} color="purple" />
+        </div>
       </div>
 
       {/* Mode selector — preset modlar */}
@@ -476,7 +506,7 @@ export default function DashboardPage() {
                         color={color}
                         active={currentMode === name}
                         disabled={loading}
-                        icon={IconComp ? <IconComp size={16} /> : null}
+                        icon={IconComp ? <div className="w-6 h-6 rounded-md bg-bg-input flex items-center justify-center flex-shrink-0"><IconComp size={14} /></div> : null}
                         onClick={() => handleSetMode(name, name.toUpperCase())}
                         settingsBtnRef={(el) => { settingsBtnRefs.current[chipKey] = el; }}
                         onOpenSettings={() => setSettingsOpenFor(settingsOpenFor === chipKey ? null : chipKey)}
@@ -623,10 +653,10 @@ export default function DashboardPage() {
                         className="relative bg-bg-input border border-border rounded-card p-2.5 shadow-card transition-all hover:-translate-y-0.5"
                         >
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[10px] font-semibold" style={{ color }}>#{i + 1}</span>
-                          <span className="text-[10px] text-text-secondary font-medium tabular-nums">{formatDuration(item.duration_seconds)}</span>
+                          <span className="text-[13px] font-semibold" style={{ color }}>#{i + 1}</span>
+                          <span className="text-[13px] text-text-secondary font-medium tabular-nums">{formatDuration(item.duration_seconds)}</span>
                         </div>
-                        <p className="text-xs text-text-primary font-medium truncate mb-2" title={beautifyAppName(item.app_name)}>
+                        <p className="text-sm text-text-primary font-medium truncate mb-2" title={beautifyAppName(item.app_name)}>
                           {beautifyAppName(item.app_name)}
                         </p>
                         <div className="h-1 rounded-full bg-bg-card overflow-hidden">
@@ -645,128 +675,110 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Weekly behavioral profile — only renders when privacy_behavioral_learning=true */}
-      <WeeklyProfileCard />
-
-      {/* Activity chart */}
-      <ActivityChart />
-
-      {/* Debug panel */}
-      <div className="mt-6 bg-bg-card border border-border-subtle rounded-card overflow-hidden">
+      {/* Weekly profile + Activity chart — TEK akordiyon, default kapalı */}
+      <div className="bg-bg-card border border-border-subtle rounded-card overflow-hidden mb-5">
         <button
-          onClick={() => setDebugOpen((o) => !o)}
-          className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-secondary hover:text-text-primary transition-colors"
+          onClick={() => setWeeklyOpen((o) => !o)}
+          className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-text-primary hover:bg-bg-hover transition-colors"
         >
-          <span>Animasyon Debug</span>
-          {debugOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          <span className="flex items-center gap-2">
+            <span className="w-7 h-7 rounded-lg bg-accent-purple/20 ring-1 ring-accent-purple/40 flex items-center justify-center">
+              <Calendar size={15} className="text-accent-purple" />
+            </span>
+            Haftalık profilim
+          </span>
+          {weeklyOpen ? <ChevronUp size={14} className="text-text-muted" /> : <ChevronDown size={14} className="text-text-muted" />}
         </button>
-
-        {debugOpen && (
-          <div className="px-5 pb-5 space-y-4 border-t border-border pt-4">
-            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-              <DebugRow label="Aktif Klip" value={engineState.currentClipName ?? 'yok'} />
-              <DebugRow label="Mod" value={playbackModeLabel(engineState.playbackMode)} />
-              <DebugRow label="Kare" value={`${engineState.currentFrameIndex} / ${engineState.totalFrames}`} />
-              <DebugRow label="FPS" value={String(engineState.fps)} />
-              <DebugRow label="Idle Durumu" value={engineState.idleSubState} />
-              <DebugRow label="Metin" value={engineState.textContent ?? '—'} />
-            </div>
-
-            <div>
-              <p className="text-xs text-text-muted mb-2">Direkt Klip Testi</p>
-              {loadedClips.length === 0 ? (
-                <p className="text-xs text-text-muted italic">Hiç klip yüklenmedi</p>
-              ) : (
-                <div className="flex gap-2">
-                  <select
-                    value={selectedClip}
-                    onChange={(e) => setSelectedClip(e.target.value)}
-                    className="flex-1 bg-bg-input border border-border rounded-btn px-3 py-1.5 text-xs text-text-primary outline-none focus:border-border-focus"
-                  >
-                    <option value="">Klip seçin...</option>
-                    {loadedClips.map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => { if (selectedClip) playClipDirect(selectedClip); }}
-                    disabled={!selectedClip}
-                    className="px-4 py-1.5 bg-accent-purple hover:bg-accent-purple-hover text-white text-xs font-medium rounded-btn transition-colors disabled:opacity-40">
-                    Oynat
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <p className="text-xs text-text-muted mb-2">Metin Testi</p>
-              <div className="flex gap-2">
-                <input
-                  value={textInput}
-                  onChange={(e) => setTextInput(e.target.value)}
-                  placeholder="Gösterilecek metin..."
-                  className="flex-1 bg-bg-input border border-border rounded-btn px-3 py-1.5 text-xs text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors"
-                />
-                <button
-                  onClick={() => { if (textInput.trim()) showText(textInput.trim()); }}
-                  disabled={!textInput.trim()}
-                  className="px-4 py-1.5 bg-accent-purple hover:bg-accent-purple/80 text-white text-xs font-medium rounded-btn transition-colors disabled:opacity-40">
-                  Göster
-                </button>
-              </div>
-            </div>
-
-            <div className="border-t border-border pt-4 space-y-2">
-              <p className="text-xs text-text-muted">Proaktif Öneri Debug</p>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => debugTestTTS()}
-                  className="px-3 py-1.5 bg-accent-green hover:bg-accent-green/80 text-white text-xs font-medium rounded-btn transition-colors">
-                  TTS Testi
-                </button>
-                <button
-                  onClick={() => debugForcePoll()}
-                  className="px-3 py-1.5 bg-accent-blue hover:bg-accent-blue/80 text-white text-xs font-medium rounded-btn transition-colors">
-                  Poll Tetikle
-                </button>
-                <button
-                  onClick={() => debugResetCounters()}
-                  className="px-3 py-1.5 bg-accent-orange hover:bg-accent-orange/80 text-white text-xs font-medium rounded-btn transition-colors">
-                  Sayaç Sıfırla
-                </button>
-              </div>
-              <p className="text-[10px] text-text-muted leading-relaxed">
-                TTS Testi: ses hattını doğrular (kapıları atlar). Poll Tetikle: anında gerçek insight değerlendirir — console'da <code>[Proactive]</code> loglarını izle. Sayaç Sıfırla: günlük limit + cooldown + dedup'ı temizler.
-              </p>
-
-              <div className="grid grid-cols-5 gap-2 items-center pt-2">
-                <input
-                  value={simAppName}
-                  onChange={(e) => setSimAppName(e.target.value)}
-                  placeholder="App adı"
-                  className="col-span-3 bg-bg-input border border-border rounded-btn px-3 py-1.5 text-xs text-text-primary placeholder-text-muted outline-none focus:border-border-focus"
-                />
-                <input
-                  type="number"
-                  value={simMinutes}
-                  onChange={(e) => setSimMinutes(Number(e.target.value))}
-                  placeholder="dk"
-                  className="col-span-1 bg-bg-input border border-border rounded-btn px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border-focus"
-                />
-                <button
-                  onClick={() => { if (simAppName.trim() && simMinutes > 0) debugSimulateInsight(simAppName.trim(), simMinutes); }}
-                  disabled={!simAppName.trim() || simMinutes <= 0}
-                  className="col-span-1 px-2 py-1.5 bg-accent-purple hover:bg-accent-purple/80 text-white text-xs font-medium rounded-btn transition-colors disabled:opacity-40">
-                  Simüle
-                </button>
-              </div>
-              <p className="text-[10px] text-text-muted">
-                Sentetik insight üretir (≥120 dk = strong, ses tetikler). Gate zincirini tam çalıştırır.
-              </p>
-            </div>
+        {weeklyOpen && (
+          <div className="px-4 pb-4 border-t border-border-subtle pt-3 space-y-4">
+            <WeeklyProfileCard />
+            <ActivityChart />
           </div>
         )}
       </div>
+
+      {/* Floating animation debug panel — Ctrl+Shift+A to toggle */}
+      {debugFloating && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setDebugFloating(false)}>
+          <div className="glass-heavy border border-white/10 rounded-card shadow-card w-full max-w-lg p-5 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm font-semibold text-text-primary">Animasyon Debug</span>
+              <button onClick={() => setDebugFloating(false)} className="text-text-muted hover:text-text-primary">
+                <ChevronDown size={16} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                <DebugRow label="Aktif Klip" value={engineState.currentClipName ?? 'yok'} />
+                <DebugRow label="Mod" value={playbackModeLabel(engineState.playbackMode)} />
+                <DebugRow label="Kare" value={`${engineState.currentFrameIndex} / ${engineState.totalFrames}`} />
+                <DebugRow label="FPS" value={String(engineState.fps)} />
+                <DebugRow label="Idle Durumu" value={engineState.idleSubState} />
+                <DebugRow label="Metin" value={engineState.textContent ?? '—'} />
+              </div>
+
+              <div>
+                <p className="text-xs text-text-muted mb-2">Direkt Klip Testi</p>
+                {loadedClips.length === 0 ? (
+                  <p className="text-xs text-text-muted italic">Hiç klip yüklenmedi</p>
+                ) : (
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedClip}
+                      onChange={(e) => setSelectedClip(e.target.value)}
+                      className="flex-1 bg-bg-input border border-border rounded-btn px-3 py-1.5 text-xs text-text-primary outline-none focus:border-border-focus"
+                    >
+                      <option value="">Klip seçin...</option>
+                      {loadedClips.map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => { if (selectedClip) playClipDirect(selectedClip); }}
+                      disabled={!selectedClip}
+                      className="px-4 py-1.5 bg-accent-purple hover:bg-accent-purple-hover text-white text-xs font-medium rounded-btn transition-colors disabled:opacity-40">
+                      Oynat
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs text-text-muted mb-2">Metin Testi</p>
+                <div className="flex gap-2">
+                  <input
+                    value={textInput}
+                    onChange={(e) => setTextInput(e.target.value)}
+                    placeholder="Gösterilecek metin..."
+                    className="flex-1 bg-bg-input border border-border rounded-btn px-3 py-1.5 text-xs text-text-primary placeholder-text-muted outline-none focus:border-border-focus transition-colors"
+                  />
+                  <button
+                    onClick={() => { if (textInput.trim()) showText(textInput.trim()); }}
+                    disabled={!textInput.trim()}
+                    className="px-4 py-1.5 bg-accent-purple hover:bg-accent-purple/80 text-white text-xs font-medium rounded-btn transition-colors disabled:opacity-40">
+                    Göster
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-border pt-4 space-y-2">
+                <p className="text-xs text-text-muted">Proaktif Öneri Debug</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <button onClick={() => debugTestTTS()} className="px-3 py-1.5 bg-accent-green hover:bg-accent-green/80 text-white text-xs font-medium rounded-btn transition-colors">TTS Testi</button>
+                  <button onClick={() => debugForcePoll()} className="px-3 py-1.5 bg-accent-blue hover:bg-accent-blue/80 text-white text-xs font-medium rounded-btn transition-colors">Poll Tetikle</button>
+                  <button onClick={() => debugResetCounters()} className="px-3 py-1.5 bg-accent-orange hover:bg-accent-orange/80 text-white text-xs font-medium rounded-btn transition-colors">Sayaç Sıfırla</button>
+                </div>
+                <div className="grid grid-cols-5 gap-2 items-center pt-2">
+                  <input value={simAppName} onChange={(e) => setSimAppName(e.target.value)} placeholder="App adı" className="col-span-3 bg-bg-input border border-border rounded-btn px-3 py-1.5 text-xs text-text-primary placeholder-text-muted outline-none focus:border-border-focus" />
+                  <input type="number" value={simMinutes} onChange={(e) => setSimMinutes(Number(e.target.value))} placeholder="dk" className="col-span-1 bg-bg-input border border-border rounded-btn px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border-focus" />
+                  <button onClick={() => { if (simAppName.trim() && simMinutes > 0) debugSimulateInsight(simAppName.trim(), simMinutes); }} disabled={!simAppName.trim() || simMinutes <= 0} className="col-span-1 px-2 py-1.5 bg-accent-purple hover:bg-accent-purple/80 text-white text-xs font-medium rounded-btn transition-colors disabled:opacity-40">Simüle</button>
+                </div>
+                <p className="text-[10px] text-text-muted">Sentetik insight üretir (≥120 dk = strong, ses tetikler). Gate zincirini tam çalıştırır.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -816,7 +828,7 @@ function ModeChip({ label, color, active, disabled, icon, onClick, settingsBtnRe
             : 'opacity-0 group-hover:opacity-100 border-border text-text-muted hover:text-text-primary'
         }`}
       >
-        <Settings size={10} />
+        <Settings size={12} />
       </button>
     </div>
   );
@@ -852,7 +864,7 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
   return (
     <div className="bg-bg-card border border-border-subtle rounded-card px-5 py-4 transition-all hover:border-border">
       <div className={`mb-2 ${accentMap[color] ?? 'text-accent-primary'}`}>{icon}</div>
-      <p className="text-[11px] uppercase tracking-wider text-text-muted mb-1">{label}</p>
+      <p className="text-[13px] uppercase tracking-wider text-text-muted mb-1">{label}</p>
       <p className="text-2xl font-bold text-text-primary tabular-nums leading-tight">{value}</p>
     </div>
   );
