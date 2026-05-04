@@ -5,12 +5,12 @@ module.exports = {
     extend: {
       colors: {
         bg: {
-          main: '#0e1116',
-          sidebar: '#13171d',
-          card: 'rgba(38, 44, 53, 0.6)',
-          input: 'rgba(48, 55, 65, 0.6)',
-          hover: '#2a313b',
-          elevated: '#1a1f27',
+          main: '#2A2A2C',
+          sidebar: '#222224',
+          card: '#373639',
+          input: '#2f2f31',
+          hover: '#3f3e42',
+          elevated: '#323234',
         },
         border: {
           DEFAULT: '#2a313b',

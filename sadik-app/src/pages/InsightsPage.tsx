@@ -121,7 +121,14 @@ function DailyBarChart({ dailyTotals }: {
 }
 
 /** Small-caps section heading — dream grammar */
-function SectionHeading({ children }: { children: React.ReactNode }) {
+function SectionHeading({ children, large }: { children: React.ReactNode; large?: boolean }) {
+  if (large) {
+    return (
+      <h2 className="text-xl font-semibold text-text-primary mb-3 mt-2 normal-case tracking-normal">
+        {children}
+      </h2>
+    );
+  }
   return (
     <p className="text-[11px] uppercase tracking-wide text-text-muted mb-2">
       {children}
@@ -295,9 +302,30 @@ export default function InsightsPage() {
         });
       }
 
-      // App usage events — each raw session as a separate timeline entry
+      // App usage events — coalesce consecutive events of same app with ≤300s gap
       if (appEventsResult.status === 'fulfilled') {
-        appEventsResult.value.forEach((ev: AppUsageEvent, idx: number) => {
+        // Sort raw events by start_time ASC first
+        const rawAppEvents = [...appEventsResult.value].sort(
+          (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+        );
+
+        // Coalesce: same app_name + gap between end_time of prev and start_time of next ≤300s
+        const coalesced: AppUsageEvent[] = [];
+        for (const ev of rawAppEvents) {
+          const last = coalesced[coalesced.length - 1];
+          const gapSeconds = last
+            ? (new Date(ev.start_time).getTime() - new Date(last.end_time).getTime()) / 1000
+            : Infinity;
+          if (last && last.app_name === ev.app_name && gapSeconds <= 300) {
+            // Merge into last: extend end_time + accumulate duration
+            last.end_time = ev.end_time;
+            last.duration_seconds += ev.duration_seconds;
+          } else {
+            coalesced.push({ ...ev });
+          }
+        }
+
+        coalesced.forEach((ev, idx) => {
           const mins = Math.round(ev.duration_seconds / 60);
           const durStr = mins >= 60
             ? `${Math.floor(mins / 60)} sa ${mins % 60 > 0 ? `${mins % 60} dk` : ''}`.trim()
@@ -307,7 +335,6 @@ export default function InsightsPage() {
             type: 'app_used',
             time: new Date(ev.start_time),
             label: ev.app_name,
-            sublabel: '—',
             duration: durStr,
           });
         });
@@ -348,7 +375,7 @@ export default function InsightsPage() {
         <div className="flex items-start justify-between mb-6">
           <div>
             <h1 className="text-[40px] font-bold text-text-primary leading-tight tracking-tight">Kullanım</h1>
-            <p className="text-xs text-text-muted mt-1">{PERIOD_SUBTITLE[period]}</p>
+            <p className="text-sm text-text-muted mt-2">{PERIOD_SUBTITLE[period]}</p>
           </div>
           {/* Segmented period pill */}
           <div className="flex items-center gap-1 bg-bg-card border border-border rounded-btn px-1 py-1">
@@ -418,7 +445,7 @@ export default function InsightsPage() {
           <div className="space-y-4">
             {/* Today activity timeline */}
             <div>
-              <SectionHeading>Bugün aktivite</SectionHeading>
+              <SectionHeading large>Bugün</SectionHeading>
               <div className="bg-bg-card border border-border rounded-card p-4">
                 <ActivityTimeline events={timelineEvents} />
               </div>
