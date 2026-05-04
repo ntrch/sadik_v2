@@ -5,12 +5,12 @@ module.exports = {
     extend: {
       colors: {
         bg: {
-          main: '#2A2A2C',
-          sidebar: '#222224',
-          card: '#373639',
-          input: '#2f2f31',
-          hover: '#3f3e42',
-          elevated: '#323234',
+          main: '#0B0F17',
+          sidebar: '#0F1624',
+          card: '#121826',
+          input: '#1a2233',
+          hover: '#1e2638',
+          elevated: '#161d2b',
         },
         border: {
           DEFAULT: '#2a313b',
@@ -18,14 +18,14 @@ module.exports = {
           focus: '#22d3ee',
         },
         text: {
-          primary: '#e6e8ec',
-          secondary: '#9aa3af',
+          primary: '#E6EAF2',
+          secondary: '#8B93A7',
           muted: '#6b7280',
         },
         accent: {
-          primary: '#22d3ee',
-          'primary-hover': '#06b6d4',
-          'primary-dim': 'rgba(34, 211, 238, 0.12)',
+          primary: '#6C5CE7',
+          'primary-hover': '#5848d4',
+          'primary-dim': 'rgba(108, 92, 231, 0.12)',
           purple: '#a78bfa',
           'purple-hover': '#8b5cf6',
           'purple-dim': 'rgba(167, 139, 250, 0.12)',
