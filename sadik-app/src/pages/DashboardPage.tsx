@@ -14,36 +14,28 @@ import { getIconByKey, DEFAULT_PRESET_ICONS } from '../utils/modeIcons';
 import ModeSettingsPopup, { DraftState } from '../components/mode/ModeSettingsPopup';
 import WeeklyProfileCard from '../components/dashboard/WeeklyProfileCard';
 
+import { PRESET_MODE_POOL, MODE_LABEL_FROM_POOL } from '../lib/activityCatalog';
+
 // ── Mod adları — canonical Türkçe label sözlüğü ──────────────────────────────
-// Bu sözlük tek merkezi kaynak; WorkspacePage ve burada aynı yer kullanılacak.
-// ID'ler değiştirilmedi, sadece display label güncellendi.
+// Geri uyum: WorkspacePage bu export'u DashboardPage'den import ediyor.
+// İçerik artık PRESET_MODE_POOL'dan geliyor; eski statik değerler de korunuyor.
 export const MODE_DISPLAY_LABELS: Record<string, string> = {
-  working:  'Çalışma',
-  coding:   'Kodlama',
-  break:    'Mola',
-  meeting:  'Toplantı Modu',
-  writing:  'Yazma Akışı',
-  learning: 'Odaklı Öğrenme',
-  design:   'Tasarım',
-  reading:  'Okuma Modu',
-  gaming:   'Oyun Modu',
+  // Havuzdan gelen güncel label'lar
+  ...MODE_LABEL_FROM_POOL,
+  // Eski key'ler için alias (geri uyum — WorkspacePage 'coding' vs 'learning' kullanıyor)
+  working:  MODE_LABEL_FROM_POOL.working  ?? 'Genel Çalışma',
+  coding:   MODE_LABEL_FROM_POOL.coding   ?? 'Derin Kod',
+  break:    MODE_LABEL_FROM_POOL.break    ?? 'Mola',
+  meeting:  MODE_LABEL_FROM_POOL.meeting  ?? 'Toplantı',
+  writing:  MODE_LABEL_FROM_POOL.writing  ?? 'Yazma Akışı',
+  learning: MODE_LABEL_FROM_POOL.learning ?? 'Çalışma',
+  design:   MODE_LABEL_FROM_POOL.design   ?? 'Tasarım',
+  reading:  MODE_LABEL_FROM_POOL.reading  ?? 'Okuma',
+  gaming:   MODE_LABEL_FROM_POOL.gaming   ?? 'Oyun',
 };
 
-// ── Persona → görünür mod listesi ────────────────────────────────────────────
-// 'all' etiketliler her personaya görünür.
-type PersonaId = 'developer' | 'writer' | 'student' | 'designer' | 'general';
-
-const PRESET_MODES: { key: string; label: string; oledText: string; personas: PersonaId[] | 'all' }[] = [
-  { key: 'working',  label: MODE_DISPLAY_LABELS.working,  oledText: 'ÇALIŞIYOR',   personas: 'all' },
-  { key: 'coding',   label: MODE_DISPLAY_LABELS.coding,   oledText: 'KOD YAZIYOR', personas: ['developer'] },
-  { key: 'break',    label: MODE_DISPLAY_LABELS.break,    oledText: 'MOLA',         personas: 'all' },
-  { key: 'meeting',  label: MODE_DISPLAY_LABELS.meeting,  oledText: 'TOPLANTI',     personas: 'all' },
-  { key: 'writing',  label: MODE_DISPLAY_LABELS.writing,  oledText: 'YAZMA',        personas: ['writer', 'student'] },
-  { key: 'learning', label: MODE_DISPLAY_LABELS.learning, oledText: 'OGRENME',      personas: ['student', 'general'] },
-  { key: 'design',   label: MODE_DISPLAY_LABELS.design,   oledText: 'TASARIM',      personas: ['designer'] },
-  { key: 'reading',  label: MODE_DISPLAY_LABELS.reading,  oledText: 'OKUMA',        personas: 'all' },
-  { key: 'gaming',   label: MODE_DISPLAY_LABELS.gaming,   oledText: 'OYUN',         personas: 'all' },
-];
+// ── Fallback mod listesi (user_preset_modes ayarı boşken gösterilecek) ────────
+const FALLBACK_PRESET_KEYS = ['working', 'learning', 'break', 'meeting'];
 
 // Maps mode keys to a one-shot intro clip + a looping text clip.
 // Intro plays once on mode-enter, then the text clip loops until the user exits.
@@ -173,7 +165,7 @@ export default function DashboardPage() {
   const [appUsageOpen, setAppUsageOpen] = useState(true);
   const [todayTasksOpen, setTodayTasksOpen] = useState(true);
   const [customModesOpen, setCustomModesOpen] = useState(false);
-  const [userPersona, setUserPersona] = useState<PersonaId>('general');
+  const [userPresetModes, setUserPresetModes] = useState<string[]>([]);
   const modeReturnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -182,10 +174,12 @@ export default function DashboardPage() {
     // so midnight behaviour matches what the user sees on the clock.
     const _now = new Date();
     const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
-    // Load user persona for mode filtering
+    // Load user preset modes for mode chip filtering
     settingsApi.getAll().then((s) => {
-      const persona = (s['user_persona'] ?? 'general') as PersonaId;
-      setUserPersona(persona);
+      const csv = (s['user_preset_modes'] ?? '').trim();
+      if (csv) {
+        setUserPresetModes(csv.split(',').map((k: string) => k.trim()).filter(Boolean));
+      }
     }).catch(() => {});
     tasksApi.list().then((all) => {
       const relevant = all.filter((t) => {
@@ -336,13 +330,13 @@ export default function DashboardPage() {
   const doneToday = todayTasks.filter((t) => t.status === 'done').length;
   const activeTasks = todayTasks.filter((t) => t.status !== 'done');
 
-  // Persona'ya göre gösterilecek preset modlar
-  const visiblePresetModes = PRESET_MODES.filter(({ key, personas }) => {
-    if (personas === 'all') return true;
-    if (userPersona === 'general') return true; // genel persona: hepsini göster
+  // user_preset_modes ayarına göre gösterilecek preset modlar
+  // Ayar boşsa fallback 4 generic mod gösterilir
+  const activePresetKeys = userPresetModes.length > 0 ? userPresetModes : FALLBACK_PRESET_KEYS;
+  const visiblePresetModes = PRESET_MODE_POOL.filter(({ key }) => {
     // Aktif mod her zaman görünsün (seçili olduğunda kaybolmasın)
     if (currentMode === key) return true;
-    return (personas as PersonaId[]).includes(userPersona);
+    return activePresetKeys.includes(key);
   });
 
   const loadedClips = getLoadedClipNames();

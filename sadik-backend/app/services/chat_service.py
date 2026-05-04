@@ -129,6 +129,39 @@ async def _get_user_persona(session: Optional[AsyncSession]) -> str:
         return "general"
 
 
+# Aktivite ID → Türkçe label (backend kopya — frontend catalog ile senkron tutulmalı)
+_ACTIVITY_LABELS: dict[str, str] = {
+    "code":     "Kod yazma",
+    "writing":  "Yazı / içerik",
+    "design":   "Tasarım",
+    "meeting":  "Toplantı / iletişim",
+    "learning": "Ders / araştırma",
+    "data":     "Veri / tablo",
+    "creative": "Yaratıcı medya",
+    "office":   "Ofis / email",
+    "gaming":   "Oyun / eğlence",
+}
+
+
+async def _get_user_activities(session: Optional[AsyncSession]) -> list[str]:
+    """Return Türkçe activity labels from user_activities setting (CSV).
+    Returns empty list when setting is absent or empty."""
+    if session is None:
+        return []
+    try:
+        from app.models.setting import Setting
+        from sqlalchemy import select
+        row = await session.execute(select(Setting).where(Setting.key == "user_activities"))
+        setting = row.scalar_one_or_none()
+        csv_val = (setting.value or "").strip() if setting else ""
+        if not csv_val:
+            return []
+        ids = [s.strip() for s in csv_val.split(",") if s.strip()]
+        return [_ACTIVITY_LABELS[a] for a in ids if a in _ACTIVITY_LABELS]
+    except Exception:
+        return []
+
+
 # ── Behavioral profile injection (Sprint 3 T3.2) ──────────────────────────────
 
 async def _get_behavioral_summary(
@@ -295,6 +328,7 @@ class ChatService:
         local_ctx: str = "",
         behavioral_summary: str = "",
         persona: str = "general",
+        activity_labels: list[str] | None = None,
     ) -> list[dict]:
         """Construct the messages array for a chat completion request."""
         recent = history[-20:] if len(history) > 20 else history
@@ -340,6 +374,13 @@ class ChatService:
                 "\n\n--- KULLANICI ROLÜ ---\n"
                 f"{persona_hint}\n"
                 "--- ROL SONU ---"
+            )
+
+        if activity_labels:
+            system = system + (
+                "\n\nKullanıcının çalışma aktiviteleri: "
+                + ", ".join(activity_labels)
+                + "."
             )
 
         if behavioral_summary:
@@ -389,11 +430,13 @@ class ChatService:
 
             behavioral_summary = await _get_behavioral_summary(session, privacy_flags)
             persona = await _get_user_persona(session)
+            activity_labels = await _get_user_activities(session)
 
             messages = self._build_messages(
                 user_content, history, voice_mode, user_name, greeting_style, local_ctx,
                 behavioral_summary=behavioral_summary,
                 persona=persona,
+                activity_labels=activity_labels if activity_labels else None,
             )
 
             client = AsyncOpenAI(api_key=api_key, max_retries=0, timeout=20.0)

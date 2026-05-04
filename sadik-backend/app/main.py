@@ -111,6 +111,8 @@ DEFAULT_SETTINGS = {
     "tutorial_completed": "false",
     "user_profile_patterns": "",
     "user_persona": "general",
+    "user_activities": "",          # CSV: "code,writing,learning"
+    "user_preset_modes": "",        # CSV: "coding,writing,break,working"
 }
 
 @asynccontextmanager

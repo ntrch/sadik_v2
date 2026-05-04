@@ -2,8 +2,19 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
   Eye, EyeOff, RefreshCw, AlertTriangle, ChevronDown,
   Bot, Sun, Radio, Timer, Sparkles, Mic, Headphones, Monitor, Bell,
-  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, X, Shield, User, BarChart3,
+  LucideIcon, Link2, Calendar, StickyNote, MessageSquare, Video, X, Shield, User, BarChart3, RefreshCcw,
 } from 'lucide-react';
+import {
+  ACTIVITIES,
+  PRESET_MODE_POOL,
+  type ActivityId,
+  recommendModes,
+  deriveDominantPersona,
+} from '../lib/activityCatalog';
+import googleCalIcon from '../assets/brand/google-calender-icon.svg';
+import notionIcon from '../assets/brand/notion-icon.svg';
+import slackIcon from '../assets/brand/slack-icon.svg';
+import zoomIcon from '../assets/brand/zoom-icon.svg';
 import { settingsApi, Settings } from '../api/settings';
 import { privacyApi } from '../api/privacy';
 import { telemetryApi } from '../api/telemetry';
@@ -614,342 +625,252 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
           </div>
         )}
 
-        {/* API Settings */}
-        <Section title="API Ayarları" icon={Bot} color="purple" defaultOpen>
-          <Field label="OpenAI Erişim Anahtarı">
-            <div className="relative">
-              <input
-                type={showApiKey ? 'text' : 'password'}
-                value={settings.openai_api_key}
-                onChange={(e) => set('openai_api_key', e.target.value)}
-                placeholder="sk-..."
-                className="input-field pr-10"
-              />
-              <button onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
-                {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+        {/* ── 1. GENEL ─────────────────────────────────────────────────────────── */}
+        <Section title="Genel" icon={Monitor} color="green">
+          {/* Hava Durumu */}
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Hava Durumu</p>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-text-primary">Hava durumunu üst çubukta göster</p>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Açıldığında saat yanındaki ikona küçük bir hava durumu rozeti eklenir; solda derece (°C) yazar.
+                </p>
+              </div>
+              <button
+                onClick={() => setDraftWeatherEnabled((v) => !v)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
+                  ${draftWeatherEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                  ${draftWeatherEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
-          </Field>
-          <Field label="Yapay zeka modeli">
-            <select
-              value={settings.llm_model}
-              onChange={(e) => set('llm_model', e.target.value)}
-              className="input-field"
-            >
-              <option value="gpt-4o">GPT-4o (önerilen)</option>
-              <option value="gpt-4o-mini">GPT-4o Mini — Hızlı, ekonomik</option>
-            </select>
-            <p className="text-[11px] text-text-muted mt-1.5">
-              Daha güçlü modeller daha iyi yanıt verir ancak daha maliyetli olabilir.
-            </p>
-          </Field>
-        </Section>
 
-        {/* Integrations */}
-        <Section title="Entegrasyonlar" icon={Link2} color="cyan">
-          <IntegrationsPanel
-            integrations={integrations}
-            showToast={showToast}
-            onDisconnect={async (provider) => {
-              await integrationsApi.disconnect(provider);
-              const updated = await integrationsApi.list();
-              setIntegrations(updated);
-            }}
-            onRefresh={async () => {
-              const updated = await integrationsApi.list();
-              setIntegrations(updated);
-            }}
-          />
-        </Section>
-
-        {/* Weather */}
-        <Section title="Hava Durumu" icon={Sun} color="yellow">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-text-primary">Hava durumunu üst çubukta göster</p>
-              <p className="text-xs text-text-muted leading-relaxed">
-                Açıldığında saat yanındaki ikona küçük bir hava durumu rozeti eklenir; solda derece (°C) yazar.
-              </p>
-            </div>
-            <button
-              onClick={() => setDraftWeatherEnabled((v) => !v)}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                ${draftWeatherEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                ${draftWeatherEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
-
-          {draftWeatherEnabled && (
-            <>
-              <Field label="OpenWeatherMap Erişim Anahtarı">
-                <div className="relative">
-                  <input
-                    type={showWeatherKey ? 'text' : 'password'}
-                    value={weatherKeyDraft}
-                    onChange={(e) => setWeatherKeyDraft(e.target.value)}
-                    placeholder="openweathermap.org üzerinden ücretsiz alınabilir"
-                    className="input-field pr-10"
-                  />
-                  <button
-                    onClick={() => setShowWeatherKey(!showWeatherKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
-                  >
-                    {showWeatherKey ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              </Field>
-              <Field label="Konum">
-                {(() => {
-                  const effectiveLabel = draftWeatherCleared
-                    ? ''
-                    : (draftWeatherLocation?.label ?? weatherLocationLabel);
-                  return effectiveLabel;
-                })() ? (
-                  <div className="flex items-center justify-between gap-3 bg-bg-input border border-border rounded-btn px-3 py-2">
-                    <span className="text-sm text-text-primary truncate">
-                      {draftWeatherLocation?.label ?? weatherLocationLabel}
-                    </span>
-                    <button
-                      onClick={() => { setDraftWeatherCleared(true); setDraftWeatherLocation(null); setLocQuery(''); }}
-                      className="text-xs text-text-muted hover:text-accent-red transition-colors flex-shrink-0"
-                    >
-                      Değiştir
-                    </button>
-                  </div>
-                ) : (
+            {draftWeatherEnabled && (
+              <>
+                <Field label="OpenWeatherMap Erişim Anahtarı">
                   <div className="relative">
                     <input
-                      type="text"
-                      value={locQuery}
-                      onChange={(e) => setLocQuery(e.target.value)}
-                      placeholder="Mahalle, semt, şehir veya cadde ara…"
-                      className="input-field"
+                      type={showWeatherKey ? 'text' : 'password'}
+                      value={weatherKeyDraft}
+                      onChange={(e) => setWeatherKeyDraft(e.target.value)}
+                      placeholder="openweathermap.org üzerinden ücretsiz alınabilir"
+                      className="input-field pr-10"
                     />
-                    {(locLoading || locResults.length > 0 || locError) && (
-                      <div className="absolute z-10 left-0 right-0 mt-1 bg-bg-card border border-border rounded-btn shadow-lg max-h-60 overflow-auto">
-                        {locLoading && (
-                          <div className="px-3 py-2 text-xs text-text-muted">Aranıyor…</div>
-                        )}
-                        {locError && !locLoading && (
-                          <div className="px-3 py-2 text-xs text-accent-red">{locError}</div>
-                        )}
-                        {!locLoading && !locError && locResults.length === 0 && locQuery.trim().length >= 2 && (
-                          <div className="px-3 py-2 text-xs text-text-muted">Sonuç bulunamadı</div>
-                        )}
-                        {locResults.map((r) => (
-                          <button
-                            key={`${r.lat},${r.lon},${r.label}`}
-                            onClick={() => {
-                              setDraftWeatherLocation({ label: r.label, lat: r.lat, lon: r.lon });
-                              setDraftWeatherCleared(false);
-                              setLocQuery('');
-                              setLocResults([]);
-                            }}
-                            className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-hover transition-colors border-b border-border last:border-0"
-                          >
-                            {r.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <button
+                      onClick={() => setShowWeatherKey(!showWeatherKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
+                    >
+                      {showWeatherKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
                   </div>
-                )}
-                <p className="text-[11px] text-text-muted mt-1.5">
-                  OpenWeatherMap üzerinden mahalle/semt seviyesinde arama. Erişim anahtarı gerekir.
-                </p>
-              </Field>
-              <div className="flex items-center justify-between gap-3 pt-1">
-                <div className="text-xs text-text-muted">
-                  {weatherData
-                    ? `Güncel: ${Math.round(weatherData.temp_c)}°C • ${weatherData.description} • ${weatherData.city}`
-                    : weatherError
-                      ? `Hata: ${weatherError}`
-                      : 'Henüz veri yok.'}
-                </div>
-                <button
-                  onClick={() => refreshWeather()}
-                  className="px-3 py-1.5 text-xs rounded-btn bg-bg-input border border-border text-text-secondary hover:text-text-primary transition-colors"
-                >
-                  Şimdi yenile
-                </button>
-              </div>
-            </>
-          )}
-        </Section>
-
-        {/* Device */}
-        <Section title="Cihaz Bağlantısı" icon={Radio} color="cyan">
-          <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-1">
-            Sadık cihazı çoğu durumda otomatik algılanır. Gerekirse portu manuel seçebilirsiniz.
-          </p>
-          <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-1">
-            OLED parlaklığı soldaki yan panelden ayarlanabilir.
-          </p>
-          <Field label="Ekran uyku süresi">
-            <select
-              value={String(draftOledSleepTimeout)}
-              onChange={(e) => setDraftOledSleepTimeout(Number(e.target.value))}
-              className="input-field"
-            >
-              <option value="0">Kapalı</option>
-              <option value="5">5 dakika</option>
-              <option value="10">10 dakika</option>
-              <option value="15">15 dakika</option>
-              <option value="30">30 dakika</option>
-            </select>
-            <p className="text-[11px] text-text-muted mt-1.5">
-              OLED ekranı korumak için belirli bir süre işlem olmazsa ekran kapanır.
-            </p>
-          </Field>
-          <Field label="Bağlantı Yöntemi">
-            <div className="flex gap-4">
-              {['serial', 'wifi'].map((m) => (
-                <label key={m} className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="connection_method" value={m}
-                    checked={settings.connection_method === m}
-                    onChange={() => set('connection_method', m)}
-                    className="accent-accent-purple" />
-                  <span className="text-sm text-text-primary">{m === 'serial' ? 'USB Serial' : 'WiFi'}</span>
-                </label>
-              ))}
-            </div>
-          </Field>
-
-          {settings.connection_method === 'serial' && (
-            <>
-              <Field label="Seri Port">
-                <div className="flex gap-2">
-                  <select value={settings.serial_port} onChange={(e) => set('serial_port', e.target.value)}
-                    className="flex-1 input-field">
-                    <option value="auto">Otomatik</option>
-                    {ports.map((p) => (
-                      <option key={p.port} value={p.port}>{p.port} — {p.description}</option>
-                    ))}
-                  </select>
-                  <button onClick={refreshPorts}
-                    className="p-2 bg-bg-input border border-border rounded-btn text-text-muted hover:text-text-primary transition-colors">
-                    <RefreshCw size={15} />
+                </Field>
+                <Field label="Konum">
+                  {(() => {
+                    const effectiveLabel = draftWeatherCleared
+                      ? ''
+                      : (draftWeatherLocation?.label ?? weatherLocationLabel);
+                    return effectiveLabel;
+                  })() ? (
+                    <div className="flex items-center justify-between gap-3 bg-bg-input border border-border rounded-btn px-3 py-2">
+                      <span className="text-sm text-text-primary truncate">
+                        {draftWeatherLocation?.label ?? weatherLocationLabel}
+                      </span>
+                      <button
+                        onClick={() => { setDraftWeatherCleared(true); setDraftWeatherLocation(null); setLocQuery(''); }}
+                        className="text-xs text-text-muted hover:text-accent-red transition-colors flex-shrink-0"
+                      >
+                        Değiştir
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={locQuery}
+                        onChange={(e) => setLocQuery(e.target.value)}
+                        placeholder="Mahalle, semt, şehir veya cadde ara…"
+                        className="input-field"
+                      />
+                      {(locLoading || locResults.length > 0 || locError) && (
+                        <div className="absolute z-10 left-0 right-0 mt-1 bg-bg-card border border-border rounded-btn shadow-lg max-h-60 overflow-auto">
+                          {locLoading && (
+                            <div className="px-3 py-2 text-xs text-text-muted">Aranıyor…</div>
+                          )}
+                          {locError && !locLoading && (
+                            <div className="px-3 py-2 text-xs text-accent-red">{locError}</div>
+                          )}
+                          {!locLoading && !locError && locResults.length === 0 && locQuery.trim().length >= 2 && (
+                            <div className="px-3 py-2 text-xs text-text-muted">Sonuç bulunamadı</div>
+                          )}
+                          {locResults.map((r) => (
+                            <button
+                              key={`${r.lat},${r.lon},${r.label}`}
+                              onClick={() => {
+                                setDraftWeatherLocation({ label: r.label, lat: r.lat, lon: r.lon });
+                                setDraftWeatherCleared(false);
+                                setLocQuery('');
+                                setLocResults([]);
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-hover transition-colors border-b border-border last:border-0"
+                            >
+                              {r.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-text-muted mt-1.5">
+                    OpenWeatherMap üzerinden mahalle/semt seviyesinde arama. Erişim anahtarı gerekir.
+                  </p>
+                </Field>
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <div className="text-xs text-text-muted">
+                    {weatherData
+                      ? `Güncel: ${Math.round(weatherData.temp_c)}°C • ${weatherData.description} • ${weatherData.city}`
+                      : weatherError
+                        ? `Hata: ${weatherError}`
+                        : 'Henüz veri yok.'}
+                  </div>
+                  <button
+                    onClick={() => refreshWeather()}
+                    className="px-3 py-1.5 text-xs rounded-btn bg-bg-input border border-border text-text-secondary hover:text-text-primary transition-colors"
+                  >
+                    Şimdi yenile
                   </button>
                 </div>
-              </Field>
-              <Field label="Baudrate">
-                <input type="text" value={settings.serial_baudrate}
-                  onChange={(e) => set('serial_baudrate', e.target.value)}
-                  className="input-field" />
-              </Field>
-            </>
-          )}
+              </>
+            )}
+          </div>
 
-          {settings.connection_method === 'wifi' && (
-            <Field label="WiFi IP Adresi">
-              <input type="text" value={settings.wifi_device_ip}
-                onChange={(e) => set('wifi_device_ip', e.target.value)}
-                placeholder="192.168.1.x" className="input-field" />
+          <div className="border-t border-border pt-4 mt-2 space-y-3">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Cihaz Bağlantısı</p>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Sadık cihazı çoğu durumda otomatik algılanır. Gerekirse portu manuel seçebilirsiniz. OLED parlaklığı soldaki yan panelden ayarlanabilir.
+            </p>
+            <Field label="Ekran uyku süresi">
+              <select
+                value={String(draftOledSleepTimeout)}
+                onChange={(e) => setDraftOledSleepTimeout(Number(e.target.value))}
+                className="input-field"
+              >
+                <option value="0">Kapalı</option>
+                <option value="5">5 dakika</option>
+                <option value="10">10 dakika</option>
+                <option value="15">15 dakika</option>
+                <option value="30">30 dakika</option>
+              </select>
+              <p className="text-[11px] text-text-muted mt-1.5">
+                OLED ekranı korumak için belirli bir süre işlem olmazsa ekran kapanır.
+              </p>
             </Field>
-          )}
-        </Section>
+            <Field label="Bağlantı Yöntemi">
+              <div className="flex gap-4">
+                {['serial', 'wifi'].map((m) => (
+                  <label key={m} className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="connection_method" value={m}
+                      checked={settings.connection_method === m}
+                      onChange={() => set('connection_method', m)}
+                      className="accent-accent-purple" />
+                    <span className="text-sm text-text-primary">{m === 'serial' ? 'USB Serial' : 'WiFi'}</span>
+                  </label>
+                ))}
+              </div>
+            </Field>
+            {settings.connection_method === 'serial' && (
+              <>
+                <Field label="Seri Port">
+                  <div className="flex gap-2">
+                    <select value={settings.serial_port} onChange={(e) => set('serial_port', e.target.value)}
+                      className="flex-1 input-field">
+                      <option value="auto">Otomatik</option>
+                      {ports.map((p) => (
+                        <option key={p.port} value={p.port}>{p.port} — {p.description}</option>
+                      ))}
+                    </select>
+                    <button onClick={refreshPorts}
+                      className="p-2 bg-bg-input border border-border rounded-btn text-text-muted hover:text-text-primary transition-colors">
+                      <RefreshCw size={15} />
+                    </button>
+                  </div>
+                </Field>
+                <Field label="Baudrate">
+                  <input type="text" value={settings.serial_baudrate}
+                    onChange={(e) => set('serial_baudrate', e.target.value)}
+                    className="input-field" />
+                </Field>
+              </>
+            )}
+            {settings.connection_method === 'wifi' && (
+              <Field label="WiFi IP Adresi">
+                <input type="text" value={settings.wifi_device_ip}
+                  onChange={(e) => set('wifi_device_ip', e.target.value)}
+                  placeholder="192.168.1.x" className="input-field" />
+              </Field>
+            )}
+          </div>
 
-        {/* Pomodoro */}
-        <Section title="Pomodoro Ayarları" icon={Timer} color="red">
-          <p className="text-xs text-text-muted -mt-1 mb-3">Odaklanma seansı süreleri.</p>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Çalışma Süresi (dk)">
-              <input type="number" value={settings.pomodoro_work_minutes}
-                onChange={(e) => set('pomodoro_work_minutes', e.target.value)}
-                className="input-field" min={1} max={120} />
-            </Field>
-            <Field label="Mola Süresi (dk)">
-              <input type="number" value={settings.pomodoro_break_minutes}
-                onChange={(e) => set('pomodoro_break_minutes', e.target.value)}
-                className="input-field" min={1} max={60} />
-            </Field>
-            <Field label="Uzun Mola Süresi (dk)">
-              <input type="number" value={settings.pomodoro_long_break_minutes}
-                onChange={(e) => set('pomodoro_long_break_minutes', e.target.value)}
-                className="input-field" min={1} max={60} />
-            </Field>
-            <Field label="Uzun Mola Öncesi Oturum">
-              <input type="number" value={settings.pomodoro_sessions_before_long_break}
-                onChange={(e) => set('pomodoro_sessions_before_long_break', e.target.value)}
-                className="input-field" min={1} max={10} />
-            </Field>
+          <div className="border-t border-border pt-4 mt-2 space-y-3">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Uygulama Davranışı</p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium text-text-secondary mb-0.5">
+                  Kapatınca sistem tepsisine küçült
+                </p>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Bu ayar açıksa pencereyi kapatmak uygulamayı tamamen kapatmaz; Sadık arka planda
+                  çalışmaya devam eder. Sistem tepsisi simgesinden tekrar açabilir ya da çıkış yapabilirsiniz.
+                </p>
+              </div>
+              <button
+                onClick={() =>
+                  set('close_to_tray', settings['close_to_tray'] === 'false' ? 'true' : 'false')
+                }
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
+                  ${settings['close_to_tray'] !== 'false'
+                    ? 'bg-accent-purple'
+                    : 'bg-bg-input border border-border'}`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                    ${settings['close_to_tray'] !== 'false' ? 'translate-x-6' : 'translate-x-1'}`}
+                />
+              </button>
+            </div>
+          </div>
+
+          <div className="border-t border-border pt-4 mt-2 space-y-3">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Pomodoro</p>
+            <p className="text-xs text-text-muted">Odaklanma seansı süreleri.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Çalışma Süresi (dk)">
+                <input type="number" value={settings.pomodoro_work_minutes}
+                  onChange={(e) => set('pomodoro_work_minutes', e.target.value)}
+                  className="input-field" min={1} max={120} />
+              </Field>
+              <Field label="Mola Süresi (dk)">
+                <input type="number" value={settings.pomodoro_break_minutes}
+                  onChange={(e) => set('pomodoro_break_minutes', e.target.value)}
+                  className="input-field" min={1} max={60} />
+              </Field>
+              <Field label="Uzun Mola Süresi (dk)">
+                <input type="number" value={settings.pomodoro_long_break_minutes}
+                  onChange={(e) => set('pomodoro_long_break_minutes', e.target.value)}
+                  className="input-field" min={1} max={60} />
+              </Field>
+              <Field label="Uzun Mola Öncesi Oturum">
+                <input type="number" value={settings.pomodoro_sessions_before_long_break}
+                  onChange={(e) => set('pomodoro_sessions_before_long_break', e.target.value)}
+                  className="input-field" min={1} max={10} />
+              </Field>
+            </div>
           </div>
         </Section>
 
-        {/* Personalization */}
-        <Section title="Kişiselleştirme" icon={Sparkles} color="pink">
-          <Field label="Adınız">
-            <input
-              type="text"
-              value={settings.user_name ?? ''}
-              onChange={(e) => set('user_name', e.target.value)}
-              placeholder="örn. Eren"
-              className="input-field"
-            />
-          </Field>
-
-          <Field label="Hitap şekli">
-            <div className="flex flex-wrap gap-2 mb-2">
-              {GREETING_PRESETS.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  onClick={() => set('greeting_style', p.value)}
-                  className={`px-3 py-1.5 rounded-btn text-xs font-medium transition-colors
-                    ${settings.greeting_style === p.value
-                      ? 'bg-accent-purple text-white border border-accent-purple'
-                      : 'bg-bg-input text-text-secondary border border-border hover:border-accent-purple/40 hover:text-text-primary'}`}
-                >
-                  {p.label}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => set('greeting_style', '')}
-                className={`px-3 py-1.5 rounded-btn text-xs font-medium transition-colors
-                  ${!GREETING_PRESETS.some((p) => p.value === settings.greeting_style)
-                    ? 'bg-accent-purple text-white border border-accent-purple'
-                    : 'bg-bg-input text-text-secondary border border-border hover:border-accent-purple/40 hover:text-text-primary'}`}
-              >
-                Özel
-              </button>
-            </div>
-            {!GREETING_PRESETS.some((p) => p.value === settings.greeting_style) && (
-              <input
-                type="text"
-                value={settings.greeting_style ?? ''}
-                onChange={(e) => set('greeting_style', e.target.value)}
-                placeholder="örn. Üstat"
-                className="input-field"
-                autoFocus
-              />
-            )}
-          </Field>
-          <p className="text-[11px] text-text-muted -mt-1">
-            Ad veya hitap değiştiğinde konuşma geçmişi sıfırlanır.
-          </p>
-
-          <Field label="Sadık'ın Konumu">
-            <select
-              value={draftSadikPosition}
-              onChange={(e) => setDraftSadikPosition(e.target.value as 'left' | 'right' | 'top')}
-              className="input-field"
-            >
-              <option value="left">Sol</option>
-              <option value="right">Sağ</option>
-              <option value="top">Üst</option>
-            </select>
-            <p className="text-[11px] text-text-muted mt-1">
-              Sadık'ın fiziksel konumu — odaklanma animasyonu buna göre ayarlanır.
-            </p>
-          </Field>
-        </Section>
-
-        {/* Voice */}
-        <Section title="Ses Ayarları" icon={Mic} color="purple">
+        {/* ── 2. SES ───────────────────────────────────────────────────────────── */}
+        <Section title="Ses" icon={Mic} color="purple">
           {/* TTS Provider */}
           <Field label="TTS Sağlayıcısı">
             <div className="flex flex-col gap-2">
@@ -1020,7 +941,6 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
             </>
           )}
 
-          {/* OpenAI voice selector */}
           {settings.tts_provider === 'openai' && (
             <Field label="OpenAI Sesi">
               <select
@@ -1035,7 +955,6 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
             </Field>
           )}
 
-          {/* Edge TTS voice input */}
           {settings.tts_provider === 'edge' && (
             <Field label="Edge TTS Sesi">
               <input
@@ -1048,391 +967,466 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
             </Field>
           )}
 
-          <Field label="Uyandırma Kelimesi">
-            <button
-              onClick={() => setDraftWakeWordEnabled((v) => !v)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors
-                ${draftWakeWordEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                ${draftWakeWordEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-            <p className="text-[11px] text-text-muted mt-1.5">
-              Yerel ses algılama — uygulama açıkken aktif olur. Şu an söylenmesi gereken uyandırma kelimesi: <strong>"Hey Jarvis"</strong>
+          <div className="border-t border-border pt-4 mt-2 space-y-3">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Ses Aygıtları</p>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Sadık için hangi mikrofon ve hoparlörün kullanılacağını seçin.
             </p>
-          </Field>
-
-          <Field label="Uyandırma Modeli">
-            <select
-              value={wakeModelPath}
-              onChange={(e) => setWakeModelPath(e.target.value)}
-              className="input-field"
-            >
-              <option value="">Varsayılan — Hey Jarvis (yerleşik)</option>
-              {wakeModels.map((m) => (
-                <option key={m.path} value={m.path}>{m.name}</option>
-              ))}
-            </select>
-            <p className="text-[11px] text-text-muted mt-1.5">
-              <code>sadik-backend/app/wake_models/</code> klasörüne .onnx dosyası ekleyip listeden seçin. Değişiklik Kaydet'e basınca uygulanır.
-            </p>
-          </Field>
-
-          {draftWakeWordEnabled && (
-            <Field label="Uyandırma Hassasiyeti">
+            <Field label="Mikrofon">
+              <div className="flex gap-2">
+                <select
+                  value={draftAudioInputDeviceId}
+                  onChange={(e) => setDraftAudioInputDeviceId(e.target.value)}
+                  className="flex-1 input-field"
+                >
+                  <option value="default">Sistem varsayılanı</option>
+                  {audioInputDevices.map((d, i) => (
+                    <option key={d.deviceId} value={d.deviceId}>
+                      {d.label || `Mikrofon ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => refreshAudioDevices()}
+                  title="Aygıtları yenile"
+                  className="p-2 bg-bg-input border border-border rounded-btn text-text-muted hover:text-text-primary transition-colors"
+                >
+                  <RefreshCw size={15} />
+                </button>
+              </div>
+            </Field>
+            <Field label="Hoparlör / Çıkış">
               <select
-                value={draftWakeWordSensitivity}
-                onChange={(e) => setDraftWakeWordSensitivity(e.target.value)}
+                value={draftAudioOutputDeviceId}
+                onChange={(e) => setDraftAudioOutputDeviceId(e.target.value)}
                 className="input-field"
               >
-                <option value="very_high">Çok hassas — uzak mikrofon için</option>
-                <option value="high">Hassas</option>
-                <option value="normal">Normal (önerilen)</option>
-                <option value="low">Düşük — gürültülü ortam için</option>
-              </select>
-            </Field>
-          )}
-
-          {/* Wake detection tuning sliders — draft only, committed on Save. */}
-          <Field label={`Algılama Eşiği — ${wakeThreshold.toFixed(2)}`}>
-            <input
-              type="range"
-              min={0.1} max={0.9} step={0.05}
-              value={wakeThreshold}
-              onChange={(e) => setWakeThreshold(parseFloat(e.target.value))}
-              className="w-full accent-accent-purple"
-            />
-            <p className="text-[11px] text-text-muted mt-1">
-              Düşük değer = daha kolay tetiklenir (yanlış pozitif riski artar). Custom model için önerilen: 0.35.
-            </p>
-          </Field>
-
-          <Field label={`Giriş Kazancı — ${wakeInputGain.toFixed(1)}×`}>
-            <input
-              type="range"
-              min={1.0} max={3.0} step={0.1}
-              value={wakeInputGain}
-              onChange={(e) => setWakeInputGain(parseFloat(e.target.value))}
-              className="w-full accent-accent-purple"
-            />
-            <p className="text-[11px] text-text-muted mt-1">
-              Mikrofon sesi düşükse artır. Çok yüksek ses / yakın mikrofonda 1.0 bırak.
-            </p>
-          </Field>
-
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-medium text-text-secondary mb-0.5">Sürekli konuşma modu</p>
-              <p className="text-xs text-text-muted leading-relaxed">
-                Sadık cevap verdikten sonra otomatik olarak dinlemeye geçer. Konuşmayı bitirmek için X'e tıklayın.
-              </p>
-            </div>
-            <button
-              onClick={() => setDraftContinuousConversation((v) => !v)}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                ${draftContinuousConversation ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                ${draftContinuousConversation ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
-        </Section>
-
-        {/* Audio Devices */}
-        <Section title="Ses Aygıtları" icon={Headphones} color="cyan">
-          <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-1">
-            Sadık için hangi mikrofon ve hoparlörün kullanılacağını seçin.
-          </p>
-          <Field label="Mikrofon">
-            <div className="flex gap-2">
-              <select
-                value={draftAudioInputDeviceId}
-                onChange={(e) => setDraftAudioInputDeviceId(e.target.value)}
-                className="flex-1 input-field"
-              >
                 <option value="default">Sistem varsayılanı</option>
-                {audioInputDevices.map((d, i) => (
+                {audioOutputDevices.map((d, i) => (
                   <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || `Mikrofon ${i + 1}`}
+                    {d.label || `Çıkış ${i + 1}`}
                   </option>
                 ))}
               </select>
+            </Field>
+          </div>
+
+          <div className="border-t border-border pt-4 mt-2 space-y-3">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Uyandırma Kelimesi</p>
+            <Field label="Uyandırma Kelimesi Aktif">
               <button
-                onClick={() => refreshAudioDevices()}
-                title="Aygıtları yenile"
-                className="p-2 bg-bg-input border border-border rounded-btn text-text-muted hover:text-text-primary transition-colors"
+                onClick={() => setDraftWakeWordEnabled((v) => !v)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors
+                  ${draftWakeWordEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                  ${draftWakeWordEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+              <p className="text-[11px] text-text-muted mt-1.5">
+                Yerel ses algılama — uygulama açıkken aktif olur. Şu an söylenmesi gereken uyandırma kelimesi: <strong>"Hey Jarvis"</strong>
+              </p>
+            </Field>
+
+            <Field label="Uyandırma Modeli">
+              <select
+                value={wakeModelPath}
+                onChange={(e) => setWakeModelPath(e.target.value)}
+                className="input-field"
               >
-                <RefreshCw size={15} />
+                <option value="">Varsayılan — Hey Jarvis (yerleşik)</option>
+                {wakeModels.map((m) => (
+                  <option key={m.path} value={m.path}>{m.name}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-text-muted mt-1.5">
+                <code>sadik-backend/app/wake_models/</code> klasörüne .onnx dosyası ekleyip listeden seçin. Değişiklik Kaydet'e basınca uygulanır.
+              </p>
+            </Field>
+
+            {draftWakeWordEnabled && (
+              <Field label="Uyandırma Hassasiyeti">
+                <select
+                  value={draftWakeWordSensitivity}
+                  onChange={(e) => setDraftWakeWordSensitivity(e.target.value)}
+                  className="input-field"
+                >
+                  <option value="very_high">Çok hassas — uzak mikrofon için</option>
+                  <option value="high">Hassas</option>
+                  <option value="normal">Normal (önerilen)</option>
+                  <option value="low">Düşük — gürültülü ortam için</option>
+                </select>
+              </Field>
+            )}
+
+            <Field label={`Algılama Eşiği — ${wakeThreshold.toFixed(2)}`}>
+              <input
+                type="range"
+                min={0.1} max={0.9} step={0.05}
+                value={wakeThreshold}
+                onChange={(e) => setWakeThreshold(parseFloat(e.target.value))}
+                className="w-full accent-accent-purple"
+              />
+              <p className="text-[11px] text-text-muted mt-1">
+                Düşük değer = daha kolay tetiklenir (yanlış pozitif riski artar). Custom model için önerilen: 0.35.
+              </p>
+            </Field>
+
+            <Field label={`Giriş Kazancı — ${wakeInputGain.toFixed(1)}×`}>
+              <input
+                type="range"
+                min={1.0} max={3.0} step={0.1}
+                value={wakeInputGain}
+                onChange={(e) => setWakeInputGain(parseFloat(e.target.value))}
+                className="w-full accent-accent-purple"
+              />
+              <p className="text-[11px] text-text-muted mt-1">
+                Mikrofon sesi düşükse artır. Çok yüksek ses / yakın mikrofonda 1.0 bırak.
+              </p>
+            </Field>
+
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium text-text-secondary mb-0.5">Sürekli konuşma modu</p>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Sadık cevap verdikten sonra otomatik olarak dinlemeye geçer. Konuşmayı bitirmek için X'e tıklayın.
+                </p>
+              </div>
+              <button
+                onClick={() => setDraftContinuousConversation((v) => !v)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
+                  ${draftContinuousConversation ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                  ${draftContinuousConversation ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
+          </div>
+        </Section>
+
+        {/* ── 3. ENTEGRASYONLAR ─────────────────────────────────────────────── */}
+        <Section title="Entegrasyonlar" icon={Link2} color="cyan">
+          <IntegrationsPanel
+            integrations={integrations}
+            showToast={showToast}
+            onDisconnect={async (provider) => {
+              await integrationsApi.disconnect(provider);
+              const updated = await integrationsApi.list();
+              setIntegrations(updated);
+            }}
+            onRefresh={async () => {
+              const updated = await integrationsApi.list();
+              setIntegrations(updated);
+            }}
+          />
+        </Section>
+
+        {/* ── 4. KİŞİSELLEŞTİRME ──────────────────────────────────────────── */}
+        <Section title="Kişiselleştirme" icon={Sparkles} color="pink">
+          <Field label="Adınız">
+            <input
+              type="text"
+              value={settings.user_name ?? ''}
+              onChange={(e) => set('user_name', e.target.value)}
+              placeholder="örn. Eren"
+              className="input-field"
+            />
           </Field>
-          <Field label="Hoparlör / Çıkış">
+
+          <Field label="Hitap şekli">
+            <div className="flex flex-wrap gap-2 mb-2">
+              {GREETING_PRESETS.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => set('greeting_style', p.value)}
+                  className={`px-3 py-1.5 rounded-btn text-xs font-medium transition-colors
+                    ${settings.greeting_style === p.value
+                      ? 'bg-accent-purple text-white border border-accent-purple'
+                      : 'bg-bg-input text-text-secondary border border-border hover:border-accent-purple/40 hover:text-text-primary'}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => set('greeting_style', '')}
+                className={`px-3 py-1.5 rounded-btn text-xs font-medium transition-colors
+                  ${!GREETING_PRESETS.some((p) => p.value === settings.greeting_style)
+                    ? 'bg-accent-purple text-white border border-accent-purple'
+                    : 'bg-bg-input text-text-secondary border border-border hover:border-accent-purple/40 hover:text-text-primary'}`}
+              >
+                Özel
+              </button>
+            </div>
+            {!GREETING_PRESETS.some((p) => p.value === settings.greeting_style) && (
+              <input
+                type="text"
+                value={settings.greeting_style ?? ''}
+                onChange={(e) => set('greeting_style', e.target.value)}
+                placeholder="örn. Üstat"
+                className="input-field"
+                autoFocus
+              />
+            )}
+          </Field>
+          <p className="text-[11px] text-text-muted -mt-1">
+            Ad veya hitap değiştiğinde konuşma geçmişi sıfırlanır.
+          </p>
+
+          <Field label="Sadık'ın Konumu">
             <select
-              value={draftAudioOutputDeviceId}
-              onChange={(e) => setDraftAudioOutputDeviceId(e.target.value)}
+              value={draftSadikPosition}
+              onChange={(e) => setDraftSadikPosition(e.target.value as 'left' | 'right' | 'top')}
               className="input-field"
             >
-              <option value="default">Sistem varsayılanı</option>
-              {audioOutputDevices.map((d, i) => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label || `Çıkış ${i + 1}`}
-                </option>
-              ))}
+              <option value="left">Sol</option>
+              <option value="right">Sağ</option>
+              <option value="top">Üst</option>
             </select>
-          </Field>
-        </Section>
-
-        {/* App Behavior */}
-        <Section title="Uygulama" icon={Monitor} color="green">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-medium text-text-secondary mb-0.5">
-                Kapatınca sistem tepsisine küçült
-              </p>
-              <p className="text-xs text-text-muted leading-relaxed">
-                Bu ayar açıksa pencereyi kapatmak uygulamayı tamamen kapatmaz; Sadık arka planda
-                çalışmaya devam eder. Sistem tepsisi simgesinden tekrar açabilir ya da çıkış yapabilirsiniz.
-              </p>
-            </div>
-            <button
-              onClick={() =>
-                set('close_to_tray', settings['close_to_tray'] === 'false' ? 'true' : 'false')
-              }
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                ${settings['close_to_tray'] !== 'false'
-                  ? 'bg-accent-purple'
-                  : 'bg-bg-input border border-border'}`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                  ${settings['close_to_tray'] !== 'false' ? 'translate-x-6' : 'translate-x-1'}`}
-              />
-            </button>
-          </div>
-        </Section>
-
-        {/* Proactive Suggestions */}
-        <Section title="Proaktif Öneriler" icon={Bell} color="orange">
-          <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-1">
-            Sadık kullanım alışkanlıklarınıza göre mola ve dikkat önerileri gösterebilir.
-          </p>
-
-          {/* Master toggle */}
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-medium text-text-secondary mb-0.5">Proaktif öneriler</p>
-              <p className="text-xs text-text-muted leading-relaxed">
-                Etkinleştirildiğinde Sadık günlük uygulama kullanımınıza göre mola önerisinde bulunur.
-              </p>
-            </div>
-            <button
-              onClick={() => setDraftProactiveEnabled((v) => !v)}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                ${draftProactiveEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                ${draftProactiveEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
-
-          {draftProactiveEnabled && (
-            <>
-              {/* Quiet hours */}
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Sessiz saat başlangıcı">
-                  <select
-                    value={draftProactiveQuietStart}
-                    onChange={(e) => setDraftProactiveQuietStart(e.target.value)}
-                    className="input-field"
-                  >
-                    {Array.from({ length: 24 }, (_, h) => {
-                      const val = `${String(h).padStart(2, '0')}:00`;
-                      return <option key={val} value={val}>{val}</option>;
-                    })}
-                  </select>
-                </Field>
-                <Field label="Sessiz saat bitişi">
-                  <select
-                    value={draftProactiveQuietEnd}
-                    onChange={(e) => setDraftProactiveQuietEnd(e.target.value)}
-                    className="input-field"
-                  >
-                    {Array.from({ length: 24 }, (_, h) => {
-                      const val = `${String(h).padStart(2, '0')}:00`;
-                      return <option key={val} value={val}>{val}</option>;
-                    })}
-                  </select>
-                </Field>
-              </div>
-              <p className="text-[11px] text-text-muted -mt-2">
-                Bu saatler arasında bildirim gönderilmez. Gece geçişini destekler (ör. 23:00 → 08:00).
-              </p>
-
-              {/* Daily limit */}
-              <Field label="Günlük maksimum öneri">
-                <select
-                  value={String(draftProactiveDailyLimit)}
-                  onChange={(e) => setDraftProactiveDailyLimit(Number(e.target.value))}
-                  className="input-field"
-                >
-                  <option value="1">1 öneri</option>
-                  <option value="2">2 öneri</option>
-                  <option value="3">3 öneri (önerilen)</option>
-                  <option value="5">5 öneri</option>
-                  <option value="8">8 öneri</option>
-                  <option value="10">10 öneri</option>
-                  <option value="15">15 öneri</option>
-                  <option value="0">Sınırsız</option>
-                </select>
-              </Field>
-
-              {/* Cooldown */}
-              <Field label="Öneriler arası bekleme">
-                <select
-                  value={String(draftProactiveCooldown)}
-                  onChange={(e) => setDraftProactiveCooldown(Number(e.target.value))}
-                  className="input-field"
-                >
-                  <option value="15">15 dakika</option>
-                  <option value="30">30 dakika</option>
-                  <option value="45">45 dakika</option>
-                  <option value="60">60 dakika (önerilen)</option>
-                  <option value="90">90 dakika</option>
-                  <option value="120">120 dakika</option>
-                </select>
-              </Field>
-
-              {/* Spoken proactive */}
-              <div className="border-t border-border-subtle pt-4 mt-1">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-text-primary font-medium">Sesli proaktif öneriler</p>
-                    <p className="text-xs text-text-muted mt-0.5">
-                      Sadık uygun durumlarda kısa sesli mola önerileri sunabilir.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setDraftSpokenEnabled((v) => !v)}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                      ${draftSpokenEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
-                  >
-                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                      ${draftSpokenEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                  </button>
-                </div>
-
-                {draftSpokenEnabled && (
-                  <div className="mt-3">
-                    <Field label="Günlük sesli öneri sınırı">
-                      <select
-                        value={String(draftSpokenDailyLimit)}
-                        onChange={(e) => setDraftSpokenDailyLimit(Number(e.target.value))}
-                        className="input-field"
-                      >
-                        <option value="0">Kapalı</option>
-                        <option value="1">1 öneri (önerilen)</option>
-                        <option value="2">2 öneri</option>
-                        <option value="3">3 öneri</option>
-                        <option value="5">5 öneri</option>
-                        <option value="8">8 öneri</option>
-                        <option value="10">10 öneri</option>
-                      </select>
-                    </Field>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </Section>
-
-        {/* Persona / Rol */}
-        <Section title="Rol" icon={User} color="purple">
-          <p className="text-xs text-text-muted leading-relaxed">
-            Rolüne göre Sadık'ın dili ve önerileri ayarlanır.
-          </p>
-          <div className="grid grid-cols-1 gap-2 pt-1">
-            {([
-              { id: 'developer', title: '💻 Geliştirici', sub: 'Yazılımcı / mühendis — teknik jargon serbest' },
-              { id: 'writer',    title: '✍️ Yazar',       sub: 'Metin üretimi odaklı — kod jargonundan kaçınılır' },
-              { id: 'student',   title: '🎓 Öğrenci',     sub: 'Ders çalışma, okuma, not alma odaklı' },
-              { id: 'designer',  title: '🎨 Tasarımcı',   sub: 'Figma / Photoshop / görsel iş akışı' },
-              { id: 'general',   title: '🌐 Genel',       sub: 'Belirli bir rol yok — nötr ton' },
-            ] as const).map(({ id, title, sub }) => {
-              const active = (settings.user_persona || 'general') === id;
-              return (
-                <button
-                  key={id}
-                  onClick={() => set('user_persona', id)}
-                  className={`text-left p-3 rounded-btn border transition-colors
-                    ${active
-                      ? 'bg-accent-purple/10 border-accent-purple'
-                      : 'bg-bg-input border-border hover:border-accent-purple/40'}`}
-                >
-                  <p className="text-sm font-semibold text-text-primary">{title}</p>
-                  <p className="text-xs text-text-muted mt-0.5">{sub}</p>
-                </button>
-              );
-            })}
-          </div>
-        </Section>
-
-        {/* Usage Stats */}
-        <Section title="Kullanım İstatistikleri" icon={BarChart3} color="purple">
-          <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-2">
-            Sesli asistan kullanımın — maliyet tahmini ve gecikme analizi. Beta sonrası plan kararlarında kullanılacak.
-          </p>
-          <UsageStatsCard />
-        </Section>
-
-        {/* Abonelik — only rendered when billing_enabled=true (feature flag) */}
-        {billingStatus?.enabled && (
-          <Section title="Abonelik" icon={Sparkles} color="pink">
-            <p className="text-xs text-text-muted leading-relaxed -mt-1 mb-3">
-              {billingStatus.tier === 'pro'
-                ? `Pro plan aktif${billingStatus.expires_at ? ' — ' + new Date(billingStatus.expires_at).toLocaleDateString('tr-TR') + ' tarihine kadar' : ''}.`
-                : 'Ücretsiz plandasyın. Pro\'ya geçerek limitleri kaldır.'}
+            <p className="text-[11px] text-text-muted mt-1">
+              Sadık'ın fiziksel konumu — odaklanma animasyonu buna göre ayarlanır.
             </p>
-            {billingStatus.tier === 'free' ? (
-              <button
-                disabled={billingLoading}
-                onClick={async () => {
-                  setBillingLoading(true);
-                  try {
-                    const { url } = await billingApi.createCheckout();
-                    window.open(url, '_blank');
-                    setPolling(true);
-                  } catch {
-                    showToast('Ödeme sayfası açılamadı. Lütfen tekrar dene.', 'error');
-                  } finally {
-                    setBillingLoading(false);
-                  }
-                }}
-                className="px-4 py-2 text-sm rounded-btn bg-accent-purple text-white hover:opacity-90 transition-opacity disabled:opacity-60"
-              >
-                {billingLoading ? 'Yönlendiriliyor…' : "Pro'ya Yükselt"}
-              </button>
-            ) : (
-              <button
-                disabled={billingLoading}
-                onClick={async () => {
-                  setBillingLoading(true);
-                  try {
-                    const { url } = await billingApi.openPortal();
-                    window.open(url, '_blank');
-                  } catch {
-                    showToast('Abonelik portalı açılamadı. Lütfen tekrar dene.', 'error');
-                  } finally {
-                    setBillingLoading(false);
-                  }
-                }}
-                className="px-4 py-2 text-sm rounded-btn bg-bg-input border border-border text-text-primary hover:border-accent-purple/40 transition-colors disabled:opacity-60"
-              >
-                {billingLoading ? 'Yönlendiriliyor…' : 'Aboneliği Yönet'}
-              </button>
-            )}
-          </Section>
-        )}
+          </Field>
 
-        {/* Telemetry consent */}
+          <div className="border-t border-border pt-4 mt-2 space-y-3">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Aktiviteler &amp; Modlar</p>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Bilgisayarda yaptığın aktivitelere göre Sadık'ın dili ve önerilen modlar ayarlanır.
+            </p>
+
+            {/* Aktivite checklist */}
+            <div className="grid grid-cols-3 gap-1.5 pt-1">
+              {ACTIVITIES.map((a) => {
+                const currentActivities = (settings.user_activities || '').split(',').map((s: string) => s.trim()).filter(Boolean) as ActivityId[];
+                const active = currentActivities.includes(a.id);
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => {
+                      const current = (settings.user_activities || '').split(',').map((s: string) => s.trim()).filter(Boolean) as ActivityId[];
+                      const updated = active
+                        ? current.filter((id) => id !== a.id)
+                        : [...current, a.id];
+                      set('user_activities', updated.join(','));
+                      // Persona'yı da güncelle
+                      if (updated.length > 0) {
+                        set('user_persona', deriveDominantPersona(updated));
+                      }
+                    }}
+                    className={`text-left p-2 rounded-btn border transition-colors flex flex-col gap-0.5 ${
+                      active
+                        ? 'bg-accent-purple/10 border-accent-purple'
+                        : 'bg-bg-input border-border hover:border-accent-purple/40'
+                    }`}
+                  >
+                    <span className="text-sm leading-none">{a.emoji}</span>
+                    <span className="text-[11px] font-semibold text-text-primary leading-tight">{a.label}</span>
+                    {active && <span className="text-[10px] text-accent-purple">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Aktif modlar */}
+            <div className="pt-2">
+              <p className="text-xs font-medium text-text-secondary mb-1.5">Aktif Modlar</p>
+              {(() => {
+                const currentModeKeys = (settings.user_preset_modes || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+                const displayKeys = currentModeKeys.length > 0 ? currentModeKeys : ['working', 'learning', 'break', 'meeting'];
+                return (
+                  <div className="flex flex-wrap gap-1.5">
+                    {displayKeys.map((key: string) => {
+                      const def = PRESET_MODE_POOL.find((p) => p.key === key);
+                      return (
+                        <span
+                          key={key}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-btn text-xs bg-accent-purple/10 border border-accent-purple/30 text-accent-purple"
+                        >
+                          {def?.label ?? key}
+                          <button
+                            onClick={() => {
+                              const updated = displayKeys.filter((k: string) => k !== key);
+                              set('user_preset_modes', updated.join(','));
+                            }}
+                            className="text-accent-purple/60 hover:text-accent-purple ml-0.5"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })}
+                    {/* Havuzdan ekle inline select */}
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const key = e.target.value;
+                        if (!key) return;
+                        const current = (settings.user_preset_modes || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+                        if (!current.includes(key)) {
+                          set('user_preset_modes', [...current, key].join(','));
+                        }
+                      }}
+                      className="px-2 py-1 rounded-btn text-xs bg-bg-input border border-border text-text-secondary outline-none hover:border-accent-purple/40 focus:border-accent-purple/60"
+                    >
+                      <option value="">+ Ekle</option>
+                      {PRESET_MODE_POOL
+                        .filter((p) => {
+                          const current = (settings.user_preset_modes || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+                          return !current.includes(p.key);
+                        })
+                        .map((p) => (
+                          <option key={p.key} value={p.key}>{p.label}</option>
+                        ))}
+                    </select>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Önerilenleri uygula butonu */}
+            <button
+              onClick={() => {
+                const currentActivities = (settings.user_activities || '').split(',').map((s: string) => s.trim()).filter(Boolean) as ActivityId[];
+                if (currentActivities.length === 0) return;
+                const recommended = recommendModes(currentActivities);
+                set('user_preset_modes', recommended.join(','));
+              }}
+              className="flex items-center gap-1.5 text-xs text-accent-purple hover:text-accent-purple/80 transition-colors"
+            >
+              <RefreshCcw size={12} />
+              Önerilenleri uygula
+            </button>
+          </div>
+
+          <div className="border-t border-border pt-4 mt-2 space-y-3">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Proaktif Öneriler</p>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Sadık kullanım alışkanlıklarınıza göre mola ve dikkat önerileri gösterebilir.
+            </p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium text-text-secondary mb-0.5">Proaktif öneriler</p>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Etkinleştirildiğinde Sadık günlük uygulama kullanımınıza göre mola önerisinde bulunur.
+                </p>
+              </div>
+              <button
+                onClick={() => setDraftProactiveEnabled((v) => !v)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
+                  ${draftProactiveEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                  ${draftProactiveEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            {draftProactiveEnabled && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Sessiz saat başlangıcı">
+                    <select
+                      value={draftProactiveQuietStart}
+                      onChange={(e) => setDraftProactiveQuietStart(e.target.value)}
+                      className="input-field"
+                    >
+                      {Array.from({ length: 24 }, (_, h) => {
+                        const val = `${String(h).padStart(2, '0')}:00`;
+                        return <option key={val} value={val}>{val}</option>;
+                      })}
+                    </select>
+                  </Field>
+                  <Field label="Sessiz saat bitişi">
+                    <select
+                      value={draftProactiveQuietEnd}
+                      onChange={(e) => setDraftProactiveQuietEnd(e.target.value)}
+                      className="input-field"
+                    >
+                      {Array.from({ length: 24 }, (_, h) => {
+                        const val = `${String(h).padStart(2, '0')}:00`;
+                        return <option key={val} value={val}>{val}</option>;
+                      })}
+                    </select>
+                  </Field>
+                </div>
+                <p className="text-[11px] text-text-muted -mt-2">
+                  Bu saatler arasında bildirim gönderilmez. Gece geçişini destekler (ör. 23:00 → 08:00).
+                </p>
+
+                <Field label="Günlük maksimum öneri">
+                  <select
+                    value={String(draftProactiveDailyLimit)}
+                    onChange={(e) => setDraftProactiveDailyLimit(Number(e.target.value))}
+                    className="input-field"
+                  >
+                    <option value="1">1 öneri</option>
+                    <option value="2">2 öneri</option>
+                    <option value="3">3 öneri (önerilen)</option>
+                    <option value="5">5 öneri</option>
+                    <option value="8">8 öneri</option>
+                    <option value="10">10 öneri</option>
+                    <option value="15">15 öneri</option>
+                    <option value="0">Sınırsız</option>
+                  </select>
+                </Field>
+
+                <Field label="Öneriler arası bekleme">
+                  <select
+                    value={String(draftProactiveCooldown)}
+                    onChange={(e) => setDraftProactiveCooldown(Number(e.target.value))}
+                    className="input-field"
+                  >
+                    <option value="15">15 dakika</option>
+                    <option value="30">30 dakika</option>
+                    <option value="45">45 dakika</option>
+                    <option value="60">60 dakika (önerilen)</option>
+                    <option value="90">90 dakika</option>
+                    <option value="120">120 dakika</option>
+                  </select>
+                </Field>
+
+                <div className="border-t border-border-subtle pt-4 mt-1">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-text-primary font-medium">Sesli proaktif öneriler</p>
+                      <p className="text-xs text-text-muted mt-0.5">
+                        Sadık uygun durumlarda kısa sesli mola önerileri sunabilir.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setDraftSpokenEnabled((v) => !v)}
+                      className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
+                        ${draftSpokenEnabled ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                        ${draftSpokenEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+                  {draftSpokenEnabled && (
+                    <div className="mt-3">
+                      <Field label="Günlük sesli öneri sınırı">
+                        <select
+                          value={String(draftSpokenDailyLimit)}
+                          onChange={(e) => setDraftSpokenDailyLimit(Number(e.target.value))}
+                          className="input-field"
+                        >
+                          <option value="0">Kapalı</option>
+                          <option value="1">1 öneri (önerilen)</option>
+                          <option value="2">2 öneri</option>
+                          <option value="3">3 öneri</option>
+                          <option value="5">5 öneri</option>
+                          <option value="8">8 öneri</option>
+                          <option value="10">10 öneri</option>
+                        </select>
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </Section>
+
+        {/* ── 5. GİZLİLİK & TELEMETRİ ─────────────────────────────────────── */}
         <Section title="Gizlilik & Telemetri" icon={Shield} color="cyan">
+          {/* Crash raporları */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1">
               <p className="text-sm font-medium text-text-primary">Crash raporları gönder</p>
@@ -1450,13 +1444,10 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
                 ${telemetryConsent ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
-        </Section>
 
-        {/* Privacy */}
-        <Section title="Gizlilik ve Veri Kontrolü" icon={Shield} color="green">
-          {/* AI Deneyim Modu — 3 preset */}
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-text-secondary">AI Deneyim Modu</p>
+          {/* AI Deneyim Modu */}
+          <div className="border-t border-border pt-4 mt-2 space-y-2">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">AI Deneyim Modu</p>
             <p className="text-xs text-text-muted leading-relaxed">
               Sadık'ın OpenAI'a ne kadar veri paylaşacağını belirler. İstediğin zaman değiştirebilirsin.
             </p>
@@ -1558,6 +1549,96 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
           >
             KVKK Aydınlatma Metni
           </button>
+        </Section>
+
+        {/* ── 6. HESAP & KULLANIM ──────────────────────────────────────────── */}
+        <Section title="Hesap & Kullanım" icon={Bot} color="purple">
+          <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">API Ayarları</p>
+          <Field label="OpenAI Erişim Anahtarı">
+            <div className="relative">
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                value={settings.openai_api_key}
+                onChange={(e) => set('openai_api_key', e.target.value)}
+                placeholder="sk-..."
+                className="input-field pr-10"
+              />
+              <button onClick={() => setShowApiKey(!showApiKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
+                {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+          </Field>
+          <Field label="Yapay zeka modeli">
+            <select
+              value={settings.llm_model}
+              onChange={(e) => set('llm_model', e.target.value)}
+              className="input-field"
+            >
+              <option value="gpt-4o">GPT-4o (önerilen)</option>
+              <option value="gpt-4o-mini">GPT-4o Mini — Hızlı, ekonomik</option>
+            </select>
+            <p className="text-[11px] text-text-muted mt-1.5">
+              Daha güçlü modeller daha iyi yanıt verir ancak daha maliyetli olabilir.
+            </p>
+          </Field>
+
+          <div className="border-t border-border pt-4 mt-2 space-y-2">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Kullanım İstatistikleri</p>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Sesli asistan kullanımın — maliyet tahmini ve gecikme analizi.
+            </p>
+            <UsageStatsCard />
+          </div>
+
+          {billingStatus?.enabled && (
+            <div className="border-t border-border pt-4 mt-2 space-y-3">
+              <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Abonelik</p>
+              <p className="text-xs text-text-muted leading-relaxed">
+                {billingStatus.tier === 'pro'
+                  ? `Pro plan aktif${billingStatus.expires_at ? ' — ' + new Date(billingStatus.expires_at).toLocaleDateString('tr-TR') + ' tarihine kadar' : ''}.`
+                  : 'Ücretsiz plandasyın. Pro\'ya geçerek limitleri kaldır.'}
+              </p>
+              {billingStatus.tier === 'free' ? (
+                <button
+                  disabled={billingLoading}
+                  onClick={async () => {
+                    setBillingLoading(true);
+                    try {
+                      const { url } = await billingApi.createCheckout();
+                      window.open(url, '_blank');
+                      setPolling(true);
+                    } catch {
+                      showToast('Ödeme sayfası açılamadı. Lütfen tekrar dene.', 'error');
+                    } finally {
+                      setBillingLoading(false);
+                    }
+                  }}
+                  className="px-4 py-2 text-sm rounded-btn bg-accent-purple text-white hover:opacity-90 transition-opacity disabled:opacity-60"
+                >
+                  {billingLoading ? 'Yönlendiriliyor…' : "Pro'ya Yükselt"}
+                </button>
+              ) : (
+                <button
+                  disabled={billingLoading}
+                  onClick={async () => {
+                    setBillingLoading(true);
+                    try {
+                      const { url } = await billingApi.openPortal();
+                      window.open(url, '_blank');
+                    } catch {
+                      showToast('Abonelik portalı açılamadı. Lütfen tekrar dene.', 'error');
+                    } finally {
+                      setBillingLoading(false);
+                    }
+                  }}
+                  className="px-4 py-2 text-sm rounded-btn bg-bg-input border border-border text-text-primary hover:border-accent-purple/40 transition-colors disabled:opacity-60"
+                >
+                  {billingLoading ? 'Yönlendiriliyor…' : 'Aboneliği Yönet'}
+                </button>
+              )}
+            </div>
+          )}
         </Section>
 
         {dirty && (
@@ -2230,7 +2311,12 @@ function IntegrationsPanel({
               <Icon size={20} />
             </span>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-text-primary">{meta.name}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-text-primary">{meta.name}</p>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-text-muted/10 text-text-muted border border-border leading-none">
+                  Çok yakında
+                </span>
+              </div>
               <p className="text-xs text-text-muted leading-relaxed">{meta.desc}</p>
               <div className="flex items-center gap-1.5 mt-1.5">
                 <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0

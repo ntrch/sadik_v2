@@ -161,6 +161,12 @@
 - **Sprint 4 TAMAMLANDI ✅**
 - **Sprint 5 tamamlandı ✅** — T5.1 (preset kataloğu), T5.2 (jargon temizliği), T5.3 (onboarding persona), T5.4 (empty states + first-day tutorial)
   - **Native distribution audit (beta blocker):** electron-builder config, code-sign (Windows + macOS), notarize (macOS), auto-update channel, node_modules native deps (openWakeWord onnxruntime platform-specific binary'ler) — Faz 0.5 OAuth ile aynı ship-gate'te ele alınacak
+- **Sprint 5e tamamlandı ✅ — activity profile + preset havuzu**
+  - YENİ: `sadik-app/src/lib/activityCatalog.ts` (9 aktivite tipi + 17 preset mod havuzu + recommendModes/deriveDominantPersona)
+  - Backend: `sadik-backend/app/main.py` DEFAULT_SETTINGS `user_activities` + `user_preset_modes` + `sadik-backend/app/services/chat_service.py` activity hint enjeksiyonu
+  - Onboarding: Persona step → multi-select Aktivite step + "Önerilen Modlar" step (4 mod öneri + edit)
+  - Dashboard: PRESET_MODES → havuz import + user_preset_modes filtresi (fallback: working/learning/break/meeting)
+  - Settings: "Rol" → "Aktiviteler & Modlar" (checklist + havuzdan ekle/çıkar + öneriyi uygula)
 - **Sprint 6 T6.2 + T6.5 tamamlandı ✅** — electron-builder config + PyInstaller embedded backend + spawn lifecycle
   - Build sırası: `cd sadik-backend && .\build\build.ps1` (PyInstaller onedir → `sadik-backend/dist/sadik-backend/`) → `cd sadik-app && npm install && npm run build && npm run package:dir` (unsigned dev paket, NSIS sonra)
   - Test akışı: backend.exe standalone OK → SADIK.exe paket sıçraması (~5s) → UI/animations/wakeword/voice ✅ → Tray-Çıkış'ta backend kapanıyor ✅
