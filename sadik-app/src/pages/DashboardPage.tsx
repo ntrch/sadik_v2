@@ -42,6 +42,7 @@ const FALLBACK_PRESET_KEYS = ['working', 'learning', 'break', 'meeting'];
 const MODE_CLIP_MAP: Record<string, { intro: string; loop: string }> = {
   working: { intro: 'mod_working', loop: 'mod_working_text' },
   break:   { intro: 'mod_break',   loop: 'mod_break_text'   },
+  meeting: { intro: 'mod_meeting', loop: 'mod_meeting_text' },
 };
 
 // ── App name beautifier ──────────────────────────────────────────────────────
@@ -156,6 +157,7 @@ export default function DashboardPage() {
     currentMode, setCurrentMode, showToast, pomodoroState,
     triggerEvent, showText, returnToIdle, playClipDirect, playModClip, playModSequence, getLoadedClipNames,
     engineState,
+    cancelMeetingExitGrace,
     debugForcePoll, debugTestTTS, debugResetCounters, debugSimulateInsight,
     setDndActive,
   } = useContext(AppContext);
@@ -269,6 +271,7 @@ export default function DashboardPage() {
 
   const handleEndMode = async () => {
     setLoading(true);
+    cancelMeetingExitGrace(); // drop+reconnect grace period — timer not needed after manual exit
     try {
       // Manual exit from break mode mid-timer → confirming.cpp → idle.
       const exitingActiveBreak =

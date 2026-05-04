@@ -29,6 +29,7 @@ const COLOR_CLIP_MAP: Record<string, string> = {
   mod_working_text        : 'mode_working_text',
   mod_gaming              : 'mode_gaming',
   mod_gaming_text         : 'mode_gaming_text',
+  mod_meeting             : 'mode_meeting',
   mod_meeting_text        : 'mode_meeting_text',
 };
 

@@ -188,5 +188,25 @@
     "height": 64,
     "fps": 12,
     "loop": true
+  },
+  {
+    "name": "mod_meeting",
+    "category": "core",
+    "source": "mods/meeting.json",
+    "frameCount": 48,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "mod_meeting_text",
+    "category": "core",
+    "source": "mods/meeting_text.json",
+    "frameCount": 24,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": true
   }
 ]

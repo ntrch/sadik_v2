@@ -19,6 +19,15 @@ import { useAnimationEngine } from '../hooks/useAnimationEngine';
 import { getAnimationEngine } from '../engine/AnimationEngine';
 import { EngineState, AnimationEventType } from '../engine/types';
 
+const MEETING_EXIT_GRACE_MS = 60_000;
+
+// Maps mode keys that have dedicated animation clips (intro + looping text).
+const MODE_ANIM_MAP: Record<string, { intro: string; loop: string }> = {
+  working: { intro: 'mod_working', loop: 'mod_working_text' },
+  break:   { intro: 'mod_break',   loop: 'mod_break_text'   },
+  meeting: { intro: 'mod_meeting', loop: 'mod_meeting_text' },
+};
+
 // ── Focus guard ───────────────────────────────────────────────────────────────
 // Returns true when an editable element currently holds keyboard focus.
 // Used to prevent proactive STT auto-arm from stealing focus / swallowing
@@ -130,6 +139,8 @@ interface AppContextType {
   weatherData: CurrentWeather | null;
   weatherError: string | null;
   refreshWeather: () => Promise<void>;
+  // Meeting exit grace — called by manual handleEndMode to cancel pending auto-exit
+  cancelMeetingExitGrace: () => void;
   // Debug — for manual proactive testing from Dashboard
   debugForcePoll: () => void;
   debugTestTTS: (text?: string) => void;
@@ -250,6 +261,7 @@ export const AppContext = createContext<AppContextType>({
   weatherData: null,
   weatherError: null,
   refreshWeather: async () => {},
+  cancelMeetingExitGrace: () => {},
   debugForcePoll: () => {},
   debugTestTTS: () => {},
   debugResetCounters: () => {},
@@ -1510,12 +1522,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentional: uses latest-ref pattern — no deps needed
 
-  // ── Google Meet presence → meeting-mode suggestion ────────────────────────
+  // ── Google Meet presence → meeting-mode suggestion + auto-exit ───────────
   // Polls /api/integrations/google_meet/state every 20 s. When the backend
   // confirms (via participants.list) that the user IS in a live Meet
   // conference and the app isn't already in "meeting" mode, surface a
   // proactive switch_mode insight. Once a meeting_code has been suggested
   // in this session it won't be offered again until full reload.
+  // Auto-exit: when in_meeting flips false while mode === 'meeting', a 60 s
+  // grace period starts (drop+reconnect tolerance). If still false after grace,
+  // mode is ended automatically.
+  const meetingExitGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelMeetingExitGrace = useCallback(() => {
+    if (meetingExitGraceTimerRef.current) {
+      clearTimeout(meetingExitGraceTimerRef.current);
+      meetingExitGraceTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     const wasInMeetingRef = { current: false };
     const suggestedCodesRef = new Set<string>();
@@ -1529,6 +1553,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const prev = wasInMeetingRef.current;
         wasInMeetingRef.current = state.in_meeting;
 
+        // ── Auto-exit grace period ──────────────────────────────────────────
+        if (currentModeRef.current === 'meeting') {
+          if (state.in_meeting) {
+            // Drop+reconnect: cancel pending exit (back in meeting).
+            if (meetingExitGraceTimerRef.current) {
+              clearTimeout(meetingExitGraceTimerRef.current);
+              meetingExitGraceTimerRef.current = null;
+            }
+          } else if (!meetingExitGraceTimerRef.current) {
+            // Meeting ended — start grace period before auto-exiting.
+            meetingExitGraceTimerRef.current = setTimeout(async () => {
+              meetingExitGraceTimerRef.current = null;
+              if (currentModeRef.current !== 'meeting') return;
+              try {
+                await modesApi.endCurrent();
+              } catch { /* best-effort */ }
+              setCurrentMode(null);
+              setActiveInsight(null);
+              getAnimationEngine().triggerEvent('return_to_idle');
+            }, MEETING_EXIT_GRACE_MS);
+          }
+        }
+
+        // ── Suggestion: false → true transition only ────────────────────────
         // Transition false → true only
         if (!state.in_meeting || prev) return;
         if (!state.meeting_code) return;
@@ -1575,6 +1623,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       clearTimeout(initial);
       clearInterval(interval);
+      if (meetingExitGraceTimerRef.current) {
+        clearTimeout(meetingExitGraceTimerRef.current);
+        meetingExitGraceTimerRef.current = null;
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // uses refs + closure-captured setters — no deps needed
@@ -1635,6 +1687,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setCurrentMode(action.mode);
         showToast(`${action.mode} moduna geçildi`, 'success');
         triggerEvent('confirmation_success');
+        const clip = MODE_ANIM_MAP[action.mode];
+        if (clip) {
+          const engine = getAnimationEngine();
+          const loaded = getLoadedClipNames();
+          if (loaded.includes(clip.intro)) {
+            engine.playModSequence(clip.intro, clip.loop);
+          }
+        }
       } catch {
         showToast('Mod değiştirilemedi', 'error');
       }
@@ -2346,6 +2406,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         weatherData,
         weatherError,
         refreshWeather,
+        cancelMeetingExitGrace,
         debugForcePoll,
         debugTestTTS,
         debugResetCounters,
