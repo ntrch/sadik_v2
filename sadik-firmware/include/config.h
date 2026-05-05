@@ -28,3 +28,16 @@
 // ── Animation ─────────────────────────────────────────────────────────────────
 #define DEFAULT_FPS   12
 #define FRAME_BYTES  1024   // 128 * 64 / 8
+
+// ── Heartbeat / authority (milliseconds) ─────────────────────────────────────
+// App sends PING every 1 s; firmware falls back to LOCAL authority after this
+// many milliseconds without a PING when app was previously connected.
+#define HEARTBEAT_TIMEOUT_MS  3000UL
+
+// ── Sleep timings (milliseconds) ─────────────────────────────────────────────
+// LOCAL authority inactivity → sleep (10 min)
+#define LOCAL_SLEEP_TIMEOUT_MS     600000UL
+// LOCAL authority: time in sleep before a wake-up animation cycle (30 min)
+#define LOCAL_WAKE_CYCLE_MS        1800000UL
+// LOCAL authority: time awake in wake cycle before returning to sleep (10 min)
+#define LOCAL_WAKE_ACTIVE_MS       600000UL
