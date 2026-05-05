@@ -2,6 +2,7 @@ import asyncio
 import collections
 import os
 import threading
+import time
 import logging
 import numpy as np
 
@@ -19,6 +20,16 @@ DECIMATE      = NATIVE_RATE // SAMPLE_RATE   # 3
 _DIAG_MAXLEN = 100
 _diag_buffer: collections.deque = collections.deque(maxlen=_DIAG_MAXLEN)
 
+# --- Periyodik model.reset() ayarları ---
+# Uzun session'larda openwakeword AudioFeatures içindeki melspectrogram_buffer
+# np.vstack ile büyüyüp MemoryError atabilir. Periyodik reset bunu önler.
+# model.reset() → preprocessor.reset() → raw_data_buffer.clear() + melspectrogram_buffer sıfırla
+# Reset sonrası 1.2 sn warmup (RESET_WARMUP_CHUNKS chunk) otomatik uygulanır.
+RESET_INTERVAL_SECONDS  = int(os.environ.get("SADIK_WW_RESET_INTERVAL", "1800"))  # default: 30 dk
+RESET_QUIET_SCORE_MAX   = float(os.environ.get("SADIK_WW_RESET_QUIET_MAX", "0.05"))  # bu eşiğin altında "sessiz" sayılır
+RESET_QUIET_WINDOW      = int(os.environ.get("SADIK_WW_RESET_QUIET_WINDOW", "150"))   # son N frame (150 × 80ms ≈ 12 sn)
+RESET_WARMUP_CHUNKS     = 15  # reset sonrası warmup frame sayısı (start_listening ile aynı)
+
 
 class WakeWordDetector:
     def __init__(self):
@@ -32,6 +43,9 @@ class WakeWordDetector:
         # Runtime-tunable params (hot-reload via set_threshold / set_gain)
         self._threshold  = DEFAULT_THRESHOLD
         self._input_gain = DEFAULT_INPUT_GAIN
+        # Periyodik reset state
+        self._last_reset_time: float = 0.0
+        self._recent_scores: collections.deque = collections.deque(maxlen=RESET_QUIET_WINDOW)
 
     # ------------------------------------------------------------------
     # Model yükleme (uygulama başlangıcında çağrılır)
@@ -100,6 +114,8 @@ class WakeWordDetector:
         self._warmup_remaining = 15   # 15 chunks × 80 ms ≈ 1.2 s
         self._debug_counter    = 0
         self._keys_logged      = False
+        self._last_reset_time  = time.monotonic()
+        self._recent_scores.clear()
         # Clear model history so prior-session audio doesn't leak into the
         # first fresh prediction and cause a false positive.
         try:
@@ -220,6 +236,9 @@ class WakeWordDetector:
         # Diagnostic buffer'a ekle
         _diag_buffer.append((rms, score))
 
+        # Periyodik reset: recent_scores sliding window'a ekle
+        self._recent_scores.append(score)
+
         # Her ~1 sn'de bir en yüksek skoru logla (~12 chunk/sn)
         self._debug_counter += 1
         if self._debug_counter % 50 == 0:
@@ -227,6 +246,36 @@ class WakeWordDetector:
                          rms, score, self._input_gain, self._threshold)
         if score > 0.1 or self._debug_counter % 25 == 0:
             logger.info("[WakeWord] score=%.3f rms=%.4f", score, rms)
+
+        # --- Periyodik model.reset() (MemoryError önleme) ---
+        now = time.monotonic()
+        if (now - self._last_reset_time) >= RESET_INTERVAL_SECONDS:
+            # Sadece "sessiz" dönemde resetle; aktif konuşma/wake-word yakınında resetleme.
+            window_max = max(self._recent_scores) if self._recent_scores else 0.0
+            if window_max < RESET_QUIET_SCORE_MAX:
+                try:
+                    elapsed = now - self._last_reset_time
+                    self._model.reset()
+                    self._warmup_remaining = RESET_WARMUP_CHUNKS
+                    self._last_reset_time  = now
+                    logger.info(
+                        "[WakeWord] Periyodik model.reset() yapıldı "
+                        "(elapsed=%.0fs, window_max_score=%.4f) — warmup %d chunk",
+                        elapsed,
+                        window_max,
+                        RESET_WARMUP_CHUNKS,
+                    )
+                except Exception as exc:
+                    logger.warning("[WakeWord] model.reset() başarısız: %s", exc)
+                    self._last_reset_time = now  # bir sonraki interval'e kadar tekrar deneme
+            else:
+                # Sessiz değil — reset'i 60 sn ertele
+                self._last_reset_time = now - RESET_INTERVAL_SECONDS + 60
+                logger.debug(
+                    "[WakeWord] Periyodik reset ertelendi — window_max_score=%.4f (eşik=%.4f)",
+                    window_max, RESET_QUIET_SCORE_MAX,
+                )
+
         return score >= self._threshold
 
 

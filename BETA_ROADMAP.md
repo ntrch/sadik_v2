@@ -142,7 +142,7 @@
 - ✅ T1.3 frontend tool indicator (TR label, animate-pulse)
 - ✅ T1.4 proaktif regression — 1 bug fix + 4 telemetry log
 - ⏸️ T1.5 wake-word 48h monitoring — gerçek kullanıma ertelendi (beta'da gözlemlenir)
-- ⏸️ T1.6 memory leak testi — gerçek kullanıma ertelendi
+- ✅ T1.6 memory leak fix — periyodik model.reset() eklendi (wake_word_service.py)
 - **Sprint 2 + ara bug'lar tamamlandı ✅**
   - Ara fix: STT halüsinasyon (RMS gate 0.005 + temperature=0 + 21 TR blacklist)
   - Ara fix: Text input focus (VoiceAssistant wakeWordPending/Escape handler'lara `isInputFocused()` guard)
@@ -252,7 +252,7 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
   - 7 senaryonun tamamı call-chain ile trace edildi, hepsi ✅ logical test pass
   - Manual test prosedürü rapor içinde detaylı
 - [DEFERRED-REAL-USE] **T1.5** Wake-word 48h monitoring — gerçek kullanım gerektirir, beta sürecinde gözlemlenir
-- [DEFERRED-REAL-USE] **T1.6** Long-session memory leak testi — gerçek kullanım gerektirir, beta sürecinde gözlemlenir
+- ✅ **T1.6** Long-session memory leak — fix uygulandı: periyodik model.reset() (her 30 dk, sessiz pencerede); wake_word_service.py güncellendi
 
 **Exit criteria:** Voice ile "bugün teslim edeceğim task'lar ne?" soruldu → TTS cevap verdi + listing doğru. Proaktif 7 senaryo ✅.
 
