@@ -565,6 +565,22 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 
 ---
 
+### Mini firmware + app: heartbeat / authority / sleep refactor ✅ (2026-05-05)
+
+- [x] **Converter natural-sort**: Bug yok — json-to-clip-header.js frame dizinleri JSON array sırasında `frame_0..N` olarak üretir, filename glob sıralaması yok.
+- [x] **boot.cpp blocking animation**: Text splash (`drawTwoLineText`/`drawText`/delay) kaldırıldı; 60 frame × 12fps = 5s boot clip bloklamalı oynar, sonra `SADIK:READY`.
+- [x] **Authority state machine** (firmware): `Authority { AUTHORITY_APP, AUTHORITY_LOCAL }` enum. `enterLocalAuthority()` + `enterAppAuthority()` fonksiyonları. `appConnected` bool → `currentAuthority` enum'a dönüştürüldü.
+- [x] **Heartbeat / cable-pull detect** (firmware): App her 1s PING gönderir. `lastPingMs` + `pingEverReceived` guard. `HEARTBEAT_TIMEOUT_MS=3000` geçince → `enterLocalAuthority("HEARTBEAT_TIMEOUT")`.
+- [x] **SCREEN_SLEEP komutu** (firmware): `CMD_SCREEN_SLEEP` işlendi — `return_to_idle` animasyonu bloklamalı oynar, display OFF. `FORCE_SLEEP`'ten ayrıldı.
+- [x] **LOCAL authority sleep döngüsü** (firmware): 10 dk inactivity → `return_to_idle` → sleep. 30 dk uyku → `wakeup` → 10 dk aktif pencere → tekrar sleep. Loop `config.h`'daki sabitlerle (`LOCAL_SLEEP_TIMEOUT_MS`, `LOCAL_WAKE_CYCLE_MS`, `LOCAL_WAKE_ACTIVE_MS`).
+- [x] **Sleep timeout default 5 dk**: Firmware `sleepTimeoutMs=300000UL`, app `useState(5)`, backend `DEFAULT_SETTINGS "5"`, privacy purge default `"5"`.
+- [x] **PING heartbeat interval** (app): Mini cihaz bağlıyken her 1s `PING` komutu gönderilir.
+- [x] **App-level inactivity tracker** (app): `lastAppActivityMsRef` + 10s interval. Aktivite kaynakları: chat input, voice input (processAudio), TTS start (assistant_speaking), wakeword trigger, proactive TTS (speakProactive), Pomodoro timer_tick. Threshold dolunca `SCREEN_SLEEP` gönderilir (FORCE_SLEEP değil).
+- [x] **Canvas freeze fix** (app): USB disconnect anında `bufferRef.current = new Uint8Array(1024)` + `setFrameVersion(v+1)` → preview temizlenir.
+- **Flash gerekli**: `pio run -e esp32-wroom32 --target upload`
+
+---
+
 ### Sprint 8: Closed beta launch
 **Amaç:** 3 arkadaşa + sonra 10-20 tester'a dağıt.
 
