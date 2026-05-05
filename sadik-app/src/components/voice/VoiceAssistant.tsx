@@ -228,6 +228,7 @@ export default function VoiceAssistant() {
     selectedAudioInputDeviceId,
     selectedAudioOutputDeviceId,
     setVoiceAssistantActive,
+    markAppActivity,
   } = useContext(AppContext);
 
   // Refs for device IDs — always current, safe inside async callbacks without deps.
@@ -593,6 +594,7 @@ export default function VoiceAssistant() {
   // never has an opportunity to return to idle between the two events.
 
   const processAudio = useCallback(async (blob: Blob, signal: AbortSignal) => {
+    markAppActivity();   // voice input = user activity
     setVoiceState('processing');
     triggerEvent('processing');   // thinking — loops until understanding_resolved
 
@@ -764,6 +766,7 @@ export default function VoiceAssistant() {
           // Small lead-in so the clip has time to register before speaking starts.
           setTimeout(() => {
             if (signal.aborted) return;
+            markAppActivity();   // TTS start = activity
             setVoiceState('speaking');
             triggerEvent('assistant_speaking');
             if (!continuousConversationRef.current) resumeWakeWord();

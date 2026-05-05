@@ -114,6 +114,11 @@ export function useAnimationEngine(
         stableClipTimerRef.current = null;
       }
       stableClipCandidateRef.current = null;
+
+      // Canvas freeze fix: clear the preview buffer on USB disconnect so the
+      // canvas doesn't hold the last streamed frame indefinitely.
+      bufferRef.current = new Uint8Array(1024);
+      setFrameVersion((v) => v + 1);
     }
   }, [deviceConnected]);
 

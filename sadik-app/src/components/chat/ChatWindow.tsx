@@ -24,7 +24,7 @@ export default function ChatWindow() {
   const [typing, setTyping] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const returnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { showToast, triggerEvent, returnToIdle } = useContext(AppContext);
+  const { showToast, triggerEvent, returnToIdle, markAppActivity } = useContext(AppContext);
 
   useEffect(() => {
     chatApi.getHistory().then(setMessages).catch(() => {});
@@ -38,6 +38,7 @@ export default function ChatWindow() {
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || loading) return;
+    markAppActivity();   // chat input = user activity
     setInput('');
     setLoading(true);
 

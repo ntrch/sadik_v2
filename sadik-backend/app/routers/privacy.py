@@ -48,7 +48,7 @@ DEFAULT_SETTINGS = {
     "user_name": "",
     "greeting_style": "dostum",
     "oled_brightness_percent": "70",
-    "oled_sleep_timeout_minutes": "10",
+    "oled_sleep_timeout_minutes": "5",
     "close_to_tray": "true",
     "proactive_suggestions_enabled": "true",
     "proactive_quiet_hours_start": "23:00",

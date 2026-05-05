@@ -146,6 +146,9 @@ interface AppContextType {
   debugTestTTS: (text?: string) => void;
   debugResetCounters: () => void;
   debugSimulateInsight: (appName: string, minutes: number) => void;
+  // App-level inactivity: reset the sleep countdown.
+  // Call on any user-visible interaction (chat send, voice input, manual UI click).
+  markAppActivity: () => void;
 }
 
 const defaultPomodoroState: PomodoroState = {
@@ -184,7 +187,7 @@ export const AppContext = createContext<AppContextType>({
   autoConnectDevice: async () => {},
   oledBrightnessPercent: 70,
   setOledBrightness: async () => {},
-  oledSleepTimeoutMinutes: 10,
+  oledSleepTimeoutMinutes: 5,
   setOledSleepTimeout: async () => {},
   pomodoroState: defaultPomodoroState,
   setPomodoroState: () => {},
@@ -266,6 +269,7 @@ export const AppContext = createContext<AppContextType>({
   debugTestTTS: () => {},
   debugResetCounters: () => {},
   debugSimulateInsight: () => {},
+  markAppActivity: () => {},
 });
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -278,9 +282,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const oledBrightnessRef = useRef(70);
   oledBrightnessRef.current = oledBrightnessPercent;
 
-  const [oledSleepTimeoutMinutes, setOledSleepTimeoutMinutes] = useState(10);
-  const oledSleepTimeoutRef = useRef(10);
+  const [oledSleepTimeoutMinutes, setOledSleepTimeoutMinutes] = useState(5);
+  const oledSleepTimeoutRef = useRef(5);
   oledSleepTimeoutRef.current = oledSleepTimeoutMinutes;
+
+  // ── App-level inactivity tracker ────────────────────────────────────────────
+  // Tracks the last time a meaningful app event occurred.  When the elapsed time
+  // exceeds oledSleepTimeoutMinutes * 60 s, we send SCREEN_SLEEP to the device.
+  // This is independent of the system-idle (sadikElectron.onIdleTick) path which
+  // is kept as a legacy fallback for non-mini variants.
+  const lastAppActivityMsRef = useRef<number>(Date.now());
 
   const [wakeWordEnabled,     setWakeWordEnabled]     = useState(false);
   const [wakeWordActive,      setWakeWordActive]      = useState(false);
@@ -537,6 +548,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       () => {
         setWakeWordPending(true);
         triggerEvent('wake_word_detected');
+        lastAppActivityMsRef.current = Date.now();  // wakeword = user activity
       },
       (msg) => {
         console.warn('[WakeWord] Error:', msg);
@@ -788,40 +800,87 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try { (window as any).electronAPI?.setDnd?.(v); } catch { /* best-effort */ }
   }, []);
 
-  // ── OLED burn-in protection — idle detection ───────────────────────────────
+  // ── OLED burn-in protection — app-level inactivity tracker ───────────────────
   //
   // Authority model:
-  //   • App connected  → app is authority; use user's oled_sleep_timeout_minutes
-  //                       to decide when to pause frame streaming + FORCE_SLEEP.
-  //   • App disconnected → firmware is authority; it handles sleep on its own
-  //                         (via CMD_SET_SLEEP_TIMEOUT sent on reconnect). We
-  //                         take no action here.
+  //   • App connected (mini)  → app is authority; track app-level activity events
+  //                              (chat input, voice, wakeword, TTS, proactive sweep,
+  //                              manual UI click). After oled_sleep_timeout_minutes
+  //                              of inactivity, send SCREEN_SLEEP (plays return_to_idle
+  //                              animation then powers display off).
+  //   • App disconnected → firmware LOCAL authority handles sleep autonomously.
   // timeout = 0 means "disabled" (never auto-sleep).
-  const isIdleRef = useRef(false);
+  //
+  // markAppActivity() is called by all relevant event sources throughout AppContext.
+  const isScreenSleepingRef = useRef(false);
   const connectedRef = useRef(false);
   connectedRef.current = deviceStatus.connected;
+  const deviceVariantConnectedRef = useRef<'mini' | 'color' | null>(null);
+
+  // markAppActivity: reset the inactivity clock. Call at every user-initiated action.
+  const markAppActivity = useCallback(() => {
+    lastAppActivityMsRef.current = Date.now();
+    // If the screen was sleeping, wake it by resuming frame streaming.
+    if (isScreenSleepingRef.current) {
+      isScreenSleepingRef.current = false;
+      getAnimationEngine().setStreamingEnabled(true);
+      console.log('[AppInactivity] Wake — resuming frame stream');
+    }
+  }, []);
+
+  // Keep deviceVariantConnectedRef in sync.
   useEffect(() => {
-    (window as any).sadikElectron?.onIdleTick?.(({ idleSeconds }: { idleSeconds: number }) => {
+    deviceVariantConnectedRef.current = deviceStatus.connected ? deviceVariant : null;
+  }, [deviceStatus.connected, deviceVariant]);
+
+  // App-level inactivity check interval (runs every 10 s).
+  useEffect(() => {
+    const id = setInterval(() => {
       if (!connectedRef.current) return;
+      if (deviceVariantConnectedRef.current !== 'mini') return;
       const timeoutMin = oledSleepTimeoutRef.current;
       if (timeoutMin <= 0) {
-        if (isIdleRef.current) {
-          isIdleRef.current = false;
+        if (isScreenSleepingRef.current) {
+          isScreenSleepingRef.current = false;
           getAnimationEngine().setStreamingEnabled(true);
         }
         return;
       }
-      const threshold = timeoutMin * 60;
-      const shouldIdle = idleSeconds >= threshold;
-      if (shouldIdle && !isIdleRef.current) {
-        isIdleRef.current = true;
-        console.log(`[BurnIn] Idle ${idleSeconds}s ≥ ${threshold}s — pausing stream + FORCE_SLEEP`);
+      const thresholdMs = timeoutMin * 60 * 1000;
+      const elapsedMs   = Date.now() - lastAppActivityMsRef.current;
+      if (elapsedMs >= thresholdMs && !isScreenSleepingRef.current) {
+        isScreenSleepingRef.current = true;
+        console.log(`[AppInactivity] Inactive ${Math.round(elapsedMs / 1000)}s ≥ ${timeoutMin * 60}s — SCREEN_SLEEP`);
         getAnimationEngine().setStreamingEnabled(false);
+        deviceApi.sendCommand('SCREEN_SLEEP').catch(() => {});
+      }
+    }, 10_000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // PING heartbeat interval: send PING every 1 s while mini device is connected.
+  useEffect(() => {
+    if (!deviceStatus.connected) return;
+    if (deviceVariant !== 'mini') return;
+    const id = setInterval(() => {
+      deviceApi.sendCommand('PING').catch(() => {});
+    }, 1000);
+    return () => clearInterval(id);
+  }, [deviceStatus.connected, deviceVariant]);
+
+  // Legacy system-idle fallback (non-mini or future).
+  useEffect(() => {
+    (window as any).sadikElectron?.onIdleTick?.(({ idleSeconds }: { idleSeconds: number }) => {
+      // Only applies when mini inactivity tracker is NOT running (non-mini or disconnected).
+      if (connectedRef.current && deviceVariantConnectedRef.current === 'mini') return;
+      if (!connectedRef.current) return;
+      const timeoutMin = oledSleepTimeoutRef.current;
+      if (timeoutMin <= 0) return;
+      const threshold = timeoutMin * 60;
+      if (idleSeconds >= threshold) {
+        console.log(`[BurnIn][legacy] Idle ${idleSeconds}s ≥ ${threshold}s — FORCE_SLEEP`);
         deviceApi.sendCommand('FORCE_SLEEP').catch(() => {});
-      } else if (!shouldIdle && isIdleRef.current) {
-        isIdleRef.current = false;
-        console.log('[BurnIn] User returned — resuming frame stream');
-        getAnimationEngine().setStreamingEnabled(true);
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -971,6 +1030,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Show the talking animation (same one used during voice assistant TTS)
       // while the proactive suggestion plays, instead of the static MOLA text.
       getAnimationEngine().triggerEvent('assistant_speaking');
+      lastAppActivityMsRef.current = Date.now();  // proactive TTS = activity
 
       audio.onended = () => {
         URL.revokeObjectURL(url);
@@ -1877,7 +1937,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const sensitivity          = s['wake_word_sensitivity'] ?? 'normal';
         const continuous           = s['continuous_conversation'] === 'true';
         const brightness           = parseInt(s['oled_brightness_percent'] ?? '70', 10);
-        const sleepTimeout         = parseInt(s['oled_sleep_timeout_minutes'] ?? '10', 10);
+        const sleepTimeout         = parseInt(s['oled_sleep_timeout_minutes'] ?? '5', 10);
         wakeWordEnabledRef.current       = enabled;
         wakeWordSensitivityRef.current   = sensitivity;
         continuousConversationRef.current = continuous;
@@ -2074,10 +2134,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const mins = Math.floor(remaining / 60).toString().padStart(2, '0');
             const secs = (remaining % 60).toString().padStart(2, '0');
             showText(`${mins}:${secs}`);
+            lastAppActivityMsRef.current = Date.now();  // running timer = activity
           } else if (isRunning && isWorkPhase) {
             const mins = Math.floor(remaining / 60).toString().padStart(2, '0');
             const secs = (remaining % 60).toString().padStart(2, '0');
             showText(`${mins}:${secs}`);
+            lastAppActivityMsRef.current = Date.now();  // running timer = activity
           }
           break;
         }
@@ -2411,6 +2473,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         debugTestTTS,
         debugResetCounters,
         debugSimulateInsight,
+        markAppActivity,
       }}
     >
       {children}
