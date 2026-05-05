@@ -119,15 +119,6 @@ export default function FeedbackModal({ onClose }: Props) {
 
   return (
     <>
-      {/* Capture loader — visible while modal is hidden for screenshot */}
-      {isHiddenForCapture && (
-        <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-[9999]">
-          <div className="bg-black/60 text-white px-4 py-2 rounded-md text-sm">
-            Ekran görüntüsü alınıyor...
-          </div>
-        </div>
-      )}
-
       {/* Backdrop */}
       <div
         className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
