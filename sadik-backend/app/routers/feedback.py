@@ -1,7 +1,6 @@
 import base64
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from html import escape
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -12,65 +11,56 @@ from app.schemas.feedback import FeedbackSubmit, FeedbackResponse
 router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 logger = logging.getLogger(__name__)
 
-_TYPE_COLORS = {
-    "bug": 0xEF4444,
-    "suggestion": 0x3B82F6,
-    "feature": 0x3B82F6,
-    "praise": 0x10B981,
-}
-_DEFAULT_COLOR = 0x6B7280
 
-
-def _build_embed(body: FeedbackSubmit) -> dict:
-    description = body.body[:4000]
-    fields = []
+def _build_message(body: FeedbackSubmit) -> str:
+    lines = [f"<b>Feedback: {body.type}</b>", ""]
+    lines.append(escape(body.body))
+    lines.append("")
     if body.app_version:
-        fields.append({"name": "App Version", "value": body.app_version, "inline": True})
+        lines.append(f"<b>App Version:</b> {escape(body.app_version)}")
     if body.os_info:
-        fields.append({"name": "OS Info", "value": body.os_info, "inline": True})
+        lines.append(f"<b>OS:</b> {escape(body.os_info)}")
     if body.current_page:
-        fields.append({"name": "Current Page", "value": body.current_page, "inline": True})
-
-    return {
-        "title": f"Feedback: {body.type}",
-        "description": description,
-        "color": _TYPE_COLORS.get(body.type, _DEFAULT_COLOR),
-        "fields": fields,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+        lines.append(f"<b>Page:</b> {escape(body.current_page)}")
+    return "\n".join(lines)
 
 
 @router.post("", response_model=FeedbackResponse)
 async def submit_feedback(body: FeedbackSubmit) -> FeedbackResponse:
-    webhook_url = settings.discord_feedback_webhook
-    if not webhook_url:
-        logger.error("DISCORD_FEEDBACK_WEBHOOK is not configured")
+    bot_token = settings.telegram_bot_token
+    chat_id = settings.telegram_chat_id
+    if not bot_token or not chat_id:
+        logger.error("TELEGRAM_BOT_TOKEN/CHAT_ID is not configured")
         raise HTTPException(status_code=503, detail="Feedback servisi yapılandırılmamış")
 
-    embed = _build_embed(body)
-    payload_json = {"embeds": [embed]}
+    message_html = _build_message(body)
+    base_url = f"https://api.telegram.org/bot{bot_token}"
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             if body.screenshot_base64:
+                # Telegram caption max 1024 chars
+                caption = message_html[:1024]
                 image_bytes = base64.b64decode(body.screenshot_base64)
                 response = await client.post(
-                    webhook_url,
-                    data={"payload_json": __import__("json").dumps(payload_json)},
-                    files={"files[0]": ("screenshot.png", image_bytes, "image/png")},
+                    f"{base_url}/sendPhoto",
+                    data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
+                    files={"photo": ("screenshot.png", image_bytes, "image/png")},
                 )
             else:
-                response = await client.post(webhook_url, json=payload_json)
+                response = await client.post(
+                    f"{base_url}/sendMessage",
+                    json={"chat_id": chat_id, "text": message_html, "parse_mode": "HTML"},
+                )
 
         if response.is_success:
-            logger.info("Feedback forwarded to Discord: type=%s", body.type)
+            logger.info("Feedback forwarded to Telegram: type=%s", body.type)
             return FeedbackResponse(id=0, ok=True)
 
-        logger.error("Discord webhook returned %s: %s", response.status_code, response.text)
+        logger.error("Telegram API returned %s: %s", response.status_code, response.text)
         raise HTTPException(status_code=503, detail="Feedback gönderilemedi")
-
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Discord webhook error: %s", exc)
+        logger.error("Telegram API error: %s", exc)
         raise HTTPException(status_code=503, detail="Feedback gönderilemedi")

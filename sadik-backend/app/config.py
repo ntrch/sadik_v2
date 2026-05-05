@@ -39,8 +39,9 @@ class Settings(BaseSettings):
     stripe_success_url: str = "http://localhost:8000/api/billing/checkout-complete"
     stripe_cancel_url: str = "http://localhost:8000/api/billing/checkout-cancel"
 
-    # Discord webhook for user feedback forwarding — set in .env.
-    discord_feedback_webhook: str = ""
+    # Telegram Bot for user feedback forwarding — set in .env.
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
 
     class Config:
         env_file = ".env"
