@@ -47,6 +47,7 @@ export default function FeedbackModal({ onClose }: Props) {
   const [screenshotEnabled, setScreenshotEnabled] = useState(false);
   const [screenshotBase64, setScreenshotBase64] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isHiddenForCapture, setIsHiddenForCapture] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,11 +70,23 @@ export default function FeedbackModal({ onClose }: Props) {
       setScreenshotBase64(null);
       return;
     }
-    setIsCapturing(true);
-    captureScreenshot().then((b64) => {
-      setScreenshotBase64(b64);
-      setIsCapturing(false);
-    });
+    let cancelled = false;
+    (async () => {
+      setIsCapturing(true);
+      setIsHiddenForCapture(true);
+      try {
+        await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+        await new Promise(r => setTimeout(r, 80));
+        const b64 = await captureScreenshot();
+        if (!cancelled) setScreenshotBase64(b64);
+      } finally {
+        if (!cancelled) {
+          setIsHiddenForCapture(false);
+          setIsCapturing(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
   }, [screenshotEnabled]);
 
   const showToast = useCallback((message: string, ok: boolean) => {
@@ -106,11 +119,21 @@ export default function FeedbackModal({ onClose }: Props) {
 
   return (
     <>
+      {/* Capture loader — visible while modal is hidden for screenshot */}
+      {isHiddenForCapture && (
+        <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-[9999]">
+          <div className="bg-black/60 text-white px-4 py-2 rounded-md text-sm">
+            Ekran görüntüsü alınıyor...
+          </div>
+        </div>
+      )}
+
       {/* Backdrop */}
       <div
         className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
+        style={{ visibility: isHiddenForCapture ? 'hidden' : undefined }}
       />
 
       {/* Modal panel */}
@@ -119,6 +142,7 @@ export default function FeedbackModal({ onClose }: Props) {
         aria-modal="true"
         aria-label="Geri Bildirim Gönder"
         className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+        style={{ visibility: isHiddenForCapture ? 'hidden' : undefined }}
       >
         <div
           className="pointer-events-auto w-full max-w-lg bg-bg-card border border-border rounded-card shadow-card flex flex-col animate-fade-in"
