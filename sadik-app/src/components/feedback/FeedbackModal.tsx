@@ -124,7 +124,7 @@ export default function FeedbackModal({ onClose }: Props) {
         className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
-        style={{ visibility: isHiddenForCapture ? 'hidden' : undefined }}
+        style={{ display: isHiddenForCapture ? 'none' : undefined }}
       />
 
       {/* Modal panel */}
@@ -133,7 +133,7 @@ export default function FeedbackModal({ onClose }: Props) {
         aria-modal="true"
         aria-label="Geri Bildirim Gönder"
         className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
-        style={{ visibility: isHiddenForCapture ? 'hidden' : undefined }}
+        style={{ display: isHiddenForCapture ? 'none' : undefined }}
       >
         <div
           className="pointer-events-auto w-full max-w-lg bg-bg-card border border-border rounded-card shadow-card flex flex-col animate-fade-in"
