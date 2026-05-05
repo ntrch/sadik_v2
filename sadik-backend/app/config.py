@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     stripe_success_url: str = "http://localhost:8000/api/billing/checkout-complete"
     stripe_cancel_url: str = "http://localhost:8000/api/billing/checkout-cancel"
 
+    # Discord webhook for user feedback forwarding — set in .env.
+    discord_feedback_webhook: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -12,5 +12,5 @@ class FeedbackSubmit(BaseModel):
 
 
 class FeedbackResponse(BaseModel):
-    id: int
+    id: int = 0
     ok: bool
