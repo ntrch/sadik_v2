@@ -594,14 +594,14 @@ void loop() {
         currentMode != MODE_BOOT) {
 
         unsigned long elapsed = millis() - lastActivityMs;
-        if (elapsed >= LOCAL_SLEEP_TIMEOUT_MS) {
+        if (elapsed >= sleepTimeoutMs) {
             const char* modeStr =
                 (currentMode == MODE_IDLE) ? "IDLE" :
                 (currentMode == MODE_TEXT) ? "TEXT" : "UNKNOWN";
             char trigBuf[96];
             snprintf(trigBuf, sizeof(trigBuf),
                      "DEBUG:SLEEP_TRIGGER elapsed=%lu timeout=%lu mode=%s auth=LOCAL",
-                     elapsed, LOCAL_SLEEP_TIMEOUT_MS, modeStr);
+                     elapsed, sleepTimeoutMs, modeStr);
             Serial.println(trigBuf);
 
             // Play return_to_idle animation before sleeping (blocking).

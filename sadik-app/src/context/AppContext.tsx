@@ -850,9 +850,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const elapsedMs   = Date.now() - lastAppActivityMsRef.current;
       if (elapsedMs >= thresholdMs && !isScreenSleepingRef.current) {
         isScreenSleepingRef.current = true;
-        console.log(`[AppInactivity] Inactive ${Math.round(elapsedMs / 1000)}s ≥ ${timeoutMin * 60}s — SCREEN_SLEEP`);
-        getAnimationEngine().setStreamingEnabled(false);
-        deviceApi.sendCommand('SCREEN_SLEEP').catch(() => {});
+        console.log(`[AppInactivity] Inactive ${Math.round(elapsedMs / 1000)}s ≥ ${timeoutMin * 60}s — playing return_to_idle then SCREEN_SLEEP`);
+        // Play return_to_idle clip fully before sleeping so the animation is visible.
+        // setStreamingEnabled(false) is called in the onFinish callback after the clip ends.
+        getAnimationEngine().playModIntroOnce('return_to_idle', () => {
+          getAnimationEngine().setStreamingEnabled(false);
+          deviceApi.sendCommand('SCREEN_SLEEP').catch(() => {});
+        });
       }
     }, 10_000);
     return () => clearInterval(id);
@@ -862,7 +866,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // PING heartbeat interval: send PING every 1 s while mini device is connected.
   useEffect(() => {
     if (!deviceStatus.connected) return;
-    if (deviceVariant !== 'mini') return;
+    if (deviceVariant !== 'mini') return; // null=startup race fence (device_profile WS henüz gelmedi); 'color'=heartbeat/authority protokolü farklı
     const id = setInterval(() => {
       deviceApi.sendCommand('PING').catch(() => {});
     }, 1000);

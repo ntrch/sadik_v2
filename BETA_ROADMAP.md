@@ -579,6 +579,12 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 - [x] **Canvas freeze fix** (app): USB disconnect anında `bufferRef.current = new Uint8Array(1024)` + `setFrameVersion(v+1)` → preview temizlenir.
 - **Flash gerekli**: `pio run -e esp32-wroom32 --target upload`
 
+#### Post-release fixes ✅ (2026-05-09)
+- [x] **A1 — Firmware dynamic sleep timeout**: `main.cpp` satır 597'de LOCAL authority sleep check `LOCAL_SLEEP_TIMEOUT_MS` (hardcoded 600000UL=10dk) yerine `sleepTimeoutMs` dinamik değişkenini kullanıyor. SET_SLEEP_TIMEOUT_MS WS komutu artık gerçekten etki ediyor.
+- [x] **A2 — Pump variant guard buffer burst fix**: `useAnimationEngine.ts` pump loop'unda `deviceVariant !== 'mini'` guard içinde `latestPendingBuffer.current = null` yapılıyor. Variant confirmed olana kadar frame birikmiyor → queue patlaması (500+ drop burst, 7s freeze) ortadan kalktı.
+- [x] **A3 — return_to_idle before SCREEN_SLEEP**: App inactivity handler sleep göndermeden önce `playModIntroOnce('return_to_idle', callback)` ile animasyonu tam oynatıyor, callback'te `setStreamingEnabled(false)` + `SCREEN_SLEEP` gönderiliyor.
+- [x] **A4 — PING guard comment**: `AppContext.tsx` satır 865'teki `if (deviceVariant !== 'mini') return` satırına startup race fence / color authority açıklaması eklendi.
+
 ---
 
 ### Sprint 8: Closed beta launch

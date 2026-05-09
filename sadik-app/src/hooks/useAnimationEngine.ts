@@ -178,6 +178,9 @@ export function useAnimationEngine(
         // null/'unknown' → variant not yet resolved; hold off to avoid sending frames
         //   to a color device before the device_profile WS arrives (race condition fix).
         if (deviceVariantRef.current !== 'mini') {
+          // Variant not yet confirmed (null=startup race) or color device.
+          // Discard any buffered frame so queue doesn't burst when variant resolves.
+          latestPendingBuffer.current = null;
           await new Promise((r) => setTimeout(r, 30));
           continue;
         }
