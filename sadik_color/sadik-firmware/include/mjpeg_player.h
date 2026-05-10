@@ -99,12 +99,35 @@ private:
     static bool _tjpg_cb(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) {
         s_cb_count++;
         if (!s_active_tft) return false;
-        if (y >= 128) return true;
-        // SPI-CHAIN PROOF: paint each MCU as solid white. If the screen turns
-        // white during playback the TFT pipeline is alive and the issue lies
-        // in pixel format / bitmap content. If the screen stays dark, SPI/TFT
-        // path itself is broken.
-        s_active_tft->fillRect(x, y, w, h, 0xFFFF);
+        // Clip to display bounds (160×128 landscape).
+        if (x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT) return true;
+        int16_t cx = x, cy = y;
+        uint16_t cw = w, ch = h;
+        if (cx < 0) { cw += cx; bitmap -= cx; cx = 0; }  // left clip
+        if (cy < 0) { ch += cy; bitmap -= cy * w; cy = 0; } // top clip (rare)
+        if (cx + (int16_t)cw > DISPLAY_WIDTH)  cw = DISPLAY_WIDTH  - cx;
+        if (cy + (int16_t)ch > DISPLAY_HEIGHT) ch = DISPLAY_HEIGHT - cy;
+        if (cw == 0 || ch == 0) return true;
+
+        // TJpgDec with swap=false outputs RGB565 big-endian (MSB = R bits).
+        // Adafruit writePixels(bigEndian=true) sends the uint16 bytes as-is,
+        // which is correct for SPI panels that expect big-endian on the wire.
+        // If the image decodes but R↔B are swapped on screen, change
+        // TJpgDec.setSwapBytes(true) in begin() AND use bigEndian=false here.
+        s_active_tft->startWrite();
+        s_active_tft->setAddrWindow(cx, cy, cw, ch);
+        if (cw == w) {
+            // No horizontal clipping — pass the MCU row pointer directly.
+            s_active_tft->writePixels(bitmap + (cy - y) * w, cw * ch,
+                                       /*block=*/true, /*bigEndian=*/true);
+        } else {
+            // Horizontal clip: write row-by-row so the stride is correct.
+            for (uint16_t row = 0; row < ch; row++) {
+                s_active_tft->writePixels(bitmap + (cy - y + row) * w + (cx - x),
+                                           cw, /*block=*/true, /*bigEndian=*/true);
+            }
+        }
+        s_active_tft->endWrite();
         return true;
     }
 

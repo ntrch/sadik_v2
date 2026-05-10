@@ -106,6 +106,15 @@
 
 ---
 
+### Sprint-7 — MJPEG LittleFS render blocker (C1)
+
+**Exit criteria:** `PLAY:<clip>` komutu cihaza gelince gerçek piksel ekranda görünür.
+
+- [x] **C1a** `_tjpg_cb` stub (solid white fillRect) → gerçek pixel blit: `startWrite()` + `setAddrWindow()` + `writePixels(bigEndian=true)` + `endWrite()`. Sınır kırpma, `cx/cy < 0` guard eklendi. `TJpgDec.setSwapBytes(false)` kalıyor (big-endian out); `writePixels(bigEndian=true)` ile eşleşir. — DONE (`include/mjpeg_player.h` line 99-132)
+- [ ] **C1b** Hardware renk doğrulaması — R↔B swap görünürse `setSwapBytes(true)` + `bigEndian=false` ile düzelt.
+
+---
+
 ## 2. Bilinen kararlar (kilit)
 
 | # | Karar | Gerekçe |
