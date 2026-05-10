@@ -826,11 +826,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // markAppActivity: reset the inactivity clock. Call at every user-initiated action.
   const markAppActivity = useCallback(() => {
     lastAppActivityMsRef.current = Date.now();
-    // If the screen was sleeping, wake it by resuming frame streaming.
+    // If the screen was sleeping, wake it: resume frame streaming and tell firmware to wake.
     if (isScreenSleepingRef.current) {
       isScreenSleepingRef.current = false;
       getAnimationEngine().setStreamingEnabled(true);
-      console.log('[AppInactivity] Wake — resuming frame stream');
+      // Send RETURN_TO_IDLE so firmware wakes display and resumes idle loop.
+      // Fire-and-forget: connection may be in any state; best-effort.
+      if (connectedRef.current) {
+        deviceApi.sendCommand('RETURN_TO_IDLE').catch(() => {});
+      }
+      console.log('[AppInactivity] Wake — resuming frame stream + RETURN_TO_IDLE');
     }
   }, []);
 
@@ -2429,6 +2434,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     electronAPI.onAppFocusChanged((focused: boolean) => {
       if (!focused) return;
+
+      // BUG3 FIX: When window regains focus, wake the screen if it was sleeping.
+      // markAppActivity handles isScreenSleepingRef check + stream enable + firmware wake.
+      markAppActivity();
+
       const now = Date.now();
       if (now - focusSyncLastRef.current < 30_000) return;
       focusSyncLastRef.current = now;
@@ -2444,7 +2454,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })
         .catch(() => {});
     });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [markAppActivity]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <AppContext.Provider

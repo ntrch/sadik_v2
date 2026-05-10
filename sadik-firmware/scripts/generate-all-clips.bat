@@ -48,6 +48,9 @@ node "%CONV%" "%JSON_BASE%\core_character\confused.json"      "%OUT%\confused_cl
 node "%CONV%" "%JSON_BASE%\core_character\didnt_hear.json"    "%OUT%\didnt_hear_clip.h"    didnt_hear
 node "%CONV%" "%JSON_BASE%\core_character\error_soft.json"    "%OUT%\error_soft_clip.h"    error_soft
 node "%CONV%" "%JSON_BASE%\core_character\goodbye_to_idle.json" "%OUT%\goodbye_to_idle_clip.h" goodbye_to_idle
+node "%CONV%" "%JSON_BASE%\core_character\boot.json"           "%OUT%\boot_clip.h"           boot
+node "%CONV%" "%JSON_BASE%\core_character\wakeup.json"         "%OUT%\wakeup_clip.h"         wakeup
+node "%CONV%" "%JSON_BASE%\core_character\return_to_idle.json" "%OUT%\return_to_idle_clip.h" return_to_idle
 
 echo.
 echo ============================================================

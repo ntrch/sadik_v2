@@ -150,6 +150,36 @@
     "loop": false
   },
   {
+    "name": "boot",
+    "category": "core",
+    "source": "core_character/boot.json",
+    "frameCount": 60,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "wakeup",
+    "category": "core",
+    "source": "core_character/wakeup.json",
+    "frameCount": 36,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
+    "name": "return_to_idle",
+    "category": "core",
+    "source": "core_character/return_to_idle.json",
+    "frameCount": 12,
+    "width": 128,
+    "height": 64,
+    "fps": 12,
+    "loop": false
+  },
+  {
     "name": "mod_break",
     "category": "core",
     "source": "mods/break.json",

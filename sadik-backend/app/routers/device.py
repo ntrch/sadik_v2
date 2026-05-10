@@ -179,6 +179,18 @@ async def send_command(body: DeviceCommand):
             )
             return {"success": False, "error": "APP_CONNECTED rejected for unknown variant"}
 
+    # SCREEN_SLEEP is a blocking command on firmware (plays return_to_idle animation
+    # then powers display off — takes ~1 s).  Use send_command_and_read so the backend
+    # waits for the OK:SCREEN_SLEEP response and logs it, making the sleep confirmed.
+    if body.command == "SCREEN_SLEEP":
+        ok, response, error = await device_manager.send_command_and_read(body.command)
+        if response:
+            logger.info(f"Device command: SCREEN_SLEEP firmware response: {response!r}")
+        await ws_manager.broadcast({"type": "device_command", "data": {"command": body.command}})
+        if not ok:
+            return {"success": False, "error": error or "Failed to send SCREEN_SLEEP"}
+        return {"success": True}
+
     ok, error = await device_manager.send_command(body.command)
     await ws_manager.broadcast({"type": "device_command", "data": {"command": body.command}})
     if not ok:

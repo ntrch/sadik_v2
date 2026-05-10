@@ -22,6 +22,7 @@ enum CommandType {
     CMD_APP_CONNECTED,        // APP_CONNECTED   → app becomes animation authority
     CMD_APP_DISCONNECTED,     // APP_DISCONNECTED → firmware resumes autonomous idle
     CMD_FRAME_DATA,           // FRAME:<2048 hex chars> → raw 1024-byte frame for OLED
+    CMD_SCREEN_SLEEP,         // SCREEN_SLEEP → app-side 5-min inactivity; play return_to_idle then sleep
     CMD_UNKNOWN
 };
 
@@ -164,6 +165,9 @@ private:
 
         } else if (strcmp(_buf, "APP_DISCONNECTED") == 0) {
             _parsed.type = CMD_APP_DISCONNECTED;
+
+        } else if (strcmp(_buf, "SCREEN_SLEEP") == 0) {
+            _parsed.type = CMD_SCREEN_SLEEP;
 
         } else if (strncmp(_buf, "FRAME:", 6) == 0) {
             // Expect exactly 2048 hex characters after "FRAME:" → 1024 bytes
