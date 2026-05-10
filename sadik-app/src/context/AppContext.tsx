@@ -836,11 +836,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const loaded = engine.getLoadedClipNames();
       if (loaded.includes('wakeup')) {
         engine.playModIntroOnce('wakeup', () => {
-          engine.returnToIdle();
+          engine.triggerEvent('return_to_idle');
         });
       } else {
         console.warn('[AppInactivity] wakeup clip not loaded — skipping to idle');
-        engine.returnToIdle();
+        engine.triggerEvent('return_to_idle');
       }
       // Send RETURN_TO_IDLE so firmware wakes display.
       // Fire-and-forget: connection may be in any state; best-effort.
