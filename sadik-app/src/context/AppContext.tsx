@@ -819,6 +819,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   //
   // markAppActivity() is called by all relevant event sources throughout AppContext.
   const isScreenSleepingRef = useRef(false);
+  // Burnout sayacı SADECE window hidden (tray) iken çalışsın — window görünürken
+  // (kullanıcı app penceresine bakıyor olsun veya başka uygulamada olsun) sleep
+  // tetiklenmesin. Tray'e atınca false→true, geri açınca true→false.
+  const isWindowHiddenRef = useRef(false);
   const connectedRef = useRef(false);
   connectedRef.current = deviceStatus.connected;
   const deviceVariantConnectedRef = useRef<'mini' | 'color' | null>(null);
@@ -861,6 +865,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const id = setInterval(() => {
       if (!connectedRef.current) return;
       if (deviceVariantConnectedRef.current !== 'mini') return;
+      // Window görünürken sayacı sürekli reset et — sleep yalnızca tray'de tetiklensin.
+      if (!isWindowHiddenRef.current) {
+        lastAppActivityMsRef.current = Date.now();
+        return;
+      }
       const timeoutMin = oledSleepTimeoutRef.current;
       if (timeoutMin <= 0) {
         if (isScreenSleepingRef.current) {
@@ -2439,6 +2448,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .then((list) => { connectedIntegrationsRef.current = list.filter((i) => i.status === 'connected'); })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const electronAPI = (window as any).electronAPI;
+    if (electronAPI?.onWindowVisibilityChanged) {
+      electronAPI.onWindowVisibilityChanged((visible: boolean) => {
+        isWindowHiddenRef.current = !visible;
+        if (visible) {
+          // Tray'den geri açıldı — sayacı sıfırla ve sleep'tense uyandır.
+          lastAppActivityMsRef.current = Date.now();
+          markAppActivity();
+        }
+      });
+    }
+  }, [markAppActivity]);
 
   useEffect(() => {
     const electronAPI = (window as any).electronAPI;

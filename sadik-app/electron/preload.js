@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onAppFocusChanged: (callback) => {
     ipcRenderer.on('app-focus-changed', (_event, focused) => callback(focused));
   },
+  // Window visibility (hide/show — tray atılınca hide, tray'den geri açınca show).
+  // callback: (visible: boolean) => void
+  onWindowVisibilityChanged: (callback) => {
+    ipcRenderer.on('window-visibility-changed', (_event, visible) => callback(visible));
+  },
   // Returns a Promise<boolean> with the current focus state of the window.
   getFocusState: () => ipcRenderer.invoke('get-focus-state'),
   // Execute a workspace: runs each action sequentially (launch_app, open_url,

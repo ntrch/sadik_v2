@@ -1434,7 +1434,8 @@ Write-Output "OK"
 
   // ── Window lifecycle diagnostics ──────────────────────────────────────────
   win.once('ready-to-show', () => tlog('[SADIK] Window ready-to-show'));
-  win.on('show',        () => tlog('[SADIK] Window show'));
+  win.on('show',        () => { tlog('[SADIK] Window show'); win.webContents.send('window-visibility-changed', true); });
+  win.on('hide',        () => { tlog('[SADIK] Window hide'); win.webContents.send('window-visibility-changed', false); });
   win.on('focus',       () => { tlog('[SADIK] Window focus'); win.webContents.send('app-focus-changed', true); });
   win.on('blur',        () => { tlog('[SADIK] Window blur');  win.webContents.send('app-focus-changed', false); });
   win.on('closed',      () => tlog('[SADIK] Window closed'));
