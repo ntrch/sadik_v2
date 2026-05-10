@@ -248,15 +248,35 @@ async def lifespan(app: FastAPI):
 
     async def _usb_disconnect_monitor():
         import serial
+        # A2.3 backpressure fix: require N consecutive probe failures before
+        # declaring a disconnect.  A single write timeout during a frame burst
+        # can transiently close the port; one bad probe must not trigger a
+        # full disconnect broadcast and UI reset.
+        _PROBE_FAIL_THRESHOLD = 3
+        _probe_fail_streak = 0
         while True:
             try:
                 await asyncio.sleep(2.0)
                 # Only check when we believe a serial connection is active
                 if _dm_monitor._method != "serial":
+                    _probe_fail_streak = 0
                     continue
                 if not _ss_monitor.is_connected:
-                    # Port already closed — state mismatch; clean up and notify
-                    logger.warning("USB disconnect monitor: serial port closed unexpectedly")
+                    # Port already closed — state mismatch.
+                    # Require 3 consecutive "not connected" polls before declaring disconnect
+                    # to guard against transient backoff-induced closure races.
+                    _probe_fail_streak += 1
+                    if _probe_fail_streak < _PROBE_FAIL_THRESHOLD:
+                        logger.debug(
+                            f"USB disconnect monitor: port not connected "
+                            f"(streak={_probe_fail_streak}/{_PROBE_FAIL_THRESHOLD}) — waiting"
+                        )
+                        continue
+                    logger.warning(
+                        f"USB disconnect monitor: serial port closed unexpectedly "
+                        f"(confirmed after {_probe_fail_streak} consecutive checks)"
+                    )
+                    _probe_fail_streak = 0
                     _dm_monitor._method = None
                     _dm_monitor._port = None
                     _ss_monitor._serial = None
@@ -267,7 +287,8 @@ async def lifespan(app: FastAPI):
                     }})
                     await _ws_monitor.broadcast({"type": "device_profile", "data": {"line": None}})
                     continue
-                # Try a lightweight read to probe liveness; SerialException/OSError = disconnected
+                # Port looks connected — probe liveness via in_waiting.
+                # SerialException/OSError = USB physically disconnected.
                 # Bug 7 fix: also catch TypeError/AttributeError — Windows pyserial raises
                 # TypeError("byref() argument must be a ctypes instance, not 'NoneType'")
                 # when in_waiting is probed on an already-closed NULL handle.
@@ -279,8 +300,19 @@ async def lifespan(app: FastAPI):
                             raise serial.SerialException("port not open")
                         _ = s.in_waiting  # raises OSError/SerialException/TypeError if USB pulled
                     await loop.run_in_executor(None, _probe)
+                    # Successful probe — reset streak counter
+                    _probe_fail_streak = 0
                 except (serial.SerialException, OSError, TypeError, AttributeError) as exc:
-                    logger.warning(f"USB disconnect detected: {exc}")
+                    _probe_fail_streak += 1
+                    if _probe_fail_streak < _PROBE_FAIL_THRESHOLD:
+                        logger.debug(
+                            f"USB probe failed (streak={_probe_fail_streak}/{_PROBE_FAIL_THRESHOLD}): {exc}"
+                        )
+                        continue
+                    logger.warning(
+                        f"USB disconnect detected after {_probe_fail_streak} consecutive probe failures: {exc}"
+                    )
+                    _probe_fail_streak = 0
                     # Clean up state
                     try:
                         if _ss_monitor._serial and _ss_monitor._serial.is_open:

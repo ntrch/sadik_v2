@@ -324,37 +324,42 @@ class SerialService:
             )
             return False
 
-        loop = asyncio.get_event_loop()
-        try:
-            data = (command + "\n").encode("utf-8")
-            await loop.run_in_executor(None, self._serial.write, data)
-            # Success — reset consecutive fail counter.
-            self._write_fail_count = 0
-            return True
-        except Exception as e:
-            self._write_fail_count += 1
-            logger.error(
-                f"Serial send error (consecutive_fails={self._write_fail_count}): {e}"
-            )
-            # Apply per-failure backoff so callers cannot storm-write the port.
-            self._write_backoff_until = time.monotonic() + self._WRITE_BACKOFF_MS / 1000.0
-
-            if self._write_fail_count >= self._WRITE_MAX_FAILS:
-                logger.error(
-                    f"Serial write failed {self._write_fail_count} times in a row — "
-                    "closing port and triggering auto-reconnect path."
-                )
-                try:
-                    if self._serial and self._serial.is_open:
-                        self._serial.close()
-                except Exception:
-                    pass
-                self._serial = None
-                self._active_port = None
+        # A2.3 backpressure fix: acquire the same lock as send_and_read so that
+        # control commands (PING, APP_CONNECTED, etc.) never interleave with an
+        # in-flight frame exchange.  Without this, a PING write that arrives while
+        # send_and_read holds the lock would corrupt the RX stream (mixed responses).
+        async with self._lock:
+            loop = asyncio.get_event_loop()
+            try:
+                data = (command + "\n").encode("utf-8")
+                await loop.run_in_executor(None, self._serial.write, data)
+                # Success — reset consecutive fail counter.
                 self._write_fail_count = 0
-                self._write_backoff_until = 0.0
+                return True
+            except Exception as e:
+                self._write_fail_count += 1
+                logger.error(
+                    f"Serial send error (consecutive_fails={self._write_fail_count}): {e}"
+                )
+                # Apply per-failure backoff so callers cannot storm-write the port.
+                self._write_backoff_until = time.monotonic() + self._WRITE_BACKOFF_MS / 1000.0
 
-            return False
+                if self._write_fail_count >= self._WRITE_MAX_FAILS:
+                    logger.error(
+                        f"Serial write failed {self._write_fail_count} times in a row — "
+                        "closing port and triggering auto-reconnect path."
+                    )
+                    try:
+                        if self._serial and self._serial.is_open:
+                            self._serial.close()
+                    except Exception:
+                        pass
+                    self._serial = None
+                    self._active_port = None
+                    self._write_fail_count = 0
+                    self._write_backoff_until = 0.0
+
+                return False
 
     async def read_line(self) -> Optional[str]:
         if not self.is_connected:
@@ -409,14 +414,31 @@ class SerialService:
                     s.write((command + "\n").encode("utf-8"))
                     s.flush()
                 except (serial.SerialException, OSError, PermissionError) as write_err:
-                    logger.error(f"Serial write error in exchange: {write_err}")
-                    try:
-                        if self._serial and self._serial.is_open:
-                            self._serial.close()
-                    except Exception:
-                        pass
-                    self._serial = None
-                    self._active_port = None
+                    # A2.3 backpressure fix: do NOT close the port on the first write
+                    # error inside an exchange.  A burst of frame writes can fill the
+                    # OS TX buffer causing a transient write timeout — closing the port
+                    # here would trigger the USB disconnect monitor false-positive.
+                    # Instead, increment the shared fail counter and apply backoff;
+                    # the port is only closed after _WRITE_MAX_FAILS consecutive failures.
+                    self._write_fail_count += 1
+                    logger.error(
+                        f"Serial write error in exchange "
+                        f"(consecutive_fails={self._write_fail_count}): {write_err}"
+                    )
+                    self._write_backoff_until = time.monotonic() + self._WRITE_BACKOFF_MS / 1000.0
+                    if self._write_fail_count >= self._WRITE_MAX_FAILS:
+                        logger.error(
+                            f"Serial exchange write failed {self._write_fail_count} times — closing port."
+                        )
+                        try:
+                            if self._serial and self._serial.is_open:
+                                self._serial.close()
+                        except Exception:
+                            pass
+                        self._serial = None
+                        self._active_port = None
+                        self._write_fail_count = 0
+                        self._write_backoff_until = 0.0
                     return None
 
                 deadline = time.monotonic() + read_timeout

@@ -1,6 +1,6 @@
 {
   "name": "sadik-app",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "SADIK Desktop Assistant",
   "main": "electron/main.js",
   "scripts": {

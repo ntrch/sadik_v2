@@ -1987,10 +1987,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (enabled) {
               console.log('[SADIK][AudioInit] Phase 1 — wake word start (getUserMedia)');
               startWakeWordRef.current();
-              // A2.1: Phase 2 (enumerateDevices) is now deferred to device_profile WS
-              // handshake (fired from the device_profile case above).  This timer is a
-              // cold-start fallback only — fires if no device connects within 5 s so the
-              // audio device list still populates when the user has no SADIK connected.
+              // A2.1/A2.3: Phase 2 (enumerateDevices) is deferred to device_profile WS
+              // handshake or WS-open recovery (fired from those paths above).  This timer
+              // is a cold-start fallback only — fires if no device connects within 8 s so
+              // the audio device list still populates when the user has no SADIK connected.
+              // 8 s (up from 5 s) gives the WS handshake a wider window on slow systems.
               if (!enumDevicesDoneRef.current) {
                 enumDevicesTimerRef.current = setTimeout(() => {
                   enumDevicesTimerRef.current = null;
@@ -1998,7 +1999,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   enumDevicesDoneRef.current = true;
                   console.log('[SADIK][AudioInit] Phase 2 — enumerateDevices (cold-start fallback)');
                   refreshAudioDevices();
-                }, 5000);
+                }, 8000);
               }
             } else {
               console.log('[SADIK][AudioInit] Wake word disabled — skipping audio startup');
@@ -2356,11 +2357,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const line = (status as unknown as { device_line?: string | null }).device_line;
         if (line) {
           const profile = parseDeviceLine(line);
-          if (profile) setConnectedDevice(profile);
+          if (profile) {
+            setConnectedDevice(profile);
+            // A2.3 fix: device_profile WS broadcast may have been missed (client
+            // was not yet connected at startup auto-connect time).  Recover the
+            // enumerateDevices defer here — same logic as the 'device_profile' WS case.
+            if (!enumDevicesDoneRef.current) {
+              if (enumDevicesTimerRef.current !== null) {
+                clearTimeout(enumDevicesTimerRef.current);
+                enumDevicesTimerRef.current = null;
+              }
+              enumDevicesDoneRef.current = true;
+              console.log('[SADIK][AudioInit] Phase 2 — enumerateDevices (WS-open recovery)');
+              const scheduleEnum = (cb: () => void) => {
+                if (typeof (window as any).requestIdleCallback === 'function') {
+                  (window as any).requestIdleCallback(cb, { timeout: 2000 });
+                } else {
+                  setTimeout(cb, 0);
+                }
+              };
+              scheduleEnum(() => { refreshAudioDevices(); });
+            }
+          }
         }
       })
       .catch(() => {});
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshAudioDevices]);
 
   useWebSocket(handleWSMessage, handleWSOpen);
 

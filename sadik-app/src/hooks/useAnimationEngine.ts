@@ -176,7 +176,7 @@ export function useAnimationEngine(
     // main-thread block (audio init, GC, dialog) can produce 1000+ warn() calls
     // in a tight burst, which itself locks the console and amplifies jank.
     let dropCount  = 0;
-    let dropLogAt  = 0; // timestamp of last drop-summary log
+    let dropLogAt  = Date.now(); // A2.3 fix: init to now so first drop shows real elapsed ms (not epoch offset)
     const DROP_LOG_INTERVAL_MS = 1000;
     const pump = async () => {
       while (pumpAlive) {
