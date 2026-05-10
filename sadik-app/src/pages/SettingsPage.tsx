@@ -791,6 +791,8 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
                 className="input-field"
               >
                 <option value="0">Kapalı</option>
+                <option value="1">1 dakika (test)</option>
+                <option value="3">3 dakika</option>
                 <option value="5">5 dakika</option>
                 <option value="10">10 dakika</option>
                 <option value="15">15 dakika</option>

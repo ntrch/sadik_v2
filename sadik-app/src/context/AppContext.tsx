@@ -829,13 +829,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // If the screen was sleeping, wake it: resume frame streaming and tell firmware to wake.
     if (isScreenSleepingRef.current) {
       isScreenSleepingRef.current = false;
+      // Re-enable streaming first so frames can flow.
       getAnimationEngine().setStreamingEnabled(true);
-      // Send RETURN_TO_IDLE so firmware wakes display and resumes idle loop.
+      // Play wakeup clip, then return to idle. Defensive: if clip missing, onFinish still fires.
+      const engine = getAnimationEngine();
+      const loaded = engine.getLoadedClipNames();
+      if (loaded.includes('wakeup')) {
+        engine.playModIntroOnce('wakeup', () => {
+          engine.returnToIdle();
+        });
+      } else {
+        console.warn('[AppInactivity] wakeup clip not loaded — skipping to idle');
+        engine.returnToIdle();
+      }
+      // Send RETURN_TO_IDLE so firmware wakes display.
       // Fire-and-forget: connection may be in any state; best-effort.
       if (connectedRef.current) {
         deviceApi.sendCommand('RETURN_TO_IDLE').catch(() => {});
       }
-      console.log('[AppInactivity] Wake — resuming frame stream + RETURN_TO_IDLE');
+      console.log('[AppInactivity] Wake — wakeup clip + RETURN_TO_IDLE');
     }
   }, []);
 
