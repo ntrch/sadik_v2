@@ -99,6 +99,21 @@ void ensureAwake(const char* reason) {
 
 void setup() {
     serialCmd.begin();   // Serial.begin(SERIAL_BAUD) + reset parser state
+
+    // ── Hardware identity log — verify PSRAM + flash on every boot ───────────
+    // Expected on N16R8: psram_size=8388608 (8MB), flash=16777216 (16MB).
+    // If psram_size=0 → memory_type wrong; try opi_opi in platformio.ini.
+    {
+        uint32_t psramSize  = ESP.getPsramSize();
+        uint32_t psramFree  = ESP.getFreePsram();
+        uint32_t flashSize  = ESP.getFlashChipSize();
+        char hwBuf[96];
+        snprintf(hwBuf, sizeof(hwBuf),
+                 "BOOT:HW psram_size=%u psram_free=%u flash=%u",
+                 psramSize, psramFree, flashSize);
+        Serial.println(hwBuf);
+    }
+
     display.begin();     // SPI init + TFT controller init (prints BOOT:OK to serial)
 
     // ── MJPEG player init ─────────────────────────────────────────────────────

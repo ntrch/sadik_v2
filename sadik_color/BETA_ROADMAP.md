@@ -110,8 +110,15 @@
 
 **Exit criteria:** `PLAY:<clip>` komutu cihaza gelince gerçek piksel ekranda görünür.
 
-- [x] **C1a** `_tjpg_cb` stub (solid white fillRect) → gerçek pixel blit: `startWrite()` + `setAddrWindow()` + `writePixels(bigEndian=true)` + `endWrite()`. Sınır kırpma, `cx/cy < 0` guard eklendi. `TJpgDec.setSwapBytes(false)` kalıyor (big-endian out); `writePixels(bigEndian=true)` ile eşleşir. — DONE (`include/mjpeg_player.h` line 99-132)
-- [ ] **C1b** Hardware renk doğrulaması — R↔B swap görünürse `setSwapBytes(true)` + `bigEndian=false` ile düzelt.
+- [x] **C1a** `_tjpg_cb` stub (solid white fillRect) → gerçek pixel blit: `startWrite()` + `setAddrWindow()` + `writePixels(bigEndian=true)` + `endWrite()`. Sınır kırpma, `cx/cy < 0` guard eklendi. `TJpgDec.setSwapBytes(false)` kalıyor (big-endian out); `writePixels(bigEndian=true)` ile eşleşir. — DONE (`include/mjpeg_player.h` line 99-132) ✅ VERIFIED (idle suratı ekranda görünüyor, 2026-05-11)
+
+- [x] **C1b** Board config + PSRAM + kalite düzeltmeleri — WIP → DONE (2026-05-11)
+  - [x] `platformio.ini` — `board_build.arduino.memory_type = qio_opi` eklendi (N16R8 OPI PSRAM init için gerekli); `board_upload.maximum_size = 6291456` (app0 partition ile eşleşir); `-mfix-esp32-psram-cache-issue` flag eklendi
+  - [x] `main.cpp` — setup başında `BOOT:HW psram_size=... psram_free=... flash=...` log eklendi; psram_size=8388608 bekleniyor (0 gelirse platformio.ini'de `opi_opi` dene)
+  - [x] `tools/mjpeg/encode_all.py` — `-q:v 5` → `-q:v 2` (algısal lossless, ~95% JPEG kalite); `format=yuvj420p` eklendi (full-range, beyaz kanalındaki renk kaymasını kapattı); LittleFS budget 3.0 MB → 9.2 MB (gerçek partition 9.74 MB)
+  - [ ] **C1b-verify** (Eren): `encode_all.py` çalıştır → clips re-encode; `pio run -e esp32-s3-n16r8 -t upload` + `uploadfs`; serial'da `BOOT:HW psram_size=8388608` doğrula; idle suratı pikselleşmiyor mu kontrol et
+
+- [ ] **C1c** (C2'de) R↔B renk swap kontrolü — sahne değişiminde görünürse `setSwapBytes(true)` + `bigEndian=false`
 
 ---
 

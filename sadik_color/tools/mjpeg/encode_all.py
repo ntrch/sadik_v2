@@ -72,8 +72,11 @@ def encode_clip(mp4_path: Path, out_path: Path) -> bool:
     cmd = [
         "ffmpeg", "-y",
         "-i", str(mp4_path),
-        "-vf", "fps=24,scale=160:128:flags=lanczos",
-        "-q:v", "5",
+        # lanczos resize → yuvj420p (full-range JPEG colour space, no clipping)
+        "-vf", "fps=24,scale=160:128:flags=lanczos,format=yuvj420p",
+        # -q:v 2 ≈ highest perceptual quality (~95% JPEG); was 5 (≈80%, caused
+        # visible pixelation + white-channel colour shift on the TFT).
+        "-q:v", "2",
         "-bsf:v", "mjpeg2jpeg",
         "-f", "mjpeg",
         str(out_path),
@@ -134,15 +137,18 @@ def main():
     print()
 
     # LittleFS S3 N16R8 partition check
-    # partitions_s3_n16r8.csv — typical spiffs/littlefs partition is ~1-3 MB on 16 MB flash
-    # Warn if total clips exceed 3 MB (conservative estimate)
-    LITTLEFS_BUDGET_MB = 3.0
+    # partitions_s3_n16r8.csv: spiffs offset=0x610000 size=0x9F0000 → 9.9375 MB usable.
+    # LittleFS overhead ~2%, effective ≈ 9.74 MB. Leave 0.5 MB headroom for manifest.json
+    # and future clip additions → warn threshold = 9.2 MB.
+    LITTLEFS_BUDGET_MB = 9.2
     if total_mb > LITTLEFS_BUDGET_MB:
-        print(f"[encode_all] WARNING: {total_mb:.2f} MB exceeds LittleFS budget estimate of {LITTLEFS_BUDGET_MB} MB.")
-        print(f"             Consider reducing -q:v (higher = worse quality, smaller file).")
-        print(f"             Or drop -q:v to 8-10 for text/still clips.")
+        print(f"[encode_all] WARNING: {total_mb:.2f} MB exceeds LittleFS budget of {LITTLEFS_BUDGET_MB} MB.")
+        print(f"             Partition capacity ≈ 9.74 MB (0x9F0000 raw).")
+        print(f"             Options: raise -q:v to 3-4 (slightly lower quality, smaller files)")
+        print(f"             or ask Eren to extend littlefs partition to 0xBF0000 (12 MB).")
     else:
         print(f"[encode_all] LittleFS budget check: {total_mb:.2f} MB < {LITTLEFS_BUDGET_MB} MB  OK")
+        print(f"             (partition capacity ≈ 9.74 MB; headroom = {9.74 - total_mb:.2f} MB)")
 
     if fail_count:
         sys.exit(1)
