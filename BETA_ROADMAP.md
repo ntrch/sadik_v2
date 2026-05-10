@@ -592,6 +592,10 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 #### Post-release fixes ✅ (Faz A4 + B3/B4 — 2026-05-10)
 - [x] **A4.1 — return_to_idle clip manifest eksikliği**: `personas/sadik/clips-manifest.json`'a `return_to_idle`, `boot`, `wakeup` clip entry'leri eklendi. Daha önce engine manifest'i load ederken bu clip'leri bulamıyordu → `playModIntroOnce('return_to_idle')` warning basıp `onFinish`'i anında sync çağırıyordu → sleep'e geçiyordu ama animasyon OLED'de görünmüyordu.
 - [x] **A4.2 — SCREEN_SLEEP backend response logging**: `device.py` `/command` endpoint'inde `SCREEN_SLEEP` artık `send_command_and_read` ile gönderiliyor (önceki: fire-and-forget `send_command`). Firmware `OK:SCREEN_SLEEP` response'u backend log'a düşüyor; sleep confirmed edilmiş oluyor.
+
+#### Post-release hotfix ✅ (Faz A4.1 — 2026-05-10) v0.2.5
+- [x] **A4.1h — clip 404 path fix**: `boot.json`, `wakeup.json`, `return_to_idle.json` dosyaları `public/animations/core_character/` altındaydı ama AnimationEngine `./animations/personas/sadik/<source>` şeklinde resolve ediyor. Clip'ler `personas/sadik/core_character/` altına kopyalandı → 404 ortadan kalktı, animasyonlar gerçekten yükleniyor.
+- [x] **A4.1h — playModIntroOnce fallback onFinish**: clip-not-found durumunda `onFinish?.()` anında çağrılıyor (defansif guard). Kod önceki session'da zaten mevcuttu; doğrulandı ve korundu. Gelecekte herhangi bir eksik clip → sleep/callback zinciri kırılmaz.
 - [x] **B3/B4 — Tray focus recovery (frame stream donması)**: `AppContext.tsx` window focus event handler'ında `markAppActivity()` çağrısı eklendi. `markAppActivity` artık `isScreenSleepingRef.current === true` iken: `setStreamingEnabled(true)` + `RETURN_TO_IDLE` firmware komutu + ref reset yapıyor. Önceki davranış: Eren tray'den geri döndüğünde stream dondurulmuş kalıyordu, firmware uyandırılmıyordu, window açık görünüyordu ama OLED freeze'deydi. Yeni davranış: focus alınca otomatik wake.
 
 #### Post-release fixes ✅ (Faz A3 — 2026-05-10)
