@@ -764,6 +764,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // line, fall back to mini-default so existing mini behavior is preserved.
   const handshakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // A2.1: enumerateDevices defer — ref so device_profile WS handler can cancel
+  // the fallback timer and fire immediately on handshake confirmation.
+  const enumDevicesTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Flag: true once enumerateDevices has been triggered (prevents double-fire).
+  const enumDevicesDoneRef   = useRef(false);
+
   // Sync deviceVariant (declared before useAnimationEngine) from connectedDevice.
   // APP_CONNECTED send rules (hard guards):
   //   1. connectedDevice MUST be non-null (variant confirmed via handshake — no default-mini fallback).
@@ -1898,7 +1904,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // the first invocation bails out before scheduling any timers.
     let cancelled        = false;
     let audioInitTimer:    ReturnType<typeof setTimeout> | null = null;
-    let enumDevicesTimer:  ReturnType<typeof setTimeout> | null = null;
+    // enumDevicesTimer is stored in enumDevicesTimerRef so device_profile handler
+    // can cancel it and fire early when the WS handshake arrives (A2.1).
+    enumDevicesDoneRef.current = false;
 
     // Listen for notification clicks from Electron main process
     const electron = (window as any).sadikElectron;
@@ -1979,12 +1987,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (enabled) {
               console.log('[SADIK][AudioInit] Phase 1 — wake word start (getUserMedia)');
               startWakeWordRef.current();
-              enumDevicesTimer = setTimeout(() => {
-                enumDevicesTimer = null;
-                if (cancelled) return;
-                console.log('[SADIK][AudioInit] Phase 2 — enumerateDevices');
-                refreshAudioDevices();
-              }, 1000);
+              // A2.1: Phase 2 (enumerateDevices) is now deferred to device_profile WS
+              // handshake (fired from the device_profile case above).  This timer is a
+              // cold-start fallback only — fires if no device connects within 5 s so the
+              // audio device list still populates when the user has no SADIK connected.
+              if (!enumDevicesDoneRef.current) {
+                enumDevicesTimerRef.current = setTimeout(() => {
+                  enumDevicesTimerRef.current = null;
+                  if (cancelled || enumDevicesDoneRef.current) return;
+                  enumDevicesDoneRef.current = true;
+                  console.log('[SADIK][AudioInit] Phase 2 — enumerateDevices (cold-start fallback)');
+                  refreshAudioDevices();
+                }, 5000);
+              }
             } else {
               console.log('[SADIK][AudioInit] Wake word disabled — skipping audio startup');
             }
@@ -2038,8 +2053,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Mark this invocation as cancelled so the async settingsApi.getAll()
       // callback (if it hasn't resolved yet) will bail out without scheduling timers.
       cancelled = true;
-      if (audioInitTimer   !== null) { clearTimeout(audioInitTimer);   audioInitTimer   = null; }
-      if (enumDevicesTimer !== null) { clearTimeout(enumDevicesTimer); enumDevicesTimer = null; }
+      if (audioInitTimer !== null) { clearTimeout(audioInitTimer); audioInitTimer = null; }
+      if (enumDevicesTimerRef.current !== null) {
+        clearTimeout(enumDevicesTimerRef.current);
+        enumDevicesTimerRef.current = null;
+      }
     };
   }, [refreshAudioDevices]);
 
@@ -2168,6 +2186,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 handshakeTimerRef.current = null;
               }
               setConnectedDevice(profile);
+              // A2.1: device_profile confirmed — pull enumerateDevices forward.
+              // Cancel the fallback timer and fire via requestIdleCallback (or
+              // setTimeout 0 as fallback) so the handshake state settles first
+              // and the main thread isn't blocked mid-render.
+              if (!enumDevicesDoneRef.current) {
+                if (enumDevicesTimerRef.current !== null) {
+                  clearTimeout(enumDevicesTimerRef.current);
+                  enumDevicesTimerRef.current = null;
+                }
+                enumDevicesDoneRef.current = true;
+                console.log('[SADIK][AudioInit] Phase 2 — enumerateDevices (device_profile trigger)');
+                const scheduleEnum = (cb: () => void) => {
+                  if (typeof (window as any).requestIdleCallback === 'function') {
+                    (window as any).requestIdleCallback(cb, { timeout: 2000 });
+                  } else {
+                    setTimeout(cb, 0);
+                  }
+                };
+                scheduleEnum(() => { refreshAudioDevices(); });
+              }
             }
           }
           break;

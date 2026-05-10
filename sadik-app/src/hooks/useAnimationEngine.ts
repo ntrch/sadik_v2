@@ -171,6 +171,13 @@ export function useAnimationEngine(
     });
 
     let pumpAlive = true;
+    // A2.2: rate-limit drop log — track consecutive drops to emit one summary
+    // per second instead of one console.warn per frame.  Burst drops from a
+    // main-thread block (audio init, GC, dialog) can produce 1000+ warn() calls
+    // in a tight burst, which itself locks the console and amplifies jank.
+    let dropCount  = 0;
+    let dropLogAt  = 0; // timestamp of last drop-summary log
+    const DROP_LOG_INTERVAL_MS = 1000;
     const pump = async () => {
       while (pumpAlive) {
         // Frame streaming is ONLY active when variant is confirmed 'mini'.
@@ -189,6 +196,10 @@ export function useAnimationEngine(
           await new Promise((r) => setTimeout(r, 30));
           continue;
         }
+        // A2.2 newest-only: if a newer frame arrived while we were waiting, discard
+        // intermediate frames — only send the latest snapshot.  latestPendingBuffer is
+        // already "latest wins" (onFrameReady overwrites it), so consuming it here and
+        // checking again after send covers the burst-drop scenario.
         frameCount++;
         if (frameCount <= 5 || frameCount % 60 === 0) {
           console.log(`[FrameStream] sending frame #${frameCount}`);
@@ -197,7 +208,21 @@ export function useAnimationEngine(
         try {
           const res = await deviceApi.sendFrame(buf);
           delivered = !!res.success;
-          if (!delivered) console.warn('[FrameStream] drop');
+          if (!delivered) {
+            // A2.2: accumulate drops; flush summary at most once per second
+            dropCount++;
+            const now = Date.now();
+            if (now - dropLogAt >= DROP_LOG_INTERVAL_MS) {
+              console.warn(`[FrameStream] dropped ${dropCount} frame(s) in last ${((now - dropLogAt) / 1000).toFixed(1)}s`);
+              dropCount  = 0;
+              dropLogAt  = now;
+            }
+          } else if (dropCount > 0) {
+            // Delivery recovered — flush any pending drop summary immediately
+            console.warn(`[FrameStream] recovered; ${dropCount} frame(s) dropped`);
+            dropCount = 0;
+            dropLogAt = Date.now();
+          }
         } catch (e) {
           console.warn('[FrameStream] send failed:', e);
         }
@@ -205,7 +230,10 @@ export function useAnimationEngine(
           // Preview mirrors OLED refresh cadence — only bump on successful ACK.
           bufferRef.current = buf;
           setFrameVersion((v) => v + 1);
-          // Clear staged buffer only if no newer frame arrived during the send.
+          // A2.2 newest-only: after a successful send, keep only the newest buffer.
+          // If no newer frame arrived during the send, clear to signal "idle".
+          // If a newer frame arrived, it already overwrote latestPendingBuffer —
+          // leave it so the next iteration sends it immediately (no sleep between).
           if (latestPendingBuffer.current === buf) latestPendingBuffer.current = null;
         }
         // On drop: leave buf staged so next pump iteration retries the same

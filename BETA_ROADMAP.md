@@ -585,6 +585,10 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 - [x] **A3 — return_to_idle before SCREEN_SLEEP**: App inactivity handler sleep göndermeden önce `playModIntroOnce('return_to_idle', callback)` ile animasyonu tam oynatıyor, callback'te `setStreamingEnabled(false)` + `SCREEN_SLEEP` gönderiliyor.
 - [x] **A4 — PING guard comment**: `AppContext.tsx` satır 865'teki `if (deviceVariant !== 'mini') return` satırına startup race fence / color authority açıklaması eklendi.
 
+#### Post-release fixes ✅ (2026-05-10)
+- [x] **A2.1 / B2 — AudioInit Phase 2 defer**: `AppContext.tsx` — `enumerateDevices` (Phase 2) artık startup'ta `setTimeout 1s` ile değil, `device_profile` WS handshake onayı gelince `requestIdleCallback` (Chromium'da main thread boştayken) ile çalışıyor. Cihaz yoksa cold-start fallback 5s timer. Önceki davranış: Phase 1 (getUserMedia) + Phase 2 (enumerateDevices) ardışık çalışıyordu → toplam ~7s main-thread freeze + 1000+ FrameStream drop burst. Yeni davranış: Phase 2, handshake sonrasına ertelendi (cihaz varsa anında; yoksa 5s fallback).
+- [x] **A2.2 — Pump newest-only drop log rate-limit**: `useAnimationEngine.ts` pump — `latestPendingBuffer` zaten "latest wins" pattern; drop `console.warn` burst (1000+ uyarı/saniye) konsolu kilitliyordu. Şimdi drop'lar biriktiriliyor ve saniyede bir özet (`dropped N frame(s)`) olarak basılıyor. Recovery'de de anlık özet. Console lock-up ve jank amplifikasyonu ortadan kalktı.
+
 ---
 
 ### Sprint 8: Closed beta launch
