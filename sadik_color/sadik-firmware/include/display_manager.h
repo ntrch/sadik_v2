@@ -1,11 +1,83 @@
 #pragma once
 
 #include <Arduino.h>
-#include <SPI.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_ST7735.h>
+#include <LovyanGFX.hpp>
 #include "config.h"
 #include "rtos_tasks.h"
+
+// =============================================================================
+// LGFX_Custom — LovyanGFX config for ST7735S 160×128 on ESP32-S3 N16R8
+//
+// Pin map (from config.h, S3 branch):
+//   SCK  = 12  (FSPI SCK  / TFT SCL)
+//   MOSI = 11  (FSPI MOSI / TFT SDA)
+//   DC   =  4
+//   CS   =  5
+//   RST  =  8
+//   MISO = -1  (write-only panel)
+//
+// SPI host:   SPI2_HOST  (FSPI on S3)
+// Write freq: 40 MHz     (matches TFT_SPI_HZ)
+// Read  freq: 16 MHz     (safe default for ST7735S)
+//
+// Panel geometry:
+//   panel_width  = 128 (short side)
+//   panel_height = 160 (long side — physical chip orientation)
+//   offset_rotation = 1 → landscape 160 wide × 128 tall
+//     (mirrors Adafruit setRotation(1))
+//
+// Color order:
+//   rgb_order = false  → RGB (not BGR)
+//   Standard for INITR_BLACKTAB + Adafruit default, verified by
+//   writePixels(..., bigEndian=false) path (byte order not R/G/B order).
+//
+// invert = false  (INITR_BLACKTAB does not set display inversion)
+// =============================================================================
+
+class LGFX_Custom : public lgfx::LGFX_Device {
+    lgfx::Panel_ST7735S _panel;
+    lgfx::Bus_SPI       _bus;
+public:
+    LGFX_Custom() {
+        // ── SPI bus config ─────────────────────────────────────────────────
+        {
+            auto cfg = _bus.config();
+            cfg.spi_host    = SPI2_HOST;
+            cfg.spi_mode    = 0;
+            cfg.freq_write  = 40000000;   // TFT_SPI_HZ
+            cfg.freq_read   = 16000000;
+            cfg.pin_sclk    = TFT_SCK;    // 12
+            cfg.pin_mosi    = TFT_MOSI;   // 11
+            cfg.pin_miso    = -1;
+            cfg.pin_dc      = TFT_DC;     // 4
+            cfg.use_lock    = true;
+            cfg.dma_channel = SPI_DMA_CH_AUTO;
+            _bus.config(cfg);
+            _panel.setBus(&_bus);
+        }
+        // ── Panel config ───────────────────────────────────────────────────
+        {
+            auto cfg = _panel.config();
+            cfg.pin_cs          = TFT_CS;    // 5
+            cfg.pin_rst         = TFT_RST;   // 8
+            cfg.pin_busy        = -1;
+            cfg.panel_width     = 128;
+            cfg.panel_height    = 160;
+            cfg.offset_x        = 0;
+            cfg.offset_y        = 0;
+            cfg.offset_rotation = 1;   // landscape 160×128 — matches Adafruit setRotation(1)
+            cfg.dummy_read_pixel = 8;
+            cfg.dummy_read_bits  = 1;
+            cfg.readable        = false;
+            cfg.invert          = false;
+            cfg.rgb_order       = false;  // RGB (not BGR) — matches INITR_BLACKTAB
+            cfg.dlen_16bit      = false;
+            cfg.bus_shared      = false;
+            _panel.config(cfg);
+        }
+        setPanel(&_panel);
+    }
+};
 
 // RAII helper: takes tftMutex on construction, releases on destruction.
 // Guards against the early-boot case where rtos_init() has not yet run and
@@ -16,11 +88,10 @@ struct TftLock {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DisplayManager — Color Sprint-6 W2: ST7735S SPI TFT (160×128 landscape)
+// DisplayManager — Color Sprint-8: ST7735S SPI TFT (160×128 landscape)
 //
 // Single render path: RGB565 codec frames via pushFrameRgb565() / tile blits.
-// Legacy 1-bit framebuffer (drawFrame/sendBuffer/_fb/_rgbFrame) removed.
-// Text drawing uses Adafruit_GFX built-in fonts.
+// Text drawing uses LovyanGFX built-in fonts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // RGB565 colour constants used by the renderer
@@ -30,9 +101,7 @@ struct TftLock {
 class DisplayManager {
 public:
     DisplayManager()
-        // SPI bus: WROOM-32 uses VSPI (SPI3), S3 uses FSPI (SPI2). GPIO18/23 are valid on both.
-        : _tft(TFT_CS, TFT_DC, TFT_RST),   // 3-arg = hardware SPI
-          _currentBrightness(TFT_DEFAULT_BRIGHTNESS),
+        : _currentBrightness(TFT_DEFAULT_BRIGHTNESS),
           _sleeping(false)
     {}
 
@@ -55,12 +124,10 @@ public:
         ledcWrite(TFT_PWM_CHANNEL, _currentBrightness);
 #endif
 
-        _tft.initR(TFT_INIT_TAB);
-        _tft.setSPISpeed(TFT_SPI_HZ);
-        _tft.setRotation(1);          // landscape: 160 wide × 128 tall
+        _tft.init();
         _tft.fillScreen(DM_BLACK);
 
-        Serial.print("BOOT:OK display=ST7735S 160x128 tab=BLACK spi=");
+        Serial.print("BOOT:OK display=ST7735S 160x128 lgfx spi=");
         Serial.print(TFT_SPI_HZ);
         Serial.print(" brightness=");
         Serial.println(_currentBrightness);
@@ -68,15 +135,12 @@ public:
 
     // ── Compatibility stubs (used by TextRenderer; no-ops now that the 1-bit
     //    framebuffer is removed — text methods write directly to TFT) ───────────
-    void clear() {}       // was: memset(_fb, 0) — safe no-op for text path
-    void sendBuffer() {}  // was: 1-bit→RGB565 blit — text draws direct to TFT
+    void clear() {}       // safe no-op for text path
+    void sendBuffer() {}  // text draws direct to TFT
 
     // ── Brightness / power ────────────────────────────────────────────────────
 
     // Backlight brightness 0..255 via PWM on TFT_BLK pin.
-    // 0   = backlight off (panel dark)
-    // 255 = max brightness (may wash out blacks)
-    // Recommended range: 60..140 for good black levels.
     void setBrightness(uint8_t value) {
         _currentBrightness = value;
         if (!_sleeping) {
@@ -92,8 +156,7 @@ public:
         return _currentBrightness;
     }
 
-    // Sleep: fade backlight to zero and blank the panel.
-    // This is a true "screen off" — with PWM at 0 the panel goes fully dark.
+    // Sleep: blank the panel and cut backlight.
     void sleepDisplay() {
         if (_sleeping) return;
         _sleeping = true;
@@ -108,7 +171,7 @@ public:
 #endif
     }
 
-    // Wake: restore backlight to user-set brightness; next sendBuffer() repaints.
+    // Wake: restore backlight to user-set brightness.
     void wakeDisplay() {
         if (!_sleeping) return;
         _sleeping = false;
@@ -128,31 +191,25 @@ public:
     }
 
     // Force-clear the entire physical TFT to black.
-    // Used to wipe codec frame residue between clips.
     void clearScreen() {
         if (_sleeping) return;
         TftLock _lock;
         _tft.fillScreen(DM_BLACK);
     }
 
-    // ── Text helpers (used by TextRenderer) ──────────────────────────────────
+    // ── Text helpers ─────────────────────────────────────────────────────────
     //
-    // Text rendering uses Adafruit_GFX built-in fonts mapped to four sizes.
-    // The original OLED code had four U8g2 helvetica-bold fonts at heights
-    // 8 / 12 / 18 / 24.  We map these to the closest Adafruit GFX sizes:
-    //   24 → setTextSize(3)  — each char 18×24 px (6×8 base × 3)
-    //   18 → setTextSize(2)  — each char 12×16 px
-    //   12 → setTextSize(2)  — same bucket (no intermediate size)
-    //    8 → setTextSize(1)  — each char  6×8 px
-    //
-    // All text is drawn directly to the TFT (not through the 1-bit FB) because
-    // the GFX library has no off-screen buffer mode.  This matches behaviour:
-    // TextRenderer always calls clear()+draw*()+sendBuffer() in sequence, so
-    // nothing is lost.
+    // Text rendering uses LovyanGFX built-in Font0 (6×8 px per char),
+    // scaled via setTextSize(). Font0 matches the old Adafruit GFX default font.
+    // Four sizes:
+    //   24 → setTextSize(3)  — 18×24 px
+    //   18 → setTextSize(2)  — 12×16 px
+    //   12 → setTextSize(2)  — same bucket
+    //    8 → setTextSize(1)  —  6×8  px
 
     struct FontEntry {
-        uint8_t size;    // Adafruit GFX text size multiplier
-        uint8_t height;  // approx pixel height (used for vertical centering)
+        uint8_t size;    // text size multiplier
+        uint8_t height;  // approx pixel height (for vertical centering)
     };
 
     static constexpr int FONT_COUNT = 4;
@@ -168,7 +225,6 @@ public:
     }
 
     // Pick the largest text size whose rendered width fits within maxW.
-    // Returns a reference to the chosen FontEntry.
     const FontEntry& pickFont(const char* text, int16_t maxW = SCREEN_WIDTH - 4) {
         const FontEntry* ft = fontTable();
         for (int i = 0; i < FONT_COUNT - 1; i++) {
@@ -181,13 +237,13 @@ public:
     // Draw a single centred line of auto-sized text.
     void drawText(const char* text) {
         TftLock _lock;
-        // Clear the legacy FB area on the TFT
         _tft.fillRect(LEGACY_FB_OFFSET_X, LEGACY_FB_OFFSET_Y,
                       LEGACY_FB_WIDTH, LEGACY_FB_HEIGHT, DM_BLACK);
 
         const FontEntry& fe = pickFont(text);
         _tft.setTextSize(fe.size);
         _tft.setTextColor(DM_WHITE, DM_BLACK);
+        _tft.setFont(&lgfx::fonts::Font0);
 
         int16_t charW = 6 * fe.size;
         int16_t charH = 8 * fe.size;
@@ -200,13 +256,12 @@ public:
     }
 
     // Draw a single centred line where each character gets its own RGB565 colour.
-    // Used for the COLOR boot splash so the operator can confirm at a glance
-    // that the renk-supporting firmware is flashed.
     void drawRainbowText(const char* text, uint8_t size = 3) {
         TftLock _lock;
         _tft.fillRect(LEGACY_FB_OFFSET_X, LEGACY_FB_OFFSET_Y,
                       LEGACY_FB_WIDTH, LEGACY_FB_HEIGHT, DM_BLACK);
         _tft.setTextSize(size);
+        _tft.setFont(&lgfx::fonts::Font0);
 
         static const uint16_t palette[] = {
             0xF800, // red
@@ -240,6 +295,7 @@ public:
                       LEGACY_FB_WIDTH, LEGACY_FB_HEIGHT, DM_BLACK);
         _tft.setTextSize(3);
         _tft.setTextColor(DM_WHITE, DM_BLACK);
+        _tft.setFont(&lgfx::fonts::Font0);
 
         int16_t charW = 6 * 3;
         int16_t charH = 8 * 3;
@@ -259,9 +315,7 @@ public:
 
         const FontEntry& fe1 = pickFont(line1);
         const FontEntry& fe2 = pickFont(line2);
-        // Pick the smaller of the two so both fit
         const FontEntry* fe = (fe1.height <= fe2.height) ? &fe1 : &fe2;
-        // Ensure two rows fit in LEGACY_FB_HEIGHT
         const FontEntry* ft = fontTable();
         for (int i = 0; i < FONT_COUNT; i++) {
             if (ft[i].height <= fe->height) {
@@ -275,6 +329,7 @@ public:
 
         _tft.setTextSize(fe->size);
         _tft.setTextColor(DM_WHITE, DM_BLACK);
+        _tft.setFont(&lgfx::fonts::Font0);
 
         int16_t charW = 6 * fe->size;
         int16_t charH = 8 * fe->size;
@@ -297,25 +352,22 @@ public:
     void pushFrameRgb565(const uint8_t* buf) {
         if (_sleeping) return;
         TftLock _lock;
-        _tft.startWrite();
-        _tft.setAddrWindow(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
-        // buf is RGB565 little-endian; writePixels with bigEndian=false swaps each
-        // uint16 from LE to the SPI big-endian order the panel expects.
-        _tft.writePixels(reinterpret_cast<uint16_t*>(const_cast<uint8_t*>(buf)),
-                         DISPLAY_WIDTH * DISPLAY_HEIGHT, /*bigEndian=*/false);
-        _tft.endWrite();
+        // LovyanGFX pushImage accepts RGB565 LE (uint16_t*) directly.
+        // No byte-swap needed — pushImage handles endianness internally.
+        _tft.pushImage(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                       reinterpret_cast<const uint16_t*>(buf));
     }
 
-    // Kept as alias so any remaining call sites still compile.
+    // Alias so any remaining call sites still compile.
     void showRawFrame(const uint8_t* buf) { pushFrameRgb565(buf); }
 
     // ── Codec decoder access ───────────────────────────────────────────────
-    // Expose raw TFT pointer so codec_decode.cpp can call setAddrWindow /
-    // writePixels directly for partial tile updates (Sprint-2 F3.3).
-    Adafruit_ST7735* tft() { return &_tft; }
+    // Expose raw LCD pointer so mjpeg_player.h can call pushImage directly
+    // for partial tile updates.
+    LGFX_Custom* tft() { return &_tft; }
 
 private:
-    Adafruit_ST7735 _tft;
+    LGFX_Custom _tft;
 
     uint8_t _currentBrightness;
     bool    _sleeping;
