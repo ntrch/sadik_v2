@@ -127,6 +127,11 @@ public:
 #endif
 
         _tft.init();
+        // SPI wire is MSB-first 16-bit on ST7735S. ESP32 stores uint16_t in LE
+        // memory, so push paths must byte-swap before write. JPEGDEC emits LE
+        // (host-native), DisplayManager-internal LE buffers do the same — this
+        // single global swap toggle handles both.
+        _tft.setSwapBytes(true);
         _tft.fillScreen(DM_BLACK);
 
         Serial.print("BOOT:OK display=ST7735S 160x128 lgfx spi=");

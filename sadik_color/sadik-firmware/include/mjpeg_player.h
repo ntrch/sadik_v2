@@ -24,12 +24,11 @@ public:
             _ready = false;
             return;
         }
-        // JPEGDEC: pixel type RGB565 big-endian (MSB first) — matches ST7735S
-        // SPI wire format. LovyanGFX pushImage(uint16_t*) default keeps memory
-        // byte order on the wire, so decoder must emit BE to avoid pixelation
-        // on uniform regions (historical lesson: commit b278b15 — TJpgDec
-        // equivalent was setSwapBytes(false)).
-        _jpeg.setPixelType(RGB565_BIG_ENDIAN);
+        // JPEGDEC: pixel type RGB565 little-endian (host-native uint16_t).
+        // LovyanGFX setSwapBytes(true) in DisplayManager::begin() handles the
+        // LE→BE swap on push so SPI wire gets MSB-first as ST7735S expects.
+        // This is the standard Bitbank2 + LovyanGFX integration pattern.
+        _jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
         _ready = true;
         // Runtime stat toggles (default: per-frame OFF, summary ON)
         _statsFrameOn   = false;
