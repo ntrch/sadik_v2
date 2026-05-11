@@ -27,9 +27,11 @@
 //     (mirrors Adafruit setRotation(1))
 //
 // Color order:
-//   rgb_order = false  → RGB (not BGR)
-//   Standard for INITR_BLACKTAB + Adafruit default, verified by
-//   writePixels(..., bigEndian=false) path (byte order not R/G/B order).
+//   rgb_order = true  → BGR
+//   Adafruit INITR_BLACKTAB sets MADCTL bit 3 (BGR=1) → panel reads pixel
+//   data as BGR. With rgb_order=false the R and B channels swap (red shows
+//   as blue/lacivert, yellow shows as cyan, etc.). Hardware-verified on
+//   boot rainbow text 2026-05-11.
 //
 // invert = false  (INITR_BLACKTAB does not set display inversion)
 // =============================================================================
@@ -70,7 +72,7 @@ public:
             cfg.dummy_read_bits  = 1;
             cfg.readable        = false;
             cfg.invert          = false;
-            cfg.rgb_order       = false;  // RGB (not BGR) — matches INITR_BLACKTAB
+            cfg.rgb_order       = true;   // BGR — INITR_BLACKTAB sets MADCTL BGR bit
             cfg.dlen_16bit      = false;
             cfg.bus_shared      = false;
             _panel.config(cfg);
