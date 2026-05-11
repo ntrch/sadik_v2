@@ -71,6 +71,7 @@ public:
             cfg.pin_busy        = -1;
             cfg.panel_width     = 128;
             cfg.panel_height    = 160;
+            cfg.memory_height   = 162;   // ST7735S GRAM is 132×162; avoids GRAM wrap
             cfg.offset_x        = 0;
             cfg.offset_y        = 0;
             cfg.offset_rotation = 1;   // landscape 160×128 — matches Adafruit setRotation(1)
