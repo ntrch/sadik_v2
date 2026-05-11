@@ -165,6 +165,31 @@ public:
         uint32_t t_dec_us = micros() - t_dec_start;
         uint32_t cb_calls = s_cb_count - cb_before;
 
+        // DIAG: log JRESULT + first 64 bytes for frame[0] only
+        if (_frameIdx == 0) {
+            static const char* jrnames[] = {
+                "JDR_OK","JDR_INTR","JDR_INP","JDR_MEM1","JDR_MEM2","JDR_PAR","JDR_FMT1","JDR_FMT2","JDR_FMT3"
+            };
+            int jr = (int)jresult;
+            const char* jrname = (jr >= 0 && jr <= 8) ? jrnames[jr] : "UNKNOWN";
+            Serial.printf("MJPEG:DIAG clip=%s jresult=%d (%s) soi=%u frame_len=%u\n",
+                          _clipName, jr, jrname, (unsigned)soi, (unsigned)frame_len);
+            // First 64 bytes of what's passed to drawJpg
+            Serial.print("MJPEG:DIAG hex=");
+            size_t dump_n = frame_len < 64 ? frame_len : 64;
+            for (size_t i = 0; i < dump_n; i++) {
+                Serial.printf("%02x", _buf[soi + i]);
+            }
+            Serial.println();
+            // Last 8 bytes to confirm EOI marker position
+            Serial.print("MJPEG:DIAG tail=");
+            size_t tail_start = frame_len >= 8 ? frame_len - 8 : 0;
+            for (size_t i = tail_start; i < frame_len; i++) {
+                Serial.printf("%02x", _buf[soi + i]);
+            }
+            Serial.println();
+        }
+
         // ok=1 means JDR_OK (decode success). See TJPGDEC_OK_NOTE above.
         bool ok = (jresult == JDR_OK);
         if (!ok) _clipOkFail++;
