@@ -3,8 +3,8 @@
 // ESP32-S3 N16R8 + ST7735S 160×128 SPI TFT (Color, MJPEG playback)
 // =============================================================================
 //
-// Color Sprint-7: codec/CRC/packet streaming removed.
-// Single render path: AnimationEngine → MjpegPlayer → TJpgDec → TFT.
+// Color Sprint-8: Bitbank2 stack migration (JPEGDEC + LovyanGFX).
+// Single render path: AnimationEngine → MjpegPlayer → JPEGDEC → LovyanGFX → TFT.
 // Clips stored on LittleFS as /clips/<name>.mjpeg (MJPEG container).
 // =============================================================================
 
@@ -122,7 +122,7 @@ void setup() {
     display.begin();     // SPI init + TFT controller init (prints BOOT:OK to serial)
 
     // ── MJPEG player init ─────────────────────────────────────────────────────
-    mjpegPlayer.begin(display.tft());   // mounts LittleFS, inits TJpgDec
+    mjpegPlayer.begin(display.tft());   // mounts LittleFS, inits JPEGDEC
 
     // ── Boot splash ───────────────────────────────────────────────────────────
     display.drawRainbowText("COLOR");
@@ -494,7 +494,7 @@ void loop() {
         processCommand(cmd);
     }
 
-    // 1. Advance MJPEG playback (LittleFS → TJpgDec → TFT).
+    // 1. Advance MJPEG playback (LittleFS → JPEGDEC → LovyanGFX → TFT).
     //    Runs in MODE_IDLE and MODE_LOCAL_CLIP.
     if ((currentMode == MODE_IDLE || currentMode == MODE_LOCAL_CLIP) && !display.isSleeping()) {
         mjpegPlayer.update();

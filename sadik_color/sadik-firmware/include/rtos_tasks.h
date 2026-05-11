@@ -34,7 +34,7 @@ struct RtosEvent {
 
 // ── Globals ─────────────────────────────────────────────────────────────────
 
-extern SemaphoreHandle_t tftMutex;       // guards Adafruit_ST7735 access
+extern SemaphoreHandle_t tftMutex;       // guards LGFX_Custom (TFT) access
 extern QueueHandle_t     byteQueue;      // UART producer → codec consumer (depth 8)
 extern QueueHandle_t     eventQueue;     // codec/uart → main loop (depth 16)
 extern volatile bool     g_abortRequested;  // set by main, cleared by codec task
