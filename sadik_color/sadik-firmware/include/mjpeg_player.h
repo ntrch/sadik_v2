@@ -109,22 +109,20 @@ private:
         if (cy + (int16_t)ch > DISPLAY_HEIGHT) ch = DISPLAY_HEIGHT - cy;
         if (cw == 0 || ch == 0) return true;
 
-        // TJpgDec with swap=false outputs RGB565 big-endian (MSB = R bits).
-        // Adafruit writePixels(bigEndian=true) sends the uint16 bytes as-is,
-        // which is correct for SPI panels that expect big-endian on the wire.
-        // If the image decodes but R↔B are swapped on screen, change
-        // TJpgDec.setSwapBytes(true) in begin() AND use bigEndian=false here.
+        // TJpgDec with setSwapBytes(false) (default) outputs RGB565 in host
+        // little-endian order (low byte first in memory). ST7735 panels expect
+        // big-endian on the wire (high byte first). Adafruit writePixels with
+        // bigEndian=false performs the byte swap during transmission, matching
+        // what pushFrameRgb565() does for raw PC-streamed frames. Symmetric.
         s_active_tft->startWrite();
         s_active_tft->setAddrWindow(cx, cy, cw, ch);
         if (cw == w) {
-            // No horizontal clipping — pass the MCU row pointer directly.
             s_active_tft->writePixels(bitmap + (cy - y) * w, cw * ch,
-                                       /*block=*/true, /*bigEndian=*/true);
+                                       /*block=*/true, /*bigEndian=*/false);
         } else {
-            // Horizontal clip: write row-by-row so the stride is correct.
             for (uint16_t row = 0; row < ch; row++) {
                 s_active_tft->writePixels(bitmap + (cy - y + row) * w + (cx - x),
-                                           cw, /*block=*/true, /*bigEndian=*/true);
+                                           cw, /*block=*/true, /*bigEndian=*/false);
             }
         }
         s_active_tft->endWrite();

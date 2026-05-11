@@ -100,6 +100,10 @@ void ensureAwake(const char* reason) {
 void setup() {
     serialCmd.begin();   // Serial.begin(SERIAL_BAUD) + reset parser state
 
+    // USB-CDC host re-enumerates after EN/RST; any println in the first ~150-300ms
+    // is dropped before the monitor reattaches. Wait so BOOT:HW lands in the log.
+    delay(300);
+
     // ── Hardware identity log — verify PSRAM + flash on every boot ───────────
     // Expected on N16R8: psram_size=8388608 (8MB), flash=16777216 (16MB).
     // If psram_size=0 → memory_type wrong; try opi_opi in platformio.ini.
@@ -112,6 +116,7 @@ void setup() {
                  "BOOT:HW psram_size=%u psram_free=%u flash=%u",
                  psramSize, psramFree, flashSize);
         Serial.println(hwBuf);
+        Serial.flush();
     }
 
     display.begin();     // SPI init + TFT controller init (prints BOOT:OK to serial)

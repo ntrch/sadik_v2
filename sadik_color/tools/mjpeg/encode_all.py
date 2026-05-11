@@ -67,6 +67,47 @@ def count_input_frames(mp4_path: Path) -> int:
     return -1
 
 
+def probe_source_fps(mp4_path: Path) -> float:
+    """Return source MP4 avg fps via ffprobe, or -1.0 on failure."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=avg_frame_rate",
+                "-of", "csv=p=0",
+                str(mp4_path),
+            ],
+            capture_output=True, text=True, timeout=30
+        )
+        s = result.stdout.strip()
+        if "/" in s:
+            num, den = s.split("/", 1)
+            num, den = int(num), int(den)
+            if den > 0:
+                return num / den
+    except Exception:
+        pass
+    return -1.0
+
+
+def count_mjpeg_frames(mjpeg_path: Path) -> int:
+    """Count JPEG SOI markers (0xFFD8) in the encoded .mjpeg → output frame count."""
+    try:
+        data = mjpeg_path.read_bytes()
+        count = 0
+        i = 0
+        while i < len(data) - 1:
+            if data[i] == 0xFF and data[i + 1] == 0xD8:
+                count += 1
+                i += 2
+            else:
+                i += 1
+        return count
+    except Exception:
+        return -1
+
+
 def encode_clip(mp4_path: Path, out_path: Path) -> bool:
     """Encode one .mp4 to .mjpeg. Returns True on success."""
     cmd = [
@@ -113,18 +154,21 @@ def main():
         stem     = mp4.stem          # e.g. "idle"
         out_path = OUTPUT_DIR / f"{stem}.mjpeg"
 
-        # Count input frames (best-effort)
         in_frames = count_input_frames(mp4)
-        frame_str = str(in_frames) if in_frames >= 0 else "?"
+        src_fps   = probe_source_fps(mp4)
+        src_str   = (f"{in_frames}f@{src_fps:.0f}fps"
+                     if in_frames >= 0 and src_fps > 0 else "?")
 
-        print(f"  {stem:<30} input_frames={frame_str:<6}", end=" ", flush=True)
+        print(f"  {stem:<30} src={src_str:<14}", end=" ", flush=True)
 
         success = encode_clip(mp4, out_path)
         if success and out_path.exists():
-            size = out_path.stat().st_size
+            size      = out_path.stat().st_size
+            out_count = count_mjpeg_frames(out_path)
+            out_str   = f"{out_count}f@24fps" if out_count >= 0 else "?"
             total_bytes += size
             ok_count    += 1
-            print(f"-> {size:>9,} bytes  OK")
+            print(f"-> {out_str:<10}  {size:>9,} bytes  OK")
         else:
             fail_count += 1
             print(f"-> FAILED")
