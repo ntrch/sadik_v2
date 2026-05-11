@@ -448,6 +448,32 @@ void processCommand(ParsedCommand& cmd) {
             break;
         }
 
+        // ── STATS:ON / STATS:OFF ──────────────────────────────────────────────
+        // Per-frame MJPEG timing log (default OFF to avoid serial spam).
+        case CMD_STATS_ON: {
+            mjpegPlayer.setStatsFrame(true);
+            Serial.println("OK:STATS:ON");
+            break;
+        }
+        case CMD_STATS_OFF: {
+            mjpegPlayer.setStatsFrame(false);
+            Serial.println("OK:STATS:OFF");
+            break;
+        }
+
+        // ── STATS:SUMMARY:ON / STATS:SUMMARY:OFF ─────────────────────────────
+        // Per-clip summary log (default ON).
+        case CMD_STATS_SUMMARY_ON: {
+            mjpegPlayer.setStatsSummary(true);
+            Serial.println("OK:STATS:SUMMARY:ON");
+            break;
+        }
+        case CMD_STATS_SUMMARY_OFF: {
+            mjpegPlayer.setStatsSummary(false);
+            Serial.println("OK:STATS:SUMMARY:OFF");
+            break;
+        }
+
         // ── Unknown / unhandled ───────────────────────────────────────────────
         case CMD_UNKNOWN:
         case CMD_NONE:

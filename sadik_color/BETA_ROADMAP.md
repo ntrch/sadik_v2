@@ -133,6 +133,18 @@ SADIK:READY
 
 ---
 
+### Sprint-8 — C2.1 + C2.5 instrumentation — WIP
+
+**Hedef:** MJPEG render path'ine per-frame ve per-clip timing log; TJpgDec `ok=0` mystery dokümantasyonu. Performans değişikliği YOK — ölçüm.
+
+- [ ] **C2.1.1** `MjpegPlayer::update()` içinde per-frame timing (t_read/t_dec/t_total/jitter/ok/cb)
+- [ ] **C2.1.2** Per-clip ring buffer + SUMMARY log (avg_fps, p50/p95/p99, jitter_max, ok_fail)
+- [ ] **C2.1.3** `STATS:ON/OFF` + `STATS:SUMMARY:ON/OFF` runtime komut
+- [ ] **C2.5.1** TJpgDec source incele, `drawJpg` false koşullarını mjpeg_player.h'de yorum olarak dokümante et
+- [ ] **HW test (Eren)**: 22 clip flash + serial log topla; sonuç COLOR_INTEGRATION_PLAN.md §9'a işle
+
+---
+
 ## 2. Bilinen kararlar (kilit)
 
 | # | Karar | Gerekçe |

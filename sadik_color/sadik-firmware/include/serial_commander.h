@@ -24,6 +24,10 @@ enum CommandType {
     CMD_APP_DISCONNECTED,     // APP_DISCONNECTED → firmware resumes autonomous idle
     CMD_FRAME_DATA,           // FRAME:<40960 binary bytes>\n → RGB565 LE frame for TFT
     CMD_ABORT_STREAM,         // ABORT_STREAM → codec decoder state reset, host scene-switch sync
+    CMD_STATS_ON,             // STATS:ON  → enable per-frame MJPEG timing log
+    CMD_STATS_OFF,            // STATS:OFF → disable per-frame MJPEG timing log
+    CMD_STATS_SUMMARY_ON,     // STATS:SUMMARY:ON  → enable per-clip summary log (default)
+    CMD_STATS_SUMMARY_OFF,    // STATS:SUMMARY:OFF → disable per-clip summary log
     CMD_UNKNOWN
 };
 
@@ -212,6 +216,18 @@ private:
 
         } else if (strcmp(_buf, "ABORT_STREAM") == 0) {
             _parsed.type = CMD_ABORT_STREAM;
+
+        } else if (strcmp(_buf, "STATS:ON") == 0) {
+            _parsed.type = CMD_STATS_ON;
+
+        } else if (strcmp(_buf, "STATS:OFF") == 0) {
+            _parsed.type = CMD_STATS_OFF;
+
+        } else if (strcmp(_buf, "STATS:SUMMARY:ON") == 0) {
+            _parsed.type = CMD_STATS_SUMMARY_ON;
+
+        } else if (strcmp(_buf, "STATS:SUMMARY:OFF") == 0) {
+            _parsed.type = CMD_STATS_SUMMARY_OFF;
 
         } else {
             // FRAME: is handled in binary mode via hasCommand(); not here.
