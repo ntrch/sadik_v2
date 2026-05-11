@@ -28,6 +28,11 @@ enum CommandType {
     CMD_STATS_OFF,            // STATS:OFF → disable per-frame MJPEG timing log
     CMD_STATS_SUMMARY_ON,     // STATS:SUMMARY:ON  → enable per-clip summary log (default)
     CMD_STATS_SUMMARY_OFF,    // STATS:SUMMARY:OFF → disable per-clip summary log
+    // DIAG-S8c: temporary diagnostics to isolate top-band corruption bug
+    CMD_DIAG_SOLID,           // DIAG:SOLID R|G|B  → fill framebuf with solid color, push
+    CMD_DIAG_MAGENTA,         // DIAG:MAGENTA <clip>  → fill magenta, decode 1 frame, push
+    CMD_DIAG_JPEGLOG,         // DIAG:JPEGLOG <clip>  → decode 1 frame, log first 12 CB calls
+    CMD_DIAG_NODMA,           // DIAG:NODMA  → print build-flag instructions
     CMD_UNKNOWN
 };
 
@@ -228,6 +233,25 @@ private:
 
         } else if (strcmp(_buf, "STATS:SUMMARY:OFF") == 0) {
             _parsed.type = CMD_STATS_SUMMARY_OFF;
+
+        // DIAG-S8c: temporary diagnostic commands
+        } else if (strncmp(_buf, "DIAG:SOLID ", 11) == 0) {
+            _parsed.type = CMD_DIAG_SOLID;
+            strncpy(_parsed.argument, _buf + 11, sizeof(_parsed.argument) - 1);
+            _parsed.argument[sizeof(_parsed.argument) - 1] = '\0';
+
+        } else if (strncmp(_buf, "DIAG:MAGENTA ", 13) == 0) {
+            _parsed.type = CMD_DIAG_MAGENTA;
+            strncpy(_parsed.argument, _buf + 13, sizeof(_parsed.argument) - 1);
+            _parsed.argument[sizeof(_parsed.argument) - 1] = '\0';
+
+        } else if (strncmp(_buf, "DIAG:JPEGLOG ", 13) == 0) {
+            _parsed.type = CMD_DIAG_JPEGLOG;
+            strncpy(_parsed.argument, _buf + 13, sizeof(_parsed.argument) - 1);
+            _parsed.argument[sizeof(_parsed.argument) - 1] = '\0';
+
+        } else if (strcmp(_buf, "DIAG:NODMA") == 0) {
+            _parsed.type = CMD_DIAG_NODMA;
 
         } else {
             // FRAME: is handled in binary mode via hasCommand(); not here.

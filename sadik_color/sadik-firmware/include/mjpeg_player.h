@@ -58,11 +58,76 @@ public:
     bool hasFinished() const { return _isFinished; }
     const char* currentClipName() const { return _isPlaying ? _clipName : nullptr; }
 
+    // DIAG-S8c: expose backbuffer pointer for solid-fill diagnostics
+    static uint16_t* framebuf() { return s_framebuf; }
+
     // ── Runtime stat toggle handlers ─────────────────────────────────────────
     void setStatsFrame(bool on)   { _statsFrameOn   = on; }
     void setStatsSummary(bool on) { _statsSummaryOn = on; }
     bool statsFrameOn()   const   { return _statsFrameOn; }
     bool statsSummaryOn() const   { return _statsSummaryOn; }
+
+    // DIAG-S8c: decode first frame of <name>.mjpeg into s_framebuf, then push.
+    // enableCbLog=true → log first 12 JPEGDEC callbacks (for DIAG:JPEGLOG).
+    // Returns true on success.
+    bool diagDecodeOneFrame(const char* name, bool enableCbLog) {
+        if (!_ready || !s_framebuf) {
+            Serial.println("DIAG:ERR no framebuf");
+            return false;
+        }
+        // Stop any active playback so we own the buffer
+        if (_isPlaying) stop();
+
+        char path[80];
+        snprintf(path, sizeof(path), "/clips/%s.mjpeg", name);
+        File f = LittleFS.open(path, "r");
+        if (!f) {
+            Serial.printf("DIAG:ERR clip_not_found name=%s\n", name);
+            return false;
+        }
+        size_t flen = f.size();
+        uint8_t* fbuf = (uint8_t*)psram_or_internal_malloc(flen, MALLOC_CAP_8BIT);
+        if (!fbuf) { f.close(); Serial.println("DIAG:ERR malloc_fail"); return false; }
+        f.read(fbuf, flen);
+        f.close();
+
+        // Find first SOI→EOI
+        size_t soi = SIZE_MAX;
+        for (size_t i = 0; i + 1 < flen; i++) {
+            if (fbuf[i] == 0xFF && fbuf[i+1] == 0xD8) { soi = i; break; }
+        }
+        size_t eoi = SIZE_MAX;
+        if (soi != SIZE_MAX) {
+            for (size_t i = soi + 2; i + 1 < flen; i++) {
+                if (fbuf[i] == 0xFF && fbuf[i+1] == 0xD9) { eoi = i; break; }
+            }
+        }
+        if (soi == SIZE_MAX || eoi == SIZE_MAX) {
+            psram_or_internal_free(fbuf);
+            Serial.println("DIAG:ERR no_soi_eoi");
+            return false;
+        }
+
+        s_active_lcd    = _lcd;
+        s_diag_cb_log   = enableCbLog;
+        s_diag_cb_count = 0;
+
+        int open_ok = _jpeg.openRAM(fbuf + soi, (int)((eoi + 2) - soi), _jpegdec_cb);
+        int dec_ok  = 0;
+        if (open_ok) dec_ok = _jpeg.decode(0, 0, 0);
+
+        Serial.printf("DIAG:ONEFRAME clip=%s soi=%u frame_len=%u open=%d dec=%d\n",
+                      name, (unsigned)soi, (unsigned)((eoi + 2) - soi), open_ok, dec_ok);
+
+        s_diag_cb_log = false;
+        psram_or_internal_free(fbuf);
+
+        if (open_ok && dec_ok == 1) {
+            _lcd->pushImage(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, s_framebuf);
+            return true;
+        }
+        return false;
+    }
 
     bool play(const char* name, bool loop = false) {
         if (!_ready) return false;
@@ -224,6 +289,9 @@ private:
     // Allocated once in begin(). nullptr = backbuffer unavailable; fall back
     // to direct tile push (old path) so the device always functions.
     static uint16_t*    s_framebuf;
+    // DIAG-S8c: callback-log control (used by diagDecodeOneFrame)
+    static bool         s_diag_cb_log;
+    static int          s_diag_cb_count;
 
     // JPEGDEC tile callback: receives decoded MCU tile.
     // pDraw->pPixels is RGB565 LE (matches setPixelType(RGB565_LITTLE_ENDIAN)).
@@ -242,6 +310,13 @@ private:
         int16_t w = (int16_t)pDraw->iWidth;
         int16_t h = (int16_t)pDraw->iHeight;
         uint16_t* pixels = pDraw->pPixels;
+
+        // DIAG-S8c: log first 12 callback invocations when requested
+        if (s_diag_cb_log && s_diag_cb_count < 12) {
+            Serial.printf("DIAG:CB call=%d x=%d y=%d w=%d h=%d\n",
+                          s_diag_cb_count, (int)x, (int)y, (int)w, (int)h);
+            s_diag_cb_count++;
+        }
 
         // Clip to display bounds (160×128 landscape)
         if (x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT) return 1;
@@ -375,6 +450,9 @@ private:
 };
 
 // Out-of-line statics
-inline LGFX_Custom* MjpegPlayer::s_active_lcd = nullptr;
+inline LGFX_Custom* MjpegPlayer::s_active_lcd   = nullptr;
 inline JPEGDEC      MjpegPlayer::_jpeg;
-inline uint16_t*    MjpegPlayer::s_framebuf   = nullptr;
+inline uint16_t*    MjpegPlayer::s_framebuf     = nullptr;
+// DIAG-S8c: callback-log statics
+inline bool         MjpegPlayer::s_diag_cb_log   = false;
+inline int          MjpegPlayer::s_diag_cb_count  = 0;

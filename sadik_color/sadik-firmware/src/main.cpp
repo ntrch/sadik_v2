@@ -474,6 +474,76 @@ void processCommand(ParsedCommand& cmd) {
             break;
         }
 
+        // ── DIAG:SOLID R|G|B ─────────────────────────────────────────────────
+        // DIAG-S8c: fill PSRAM backbuffer with a solid RGB565 color then push
+        // via the same pushImage() path as MJPEG. Tests push path in isolation.
+        //   R = 0xF800  G = 0x07E0  B = 0x001F
+        case CMD_DIAG_SOLID: {
+            uint16_t* fb = MjpegPlayer::framebuf();
+            if (!fb) {
+                Serial.println("DIAG:ERR no_framebuf");
+                break;
+            }
+            uint16_t color = 0x0000;
+            if (strcmp(cmd.argument, "R") == 0)      color = 0xF800;
+            else if (strcmp(cmd.argument, "G") == 0) color = 0x07E0;
+            else if (strcmp(cmd.argument, "B") == 0) color = 0x001F;
+            else {
+                Serial.println("DIAG:ERR usage DIAG:SOLID R|G|B");
+                break;
+            }
+            const size_t N = DISPLAY_WIDTH * DISPLAY_HEIGHT;
+            for (size_t i = 0; i < N; i++) fb[i] = color;
+            display.tft()->pushImage(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, fb);
+            Serial.printf("DIAG:SOLID color=0x%04X pushed\n", (unsigned)color);
+            break;
+        }
+
+        // ── DIAG:MAGENTA <clipname> ───────────────────────────────────────────
+        // DIAG-S8c: pre-fill framebuf with magenta, decode 1 frame of clip,
+        // push. Any magenta remaining = pixels JPEGDEC did not write.
+        case CMD_DIAG_MAGENTA: {
+            uint16_t* fb = MjpegPlayer::framebuf();
+            if (!fb) {
+                Serial.println("DIAG:ERR no_framebuf");
+                break;
+            }
+            // Stop current playback so MjpegPlayer resources are free
+            if (mjpegPlayer.isPlaying()) mjpegPlayer.stop();
+            // Fill with magenta (0xF81F RGB565 LE)
+            const size_t N = DISPLAY_WIDTH * DISPLAY_HEIGHT;
+            for (size_t i = 0; i < N; i++) fb[i] = 0xF81F;
+            Serial.println("DIAG:MAGENTA framebuf_filled");
+            // Decode one frame (diagDecodeOneFrame pushes on success)
+            bool ok = mjpegPlayer.diagDecodeOneFrame(cmd.argument, false);
+            Serial.printf("DIAG:MAGENTA clip=%s ok=%d (magenta=unfilled JPEGDEC pixels)\n",
+                          cmd.argument, (int)ok);
+            break;
+        }
+
+        // ── DIAG:JPEGLOG <clipname> ───────────────────────────────────────────
+        // DIAG-S8c: decode 1 frame, log first 12 JPEGDEC tile callbacks then push.
+        // Watch Serial for DIAG:CB lines showing x/y/w/h of each MCU tile.
+        case CMD_DIAG_JPEGLOG: {
+            if (mjpegPlayer.isPlaying()) mjpegPlayer.stop();
+            Serial.printf("DIAG:JPEGLOG clip=%s decoding first frame...\n", cmd.argument);
+            bool ok = mjpegPlayer.diagDecodeOneFrame(cmd.argument, true);
+            Serial.printf("DIAG:JPEGLOG done ok=%d\n", (int)ok);
+            break;
+        }
+
+        // ── DIAG:NODMA ───────────────────────────────────────────────────────
+        // DIAG-S8c: DMA cannot be toggled at runtime (bus must be re-inited).
+        // Rebuild with -DDIAG_NO_DMA=1 in platformio.ini [env:esp32-s3-n16r8].
+        case CMD_DIAG_NODMA: {
+#if defined(DIAG_NO_DMA) && DIAG_NO_DMA
+            Serial.println("DIAG:NODMA active (dma_channel=-1 at compile time)");
+#else
+            Serial.println("DIAG:NODMA is a build flag — rebuild with -DDIAG_NO_DMA=1 in platformio.ini");
+#endif
+            break;
+        }
+
         // ── Unknown / unhandled ───────────────────────────────────────────────
         case CMD_UNKNOWN:
         case CMD_NONE:

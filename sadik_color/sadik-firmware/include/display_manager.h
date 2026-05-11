@@ -53,7 +53,13 @@ public:
             cfg.pin_miso    = -1;
             cfg.pin_dc      = TFT_DC;     // 4
             cfg.use_lock    = true;
+            // DIAG-S8c: rebuild with -DDIAG_NO_DMA=1 in platformio.ini to
+            // disable DMA and rule it out as a cause of the top-band bug.
+#if defined(DIAG_NO_DMA) && DIAG_NO_DMA
+            cfg.dma_channel = -1;
+#else
             cfg.dma_channel = SPI_DMA_CH_AUTO;
+#endif
             _bus.config(cfg);
             _panel.setBus(&_bus);
         }
