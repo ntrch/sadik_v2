@@ -1,44 +1,12 @@
 #pragma once
 #include <Arduino.h>
 #include <LittleFS.h>
-#include <Adafruit_ST7735.h>
-#include <TJpg_Decoder.h>
+#include <JPEGDEC.h>
+#include "display_manager.h"
 #include "psram_alloc.h"
 
 // JPEG SOI marker = FF D8, EOI marker = FF D9.
 // Read whole file once into PSRAM, then walk SOI→EOI segments per frame.
-
-// =============================================================================
-// TJPGDEC_OK_NOTE: Why drawJpg() returns JRESULT=JDR_INTR (1) not JDR_OK (0)
-//                 even when render is visually correct and cb_calls == 80.
-//
-// Root cause: JRESULT is an enum, not a bool. JDR_OK == 0.
-//   bool ok = TJpgDec.drawJpg(...) → assigns (JRESULT != 0) as bool.
-//   When decode+blit succeeds, JRESULT = JDR_OK = 0, so ok = false (!!).
-//
-// Complete JRESULT table (tjpgd.h):
-//   JDR_OK   = 0  — success            → bool ok = false ← BUG (cosmetic)
-//   JDR_INTR = 1  — callback returned 0 (abort)
-//   JDR_INP  = 2  — input stream error
-//   JDR_MEM1 = 3  — workspace too small
-//   JDR_MEM2 = 4  — stream buffer too small
-//   JDR_PAR  = 5  — parameter error
-//   JDR_FMT1 = 6  — broken data
-//   JDR_FMT2 = 7  — unsupported format
-//   JDR_FMT3 = 8  — unsupported JPEG standard
-//
-// Diagnosis: cb_calls == 80 with a 160×128 image at scale=1 means all
-//   10×8 MCU blocks (16×16 px each) were decoded and passed to _tjpg_cb.
-//   _tjpg_cb returns `true` (= 1) for all blocks. jd_output propagates this
-//   as the outfunc return value to jd_decomp. jd_decomp returns JDR_OK=0.
-//   drawJpg(array) returns that JDR_OK=0. Assigning to `bool ok` → ok=false.
-//
-// Fix (not applied — Opus to decide): change `bool ok` to `JRESULT jresult`
-//   and log ok=(jresult==JDR_OK). Or cast: ok=(TJpgDec.drawJpg(...)==JDR_OK).
-//
-// The per-frame STATS log below uses `ok=(jresult==JDR_OK)` so ok=1 is correct.
-// The old DBG log (first 3 frames) preserved but ok field now reflects truth.
-// =============================================================================
 
 // Per-clip ring buffer size for percentile stats (max frames per clip).
 // 120 frames @ 2 bytes each = 240 bytes per active clip — well within DRAM.
@@ -49,29 +17,26 @@ static const uint32_t MJPEG_TARGET_FRAME_US = 41667UL; // 1000000 / 24
 
 class MjpegPlayer {
 public:
-    void begin(Adafruit_ST7735* tft) {
-        _tft = tft;
+    void begin(LGFX_Custom* lcd) {
+        _lcd = lcd;
         if (!LittleFS.begin(false)) {
             Serial.println("LITTLEFS:MOUNT_FAIL");
             _ready = false;
             return;
         }
-        // TJpgDec render callback: write decoded MCU into TFT
-        TJpgDec.setJpgScale(1);
-        TJpgDec.setSwapBytes(false);
-        TJpgDec.setCallback(_tjpg_cb);
+        // JPEGDEC: pixel type RGB565 little-endian (symmetric with pushImage LE)
+        _jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
         _ready = true;
         // Runtime stat toggles (default: per-frame OFF, summary ON)
         _statsFrameOn   = false;
         _statsSummaryOn = true;
     }
-    bool isReady()   const { return _ready; }
-    bool isPlaying() const { return _isPlaying; }
+    bool isReady()    const { return _ready; }
+    bool isPlaying()  const { return _isPlaying; }
     bool hasFinished() const { return _isFinished; }
     const char* currentClipName() const { return _isPlaying ? _clipName : nullptr; }
 
     // ── Runtime stat toggle handlers ─────────────────────────────────────────
-    // Call from processCommand() when STATS:* serial commands are received.
     void setStatsFrame(bool on)   { _statsFrameOn   = on; }
     void setStatsSummary(bool on) { _statsSummaryOn = on; }
     bool statsFrameOn()   const   { return _statsFrameOn; }
@@ -145,43 +110,33 @@ public:
         if (eoi == SIZE_MAX) { _on_eof(); return; }
         size_t frame_len = (eoi + 2) - soi;
 
-        // ── Per-frame timing ──────────────────────────────────────────────────
-        // t_read for subsequent frames: marker scan time (negligible but consistent).
-        // The dominant t_read was measured in play() for the initial bulk read.
-        // For per-frame we report the bulk-read amortized cost (0 here; first frame
-        // already captured in _lastReadUs). This is intentional: on-device MJPEG
-        // is loaded fully into PSRAM at play() time — there is no per-frame I/O.
-        // t_blit is EMBEDDED inside TJpgDec callback (_tjpg_cb writePixels calls).
-        // Separating blit from decode would require TFT-call instrumentation inside
-        // _tjpg_cb. For now t_blit=0 and t_dec includes blit cost. See note below.
-        // NOTE: t_blit=0 intentionally — blit is gated inside _tjpg_cb which is
-        //   called from jd_decomp; there is no clean boundary to split them without
-        //   modifying render logic. t_dec = total drawJpg wall time (decode+blit).
+        // t_blit is EMBEDDED inside _jpegdec_cb (pushImage calls).
+        // t_dec = total decode+blit wall time.
 
         uint32_t t_dec_start = micros();
-        s_active_tft = _tft;
-        uint32_t cb_before = s_cb_count;
-        JRESULT jresult = TJpgDec.drawJpg(0, 0, _buf + soi, frame_len);
-        uint32_t t_dec_us = micros() - t_dec_start;
-        uint32_t cb_calls = s_cb_count - cb_before;
+        s_active_lcd = _lcd;
 
-        // DIAG: log JRESULT + first 64 bytes for frame[0] only
+        // JPEGDEC: openRAM accepts PSRAM pointer, decode drives _jpegdec_cb
+        int open_ok = _jpeg.openRAM(_buf + soi, (int)frame_len, _jpegdec_cb);
+        int decode_result = 0;
+        if (open_ok) {
+            decode_result = _jpeg.decode(0, 0, 0);  // 1 = success, 0 = error
+        }
+
+        uint32_t t_dec_us = micros() - t_dec_start;
+
+        // DIAG: log decode result + first 64 bytes for frame[0] only
         if (_frameIdx == 0) {
-            static const char* jrnames[] = {
-                "JDR_OK","JDR_INTR","JDR_INP","JDR_MEM1","JDR_MEM2","JDR_PAR","JDR_FMT1","JDR_FMT2","JDR_FMT3"
-            };
-            int jr = (int)jresult;
-            const char* jrname = (jr >= 0 && jr <= 8) ? jrnames[jr] : "UNKNOWN";
-            Serial.printf("MJPEG:DIAG clip=%s jresult=%d (%s) soi=%u frame_len=%u\n",
-                          _clipName, jr, jrname, (unsigned)soi, (unsigned)frame_len);
-            // First 64 bytes of what's passed to drawJpg
+            int last_err = _jpeg.getLastError();
+            Serial.printf("MJPEG:DIAG clip=%s open=%d decode=%d last_err=%d soi=%u frame_len=%u\n",
+                          _clipName, open_ok, decode_result, last_err,
+                          (unsigned)soi, (unsigned)frame_len);
             Serial.print("MJPEG:DIAG hex=");
             size_t dump_n = frame_len < 64 ? frame_len : 64;
             for (size_t i = 0; i < dump_n; i++) {
                 Serial.printf("%02x", _buf[soi + i]);
             }
             Serial.println();
-            // Last 8 bytes to confirm EOI marker position
             Serial.print("MJPEG:DIAG tail=");
             size_t tail_start = frame_len >= 8 ? frame_len - 8 : 0;
             for (size_t i = tail_start; i < frame_len; i++) {
@@ -190,32 +145,31 @@ public:
             Serial.println();
         }
 
-        // ok=1 means JDR_OK (decode success). See TJPGDEC_OK_NOTE above.
-        bool ok = (jresult == JDR_OK);
+        // ok=1 means JPEGDEC returned 1 (success) from decode()
+        bool ok = (open_ok && decode_result == 1);
         if (!ok) _clipOkFail++;
 
-        uint32_t t_total_us = t_dec_us; // t_read=0 (PSRAM), t_blit=0 (in t_dec)
+        uint32_t t_total_us = t_dec_us;
         int32_t  jitter_us  = (int32_t)t_total_us - (int32_t)MJPEG_TARGET_FRAME_US;
 
         // Per-frame log (only when STATS:ON)
         if (_statsFrameOn) {
             Serial.printf(
-                "MJPEG:STATS clip=%s seq=%lu t_read=0 t_dec=%lu t_blit=0 t_total=%lu jitter=%ld ok=%d cb=%lu\n",
+                "MJPEG:STATS clip=%s seq=%lu t_read=0 t_dec=%lu t_blit=0 t_total=%lu jitter=%ld ok=%d\n",
                 _clipName,
                 (unsigned long)_frameIdx,
                 (unsigned long)t_dec_us,
                 (unsigned long)t_total_us,
                 (long)jitter_us,
-                (int)ok,
-                (unsigned long)cb_calls
+                (int)ok
             );
         }
 
-        // Old DBG log (first 3 frames, always — kept for continuity with C1 logs)
+        // DBG log (first 3 frames, always — kept for continuity)
         if (_frameIdx < 3) {
-            Serial.printf("MJPEG:DBG frame=%lu ok=%d cb_calls=%lu soi=%u len=%u tft=%d\n",
-                          (unsigned long)_frameIdx, (int)ok, (unsigned long)cb_calls,
-                          (unsigned)soi, (unsigned)frame_len, _tft ? 1 : 0);
+            Serial.printf("MJPEG:DBG frame=%lu ok=%d soi=%u len=%u lcd=%d\n",
+                          (unsigned long)_frameIdx, (int)ok,
+                          (unsigned)soi, (unsigned)frame_len, _lcd ? 1 : 0);
         }
 
         // Accumulate per-clip stats
@@ -233,55 +187,56 @@ public:
     }
 
 private:
-    static Adafruit_ST7735* s_active_tft;
-    static uint32_t s_cb_count;
-    static bool _tjpg_cb(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) {
-        s_cb_count++;
-        if (!s_active_tft) return false;
-        // Clip to display bounds (160×128 landscape).
-        if (x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT) return true;
-        int16_t cx = x, cy = y;
-        uint16_t cw = w, ch = h;
-        if (cx < 0) { cw += cx; bitmap -= cx; cx = 0; }  // left clip
-        if (cy < 0) { ch += cy; bitmap -= cy * w; cy = 0; } // top clip (rare)
-        if (cx + (int16_t)cw > DISPLAY_WIDTH)  cw = DISPLAY_WIDTH  - cx;
-        if (cy + (int16_t)ch > DISPLAY_HEIGHT) ch = DISPLAY_HEIGHT - cy;
-        if (cw == 0 || ch == 0) return true;
+    static LGFX_Custom* s_active_lcd;
+    static JPEGDEC      _jpeg;
 
-        // TJpgDec with setSwapBytes(false) (default) outputs RGB565 in host
-        // little-endian order (low byte first in memory). ST7735 panels expect
-        // big-endian on the wire (high byte first). Adafruit writePixels with
-        // bigEndian=false performs the byte swap during transmission, matching
-        // what pushFrameRgb565() does for raw PC-streamed frames. Symmetric.
-        s_active_tft->startWrite();
-        s_active_tft->setAddrWindow(cx, cy, cw, ch);
+    // JPEGDEC tile callback: receives decoded MCU tile, blits via LovyanGFX pushImage.
+    // pDraw->pPixels is RGB565 LE (matches setPixelType(RGB565_LITTLE_ENDIAN)).
+    // LovyanGFX pushImage default accepts LE RGB565 uint16_t* — no swap needed.
+    static int _jpegdec_cb(JPEGDRAW* pDraw) {
+        if (!s_active_lcd) return 0;  // 0 = abort
+
+        int16_t x = (int16_t)pDraw->x;
+        int16_t y = (int16_t)pDraw->y;
+        int16_t w = (int16_t)pDraw->iWidth;
+        int16_t h = (int16_t)pDraw->iHeight;
+        uint16_t* pixels = pDraw->pPixels;
+
+        // Clip to display bounds (160×128 landscape)
+        if (x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT) return 1;
+        int16_t cx = x, cy = y;
+        int16_t cw = w, ch = h;
+        if (cx < 0) { cw += cx; pixels -= cx; cx = 0; }
+        if (cy < 0) { ch += cy; pixels -= cy * w; cy = 0; }
+        if (cx + cw > DISPLAY_WIDTH)  cw = DISPLAY_WIDTH  - cx;
+        if (cy + ch > DISPLAY_HEIGHT) ch = DISPLAY_HEIGHT - cy;
+        if (cw <= 0 || ch <= 0) return 1;
+
         if (cw == w) {
-            s_active_tft->writePixels(bitmap + (cy - y) * w, cw * ch,
-                                       /*block=*/true, /*bigEndian=*/false);
+            // Full-width tile: single pushImage call
+            s_active_lcd->pushImage(cx, cy, cw, ch,
+                                    pixels + (cy - y) * w);
         } else {
-            for (uint16_t row = 0; row < ch; row++) {
-                s_active_tft->writePixels(bitmap + (cy - y + row) * w + (cx - x),
-                                           cw, /*block=*/true, /*bigEndian=*/false);
+            // Clipped tile: row by row
+            for (int16_t row = 0; row < ch; row++) {
+                s_active_lcd->pushImage(cx, cy + row, cw, 1,
+                                        pixels + (cy - y + row) * w + (cx - x));
             }
         }
-        s_active_tft->endWrite();
-        return true;
+        return 1;  // 1 = continue decoding
     }
 
     // ── Per-clip summary ──────────────────────────────────────────────────────
     void _printSummary() {
-        // avg_fps
         uint32_t elapsed_ms = millis() - _playStartMs;
         float avg_fps = (elapsed_ms > 0)
             ? (_clipFrameCount * 1000.0f / elapsed_ms)
             : 0.0f;
 
-        // Percentiles: sort a working copy of _clipDecBuf[0..N-1]
         uint16_t N = (_clipFrameCount < MJPEG_STATS_MAX_FRAMES)
             ? (uint16_t)_clipFrameCount
             : MJPEG_STATS_MAX_FRAMES;
 
-        // Insertion sort (N ≤ 240; cheap on stack)
         uint16_t tmp[MJPEG_STATS_MAX_FRAMES];
         memcpy(tmp, _clipDecBuf, N * sizeof(uint16_t));
         for (uint16_t i = 1; i < N; i++) {
@@ -312,7 +267,6 @@ private:
     }
 
     size_t _find_marker(uint8_t mk, size_t from) {
-        // Scan for FF mk
         for (size_t i = from; i + 1 < _bufLen; i++) {
             if (_buf[i] == 0xFF && _buf[i+1] == mk) return i;
         }
@@ -327,7 +281,6 @@ private:
             _pos         = 0;
             _frameIdx    = 0;
             _playStartMs = millis();
-            // Reset per-clip stats for next loop iteration
             _clipFrameCount  = 0;
             _clipOkFail      = 0;
             _clipJitterMaxUs = 0;
@@ -344,7 +297,7 @@ private:
         _isFinished = true;
     }
 
-    Adafruit_ST7735* _tft      = nullptr;
+    LGFX_Custom* _lcd      = nullptr;
     bool     _ready            = false;
     bool     _isPlaying        = false;
     bool     _isFinished       = false;
@@ -365,9 +318,9 @@ private:
     uint32_t _clipJitterMaxUs  = 0;
     uint32_t _clipDecSumUs     = 0;
     uint32_t _clipPrevFrameEndUs = 0;
-    uint16_t _clipDecBuf[MJPEG_STATS_MAX_FRAMES]; // t_dec per frame in us (capped at 65535)
+    uint16_t _clipDecBuf[MJPEG_STATS_MAX_FRAMES];
 };
 
-// Out-of-line static
-inline Adafruit_ST7735* MjpegPlayer::s_active_tft = nullptr;
-inline uint32_t MjpegPlayer::s_cb_count = 0;
+// Out-of-line statics
+inline LGFX_Custom* MjpegPlayer::s_active_lcd = nullptr;
+inline JPEGDEC      MjpegPlayer::_jpeg;
