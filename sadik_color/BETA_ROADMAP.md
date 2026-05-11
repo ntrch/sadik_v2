@@ -133,15 +133,35 @@ SADIK:READY
 
 ---
 
-### Sprint-8 — C2.1 + C2.5 instrumentation — WIP
+### Sprint-8 — C2.1 instrumentation + Bitbank2 stack migration — DONE (2026-05-11)
 
-**Hedef:** MJPEG render path'ine per-frame ve per-clip timing log; TJpgDec `ok=0` mystery dokümantasyonu. Performans değişikliği YOK — ölçüm.
+**Sprint-8a — C2.1 instrumentation:** per-frame + per-clip timing logs, `MJPEG:SUMMARY` ring buffer, `STATS:ON/OFF` komutları.
 
-- [ ] **C2.1.1** `MjpegPlayer::update()` içinde per-frame timing (t_read/t_dec/t_total/jitter/ok/cb)
-- [ ] **C2.1.2** Per-clip ring buffer + SUMMARY log (avg_fps, p50/p95/p99, jitter_max, ok_fail)
-- [ ] **C2.1.3** `STATS:ON/OFF` + `STATS:SUMMARY:ON/OFF` runtime komut
-- [ ] **C2.5.1** TJpgDec source incele, `drawJpg` false koşullarını mjpeg_player.h'de yorum olarak dokümante et
-- [ ] **HW test (Eren)**: 22 clip flash + serial log topla; sonuç COLOR_INTEGRATION_PLAN.md §9'a işle
+**Sprint-8b — Bitbank2 stack migration:** TJpgDec → JPEGDEC, Adafruit ST7735 + GFX → LovyanGFX. Sebep: TJpgDec workspace yetersizliği (`JDR_MEM1`) wakeword/listening/mode_working kliplerinde decode'u bloğluyordu; Bitbank2 stack ESP32-S3 ekosistem standardı.
+
+- [x] **Lib swap** (commit `183f5d9`): platformio.ini → JPEGDEC + LovyanGFX
+- [x] **LovyanGFX driver** (commit `2e586b1`): `LGFX_Custom` config (SPI2_HOST, 40MHz, pin map config.h'tan)
+- [x] **JPEGDEC decoder** (commit `2bfefc1`): `openRAM` + `decode`, `_jpegdec_cb` blit via `pushImage`
+- [x] **Build dir ASCII** (commit `a02851a`): Unicode path workaround, `${sysenv.USERPROFILE}/pio_build/sadik_color`
+- [x] **BGR color order** (commit `13120bd`): `rgb_order=true` — INITR_BLACKTAB MADCTL BGR bit'iyle uyum
+- [x] **LE + setSwapBytes(true)** (commit `8b12986`): JPEGDEC `RGB565_LITTLE_ENDIAN` + LovyanGFX swap toggle — pixelleşme fix
+- [x] **HW doğrulama (Eren)**: 22 klip render OK, `ok_fail=0` her klipte, eski crash klipleri (wakeword/listening/mode_working) decode başarılı, avg_fps ~24, t_dec_p50 ~13ms
+
+**Açık asset notu (Sprint-8c'ye):**
+- Bazı kliplerde (talking, mode_working, mode_gaming) ekran altında siyah yatay band içeriği örtüyor — encoder/asset side artifact, firmware bug değil.
+
+---
+
+### Sprint-8c — Asset cleanup — WIP
+
+**Hedef:** Sprint-8b sonrası ortaya çıkan asset artifact'lerinin çözümü.
+
+- [ ] **Diagnose**: orijinal `assets/mp4/` kaynaklarında `ffprobe` + `cropdetect` ile letterbox/footer band tespiti
+- [ ] **Encoder fix**: `tools/mjpeg/encode_all.py`'a `crop` filter veya aspect-aware `pad` mantığı
+- [ ] **Q yükseltme**: `-q:v 2` → `-q:v 1` (mid-tone shimmer azalır, ~%30 dosya büyür)
+- [ ] **Manifest auto-regen**: encode sonrası `manifest.json` `bytes` değerleri stale kalıyor (RED-2 fix)
+- [ ] **Re-encode + uploadfs**: 22 klip yeniden encode, LittleFS image güncelle
+- [ ] **HW doğrulama (Eren)**: sweep yeniden, band gitti mi teyit
 
 ---
 
