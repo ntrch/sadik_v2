@@ -152,19 +152,20 @@ SADIK:READY
 
 ---
 
-### Sprint-8c — Asset cleanup — WIP
+### Sprint-8c — ST7735S vertical-wrap tearing fix ✅ DONE (2026-05-12)
 
-**Hedef:** Sprint-8b sonrası ortaya çıkan asset artifact'lerinin çözümü.
+**Root cause:** LGFX `Panel_LCD::setRotation` computed `_rowstart = memory_width - panel_width = 132 - 128 = 4` due to ST7735S chip GRAM (132×162) vs visible panel (128×160) mismatch. In rotation-1 landscape the axes swap, so every `pushImage` was offset 4 rows into the GRAM window — bottom rows wrote outside the visible area while the top showed wrap/stale content.
 
-- [x] **SPI clock ramp 40 MHz for tearing minimization** — WIP (user testing 40→60→80): `display_manager.h:49` `freq_write` 40 MHz → 60 MHz; prior 40 MHz was already set from a previous sprint. Next step: user reports tearing result, iterate to 80 MHz if still visible.
-- [ ] **Panel GRAM offset fix** — WIP: horizontal band at top (~10-15% height) showing bottom-of-frame content; diagnosed as ST7735S GRAM wraparound (panel offset bug, NOT tearing). Single full-frame `pushImage(0,0,160,128)` triggers CASET/RASET to wrong window when `offset_x/y=0`. **Variant A reverted — diagonal skew, wrong memory dimensions for this module. Re-diagnosing.** Next: Variant B = red-tab `offset_x=0, offset_y=0, mem 128×160`; Variant C = 1.44" black-tab `offset_x=2, offset_y=3`. **Testing `memory_height=162` alone (chip GRAM is 132×162) — no offset/width changes — to determine if GRAM height mismatch causes the vertical wrap (commit `fix(color/S8c): try memory_height=162 alone for GRAM wrap`).** **Testing offset_x=4 to cancel computed _rowstart=4 in LGFX setRotation logic** (DIAG:GRADIENT confirmed vertical wrap; with offset_rotation=1 and memory_height=162: post-swap mh=132, ph=128, _rowstart=132-128-oy=4; setting offset_x=4 yields oy_local=4, _rowstart=0 — wrap should vanish; commit `fix(color/S8c): offset_x=4 cancels LGFX rowstart shift for wrap fix`).
-- [x] **Tearing fix: PSRAM full-frame backbuffer for PLAY_LOCAL** (commit on `feature/sprint8b-assets`): `mjpeg_player.h` — `_jpegdec_cb` artık MCU tile'ları doğrudan TFT'ye push etmiyor; 40 960 B PSRAM backbuffer'a (160×128×2) kopyalıyor. `decode()` başarıyla döndüğünde `pushImage(0,0,160,128,s_framebuf)` ile tam frame tek SPI transaction olarak blit ediliyor. TE pini kablolu olmadığı için yaşanan yatay yırtılma (orta-alt arası band) ortadan kalkıyor. Byte order değişmedi (JPEGDEC LE + setSwapBytes(true) korundu). PSRAM alloc fail olursa eski tile-push fallback aktif. Build: SUCCESS, no new errors.
-- [ ] **Diagnose**: orijinal `assets/mp4/` kaynaklarında `ffprobe` + `cropdetect` ile letterbox/footer band tespiti
-- [ ] **Encoder fix**: `tools/mjpeg/encode_all.py`'a `crop` filter veya aspect-aware `pad` mantığı
-- [ ] **Q yükseltme**: `-q:v 2` → `-q:v 1` (mid-tone shimmer azalır, ~%30 dosya büyür)
-- [ ] **Manifest auto-regen**: encode sonrası `manifest.json` `bytes` değerleri stale kalıyor (RED-2 fix)
-- [ ] **Re-encode + uploadfs**: 22 klip yeniden encode, LittleFS image güncelle
-- [ ] **HW doğrulama (Eren)**: sweep yeniden, band gitti mi teyit
+**Fix:** `cfg.offset_x = 4` in `LGFX_Custom` panel config (commit `e9c4a0d`) cancels the rowstart shift via the swap logic in `setRotation`.
+
+**Fix path commits:** `6748918` PSRAM backbuffer · `c9acd60` SPI bump (irrelevant to wrap) · `e7804da` + `fd7c2f0` DIAG toolkit (enabled diagnosis) · `e9c4a0d` final fix · cleanup commit (re-enable DMA, this entry).
+
+**Tested:** `DIAG:GRADIENT` shows clean ordered stripes top-to-bottom; `PLAY_LOCAL` dancing band gone, animation smooth, no frame drops, no quality loss.
+
+- [x] `cfg.offset_x = 4` panel config fix (commit `e9c4a0d`)
+- [x] PSRAM full-frame backbuffer (`mjpeg_player.h`, commit `6748918`)
+- [x] DIAG serial toolkit retained (SOLID/MAGENTA/JPEGLOG/NODMA/GRADIENT) for future diagnosis
+- [x] DMA re-enabled (DIAG_NO_DMA commented out)
 
 ---
 
