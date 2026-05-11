@@ -532,6 +532,40 @@ void processCommand(ParsedCommand& cmd) {
             break;
         }
 
+        // ── DIAG:GRADIENT ─────────────────────────────────────────────────────
+        // DIAG-S8c: fill framebuf with a row-position-encoded banded image then
+        // push via pushImage(). Unambiguous wrap detector:
+        //   rows   0-15  → RED   (0xF800)  top sentinel
+        //   rows  16-31  → GREEN (0x07E0)
+        //   rows  32-95  → BLACK (0x0000)  large neutral middle
+        //   rows  96-111 → WHITE (0xFFFF)
+        //   rows 112-127 → BLUE  (0x001F)  bottom sentinel
+        // If the top 16 rows appear BLUE on-screen the push wraps — bug is
+        // in pushImage/panel config, masked by solid colors in earlier tests.
+        case CMD_DIAG_GRADIENT: {
+            uint16_t* fb = MjpegPlayer::framebuf();
+            if (!fb) {
+                Serial.println("DIAG:ERR no_framebuf");
+                break;
+            }
+            // DIAG-S8c: fill each pixel according to its row index
+            for (int row = 0; row < DISPLAY_HEIGHT; row++) {
+                uint16_t color;
+                if      (row <  16) color = 0xF800; // RED
+                else if (row <  32) color = 0x07E0; // GREEN
+                else if (row <  96) color = 0x0000; // BLACK
+                else if (row < 112) color = 0xFFFF; // WHITE
+                else                color = 0x001F; // BLUE
+                uint16_t* rowPtr = fb + row * DISPLAY_WIDTH;
+                for (int col = 0; col < DISPLAY_WIDTH; col++) {
+                    rowPtr[col] = color;
+                }
+            }
+            display.tft()->pushImage(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, fb);
+            Serial.println("DIAG:GRADIENT done");
+            break;
+        }
+
         // ── DIAG:NODMA ───────────────────────────────────────────────────────
         // DIAG-S8c: DMA cannot be toggled at runtime (bus must be re-inited).
         // Rebuild with -DDIAG_NO_DMA=1 in platformio.ini [env:esp32-s3-n16r8].

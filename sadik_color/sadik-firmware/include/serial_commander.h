@@ -33,6 +33,7 @@ enum CommandType {
     CMD_DIAG_MAGENTA,         // DIAG:MAGENTA <clip>  → fill magenta, decode 1 frame, push
     CMD_DIAG_JPEGLOG,         // DIAG:JPEGLOG <clip>  → decode 1 frame, log first 12 CB calls
     CMD_DIAG_NODMA,           // DIAG:NODMA  → print build-flag instructions
+    CMD_DIAG_GRADIENT,        // DIAG:GRADIENT → row-banded test image to detect push-side wrap
     CMD_UNKNOWN
 };
 
@@ -252,6 +253,10 @@ private:
 
         } else if (strcmp(_buf, "DIAG:NODMA") == 0) {
             _parsed.type = CMD_DIAG_NODMA;
+
+        // DIAG-S8c: row-banded gradient to detect push-side wrap
+        } else if (strcmp(_buf, "DIAG:GRADIENT") == 0) {
+            _parsed.type = CMD_DIAG_GRADIENT;
 
         } else {
             // FRAME: is handled in binary mode via hasCommand(); not here.
