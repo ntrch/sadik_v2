@@ -332,6 +332,8 @@ class SerialService:
             loop = asyncio.get_event_loop()
             try:
                 data = (command + "\n").encode("utf-8")
+                # DIAG-S8c-integration: temporary serial TX/RX echo, remove after color test
+                logger.info(f"TX: {command!r}" if not command.startswith("FRAME:") else f"TX: FRAME:<{len(command)} bytes>")
                 await loop.run_in_executor(None, self._serial.write, data)
                 # Success — reset consecutive fail counter.
                 self._write_fail_count = 0
@@ -371,7 +373,11 @@ class SerialService:
                 if s is None or not s.is_open:
                     return None
                 if s.in_waiting > 0:
-                    return s.readline().decode("utf-8", errors="replace").strip()
+                    line = s.readline().decode("utf-8", errors="replace").strip()
+                    if line:
+                        # DIAG-S8c-integration: temporary serial TX/RX echo, remove after color test
+                        logger.info(f"RX: {line!r}")
+                    return line
                 return None
             return await loop.run_in_executor(None, _read)
         except Exception as e:
@@ -411,6 +417,8 @@ class SerialService:
                 # treat it identically to SerialException so the caller sees a
                 # clean failure rather than an unhandled exception storm.
                 try:
+                    # DIAG-S8c-integration: temporary serial TX/RX echo, remove after color test
+                    logger.info(f"TX: {command!r}" if not command.startswith("FRAME:") else f"TX: FRAME:<{len(command)} bytes>")
                     s.write((command + "\n").encode("utf-8"))
                     s.flush()
                 except (serial.SerialException, OSError, PermissionError) as write_err:
@@ -467,6 +475,8 @@ class SerialService:
                     line = raw.decode("utf-8", errors="replace").strip()
                     if not line:
                         continue
+                    # DIAG-S8c-integration: temporary serial TX/RX echo, remove after color test
+                    logger.info(f"RX: {line!r}")
                     # Skip async firmware noise — these are never command responses.
                     # DEVICE: and MANIFEST: can appear if firmware resets mid-session;
                     # treat them the same as DEBUG:/EVENT: to avoid eating the ACK window.
