@@ -4,7 +4,18 @@ encode_all.py — SADIK Color MJPEG encoder
 Converts assets/mp4/*.mp4 → sadik-firmware/data/clips/*.mjpeg
 
 ffmpeg command per clip:
-  ffmpeg -y -i in.mp4 -vf "fps=24,scale=160:128:flags=lanczos" -q:v 5 -bsf:v mjpeg2jpeg -f mjpeg out.mjpeg
+  ffmpeg -y -i in.mp4
+    -vf "fps=24,scale=160:128:force_original_aspect_ratio=decrease:flags=lanczos,
+         pad=160:128:(ow-iw)/2:(oh-ih)/2:black,format=yuvj420p"
+    -q:v 1 -bsf:v mjpeg2jpeg -f mjpeg out.mjpeg
+
+Filter chain rationale:
+  * scale with force_original_aspect_ratio=decrease -- preserves source aspect (no stretch
+    for 160x126 sources); shrinks to fit inside 160x128 if needed.
+  * pad=160:128 centered -- fills remaining pixels with black (for 160x126 -> adds 1px top
+    + 1px bottom instead of stretching 2px).
+  * -q:v 1 -- maximum JPEG quality (~98%); was 2 (~95%).  Files grow ~30% but tone
+    fidelity on the TFT improves noticeably.
 
 Usage:
   python tools/mjpeg/encode_all.py
@@ -113,11 +124,18 @@ def encode_clip(mp4_path: Path, out_path: Path) -> bool:
     cmd = [
         "ffmpeg", "-y",
         "-i", str(mp4_path),
-        # lanczos resize → yuvj420p (full-range JPEG colour space, no clipping)
-        "-vf", "fps=24,scale=160:128:flags=lanczos,format=yuvj420p",
-        # -q:v 2 ≈ highest perceptual quality (~95% JPEG); was 5 (≈80%, caused
-        # visible pixelation + white-channel colour shift on the TFT).
-        "-q:v", "2",
+        # Scale preserving aspect ratio (no stretch for 160x126 sources),
+        # then pad to exact 160x128 centered with black -> yuvj420p
+        # (full-range JPEG colour space, no clipping on TFT).
+        "-vf", (
+            "fps=24,"
+            "scale=160:128:force_original_aspect_ratio=decrease:flags=lanczos,"
+            "pad=160:128:(ow-iw)/2:(oh-ih)/2:black,"
+            "format=yuvj420p"
+        ),
+        # -q:v 1 = maximum JPEG quality (~98%); previously 2 (~95%).
+        # Files are ~30% larger but mid-tone fidelity improves on TFT.
+        "-q:v", "1",
         "-bsf:v", "mjpeg2jpeg",
         "-f", "mjpeg",
         str(out_path),
