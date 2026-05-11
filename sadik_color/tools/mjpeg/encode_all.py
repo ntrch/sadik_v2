@@ -24,9 +24,11 @@ Usage:
 Requirements: ffmpeg must be in PATH.
 """
 
+import json
 import subprocess
 import sys
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Paths relative to sadik_color/ root
@@ -214,6 +216,46 @@ def main():
 
     if fail_count:
         sys.exit(1)
+
+    # ── Manifest auto-regen ──────────────────────────────────────────────────
+    # Re-generate data/manifest.json from the actual .mjpeg files produced above.
+    # Preserves existing "loop" values where available; new clips default to false.
+    # dancing.mjpeg is picked up even if absent from the previous manifest.
+    manifest_path = OUTPUT_DIR.parent / "manifest.json"
+
+    # Load existing manifest for loop values (best-effort)
+    existing_loop: dict = {}
+    if manifest_path.exists():
+        try:
+            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+            for entry in existing.get("clips", []):
+                existing_loop[entry["name"]] = bool(entry.get("loop", False))
+        except Exception:
+            pass  # Start fresh if corrupt
+
+    mjpeg_files = sorted(OUTPUT_DIR.glob("*.mjpeg"))
+    clips_list = []
+    for mf in mjpeg_files:
+        name = mf.stem
+        clips_list.append({
+            "name":  name,
+            "bytes": mf.stat().st_size,
+            "loop":  existing_loop.get(name, False),
+            "fps":   24,
+        })
+
+    manifest_data = {
+        "version":   1,
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        "clips":     clips_list,
+    }
+    manifest_path.write_text(
+        json.dumps(manifest_data, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(f"[encode_all] manifest.json regenerated: {len(clips_list)} clips -> {manifest_path}")
+    dancing_note = " (dancing included)" if any(c["name"] == "dancing" for c in clips_list) else ""
+    print(f"             {[c['name'] for c in clips_list]}{dancing_note}")
 
 
 if __name__ == "__main__":
