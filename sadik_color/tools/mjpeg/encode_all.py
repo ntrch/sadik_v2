@@ -207,12 +207,12 @@ def main():
     LITTLEFS_BUDGET_MB = 9.2
     if total_mb > LITTLEFS_BUDGET_MB:
         print(f"[encode_all] WARNING: {total_mb:.2f} MB exceeds LittleFS budget of {LITTLEFS_BUDGET_MB} MB.")
-        print(f"             Partition capacity ≈ 9.74 MB (0x9F0000 raw).")
+        print(f"             Partition capacity ~9.74 MB (0x9F0000 raw).")
         print(f"             Options: raise -q:v to 3-4 (slightly lower quality, smaller files)")
         print(f"             or ask Eren to extend littlefs partition to 0xBF0000 (12 MB).")
     else:
         print(f"[encode_all] LittleFS budget check: {total_mb:.2f} MB < {LITTLEFS_BUDGET_MB} MB  OK")
-        print(f"             (partition capacity ≈ 9.74 MB; headroom = {9.74 - total_mb:.2f} MB)")
+        print(f"             (partition capacity ~9.74 MB; headroom = {9.74 - total_mb:.2f} MB)")
 
     if fail_count:
         sys.exit(1)
@@ -253,9 +253,10 @@ def main():
         json.dumps(manifest_data, indent=2) + "\n",
         encoding="utf-8",
     )
+    names = [c["name"] for c in clips_list]
+    dancing_note = " (dancing included)" if "dancing" in names else ""
     print(f"[encode_all] manifest.json regenerated: {len(clips_list)} clips -> {manifest_path}")
-    dancing_note = " (dancing included)" if any(c["name"] == "dancing" for c in clips_list) else ""
-    print(f"             {[c['name'] for c in clips_list]}{dancing_note}")
+    print(f"             {names}{dancing_note}")
 
 
 if __name__ == "__main__":
