@@ -2,43 +2,14 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <Adafruit_ST7735.h>
-#include <TJpg_Decoder.h>
+#include <JPEGDEC.h>
 #include "psram_alloc.h"
 
 // JPEG SOI marker = FF D8, EOI marker = FF D9.
 // Read whole file once into PSRAM, then walk SOI→EOI segments per frame.
 
-// =============================================================================
-// TJPGDEC_OK_NOTE: Why drawJpg() returns JRESULT=JDR_INTR (1) not JDR_OK (0)
-//                 even when render is visually correct and cb_calls == 80.
-//
-// Root cause: JRESULT is an enum, not a bool. JDR_OK == 0.
-//   bool ok = TJpgDec.drawJpg(...) → assigns (JRESULT != 0) as bool.
-//   When decode+blit succeeds, JRESULT = JDR_OK = 0, so ok = false (!!).
-//
-// Complete JRESULT table (tjpgd.h):
-//   JDR_OK   = 0  — success            → bool ok = false ← BUG (cosmetic)
-//   JDR_INTR = 1  — callback returned 0 (abort)
-//   JDR_INP  = 2  — input stream error
-//   JDR_MEM1 = 3  — workspace too small
-//   JDR_MEM2 = 4  — stream buffer too small
-//   JDR_PAR  = 5  — parameter error
-//   JDR_FMT1 = 6  — broken data
-//   JDR_FMT2 = 7  — unsupported format
-//   JDR_FMT3 = 8  — unsupported JPEG standard
-//
-// Diagnosis: cb_calls == 80 with a 160×128 image at scale=1 means all
-//   10×8 MCU blocks (16×16 px each) were decoded and passed to _tjpg_cb.
-//   _tjpg_cb returns `true` (= 1) for all blocks. jd_output propagates this
-//   as the outfunc return value to jd_decomp. jd_decomp returns JDR_OK=0.
-//   drawJpg(array) returns that JDR_OK=0. Assigning to `bool ok` → ok=false.
-//
-// Fix (not applied — Opus to decide): change `bool ok` to `JRESULT jresult`
-//   and log ok=(jresult==JDR_OK). Or cast: ok=(TJpgDec.drawJpg(...)==JDR_OK).
-//
-// The per-frame STATS log below uses `ok=(jresult==JDR_OK)` so ok=1 is correct.
-// The old DBG log (first 3 frames) preserved but ok field now reflects truth.
-// =============================================================================
+// Switched to JPEGDEC (Bitbank2) due to TJpgDec workspace limit on complex
+// Huffman; see commit hist.
 
 // Per-clip ring buffer size for percentile stats (max frames per clip).
 // 120 frames @ 2 bytes each = 240 bytes per active clip — well within DRAM.
@@ -56,10 +27,6 @@ public:
             _ready = false;
             return;
         }
-        // TJpgDec render callback: write decoded MCU into TFT
-        TJpgDec.setJpgScale(1);
-        TJpgDec.setSwapBytes(false);
-        TJpgDec.setCallback(_tjpg_cb);
         _ready = true;
         // Runtime stat toggles (default: per-frame OFF, summary ON)
         _statsFrameOn   = false;
@@ -151,30 +118,43 @@ public:
         // For per-frame we report the bulk-read amortized cost (0 here; first frame
         // already captured in _lastReadUs). This is intentional: on-device MJPEG
         // is loaded fully into PSRAM at play() time — there is no per-frame I/O.
-        // t_blit is EMBEDDED inside TJpgDec callback (_tjpg_cb writePixels calls).
+        // t_blit is EMBEDDED inside JPEGDEC draw callback (_draw_cb writePixels calls).
         // Separating blit from decode would require TFT-call instrumentation inside
-        // _tjpg_cb. For now t_blit=0 and t_dec includes blit cost. See note below.
-        // NOTE: t_blit=0 intentionally — blit is gated inside _tjpg_cb which is
-        //   called from jd_decomp; there is no clean boundary to split them without
-        //   modifying render logic. t_dec = total drawJpg wall time (decode+blit).
+        // _draw_cb. For now t_blit=0 and t_dec includes blit cost.
+        // NOTE: t_blit=0 intentionally — blit is gated inside _draw_cb which is
+        //   called from jpg.decode(); there is no clean boundary to split them without
+        //   modifying render logic. t_dec = total decode wall time (decode+blit).
 
         uint32_t t_dec_start = micros();
         s_active_tft = _tft;
         uint32_t cb_before = s_cb_count;
-        JRESULT jresult = TJpgDec.drawJpg(0, 0, _buf + soi, frame_len);
+
+        // JPEGDEC: openRAM → setPixelType → decode → close per frame.
+        // RGB565_LITTLE_ENDIAN: JPEGDEC outputs pixels with low byte first in memory.
+        // Adafruit writePixels(bigEndian=false) byte-swaps during SPI transmission,
+        // which matches what the ST7735 panel expects (big-endian on wire). This is
+        // symmetric with the original TJpgDec setSwapBytes(false) path that was
+        // visually confirmed correct in C1. Keeping bigEndian=false in writePixels.
+        JPEGDEC jpg;
+        int decode_rc = 0;
+        int last_err  = 0;
+        if (jpg.openRAM(_buf + soi, (int)frame_len, _draw_cb)) {
+            jpg.setPixelType(RGB565_LITTLE_ENDIAN);
+            decode_rc = jpg.decode(0, 0, 0);
+            last_err  = jpg.getLastError();
+            jpg.close();
+        } else {
+            last_err = jpg.getLastError();
+        }
+
         uint32_t t_dec_us = micros() - t_dec_start;
         uint32_t cb_calls = s_cb_count - cb_before;
 
-        // DIAG: log JRESULT + first 64 bytes for frame[0] only
+        // DIAG: log decode result + first 64 bytes for frame[0] only
         if (_frameIdx == 0) {
-            static const char* jrnames[] = {
-                "JDR_OK","JDR_INTR","JDR_INP","JDR_MEM1","JDR_MEM2","JDR_PAR","JDR_FMT1","JDR_FMT2","JDR_FMT3"
-            };
-            int jr = (int)jresult;
-            const char* jrname = (jr >= 0 && jr <= 8) ? jrnames[jr] : "UNKNOWN";
-            Serial.printf("MJPEG:DIAG clip=%s jresult=%d (%s) soi=%u frame_len=%u\n",
-                          _clipName, jr, jrname, (unsigned)soi, (unsigned)frame_len);
-            // First 64 bytes of what's passed to drawJpg
+            Serial.printf("MJPEG:DIAG clip=%s decode_rc=%d last_err=%d soi=%u frame_len=%u\n",
+                          _clipName, decode_rc, last_err, (unsigned)soi, (unsigned)frame_len);
+            // First 64 bytes of what's passed to openRAM
             Serial.print("MJPEG:DIAG hex=");
             size_t dump_n = frame_len < 64 ? frame_len : 64;
             for (size_t i = 0; i < dump_n; i++) {
@@ -190,8 +170,8 @@ public:
             Serial.println();
         }
 
-        // ok=1 means JDR_OK (decode success). See TJPGDEC_OK_NOTE above.
-        bool ok = (jresult == JDR_OK);
+        // ok=1 means decode returned 1 (success). JPEGDEC returns 1=OK, 0=fail.
+        bool ok = (decode_rc == 1);
         if (!ok) _clipOkFail++;
 
         uint32_t t_total_us = t_dec_us; // t_read=0 (PSRAM), t_blit=0 (in t_dec)
@@ -235,24 +215,29 @@ public:
 private:
     static Adafruit_ST7735* s_active_tft;
     static uint32_t s_cb_count;
-    static bool _tjpg_cb(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) {
+
+    // JPEGDEC draw callback. Signature required by JPEGDEC library.
+    // pDraw->pPixels is RGB565 little-endian (per setPixelType(RGB565_LITTLE_ENDIAN)).
+    // writePixels(bigEndian=false) byte-swaps on the wire — matches ST7735 expectation.
+    static int _draw_cb(JPEGDRAW *pDraw) {
         s_cb_count++;
-        if (!s_active_tft) return false;
+        if (!s_active_tft) return 0; // abort
+        int16_t x = pDraw->x;
+        int16_t y = pDraw->y;
+        uint16_t w = pDraw->iWidth;
+        uint16_t h = pDraw->iHeight;
+        uint16_t* bitmap = pDraw->pPixels;
+
         // Clip to display bounds (160×128 landscape).
-        if (x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT) return true;
+        if (x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT) return 1;
         int16_t cx = x, cy = y;
         uint16_t cw = w, ch = h;
-        if (cx < 0) { cw += cx; bitmap -= cx; cx = 0; }  // left clip
-        if (cy < 0) { ch += cy; bitmap -= cy * w; cy = 0; } // top clip (rare)
+        if (cx < 0) { cw += cx; bitmap -= cx; cx = 0; }          // left clip
+        if (cy < 0) { ch += cy; bitmap -= cy * w; cy = 0; }       // top clip (rare)
         if (cx + (int16_t)cw > DISPLAY_WIDTH)  cw = DISPLAY_WIDTH  - cx;
         if (cy + (int16_t)ch > DISPLAY_HEIGHT) ch = DISPLAY_HEIGHT - cy;
-        if (cw == 0 || ch == 0) return true;
+        if (cw == 0 || ch == 0) return 1;
 
-        // TJpgDec with setSwapBytes(false) (default) outputs RGB565 in host
-        // little-endian order (low byte first in memory). ST7735 panels expect
-        // big-endian on the wire (high byte first). Adafruit writePixels with
-        // bigEndian=false performs the byte swap during transmission, matching
-        // what pushFrameRgb565() does for raw PC-streamed frames. Symmetric.
         s_active_tft->startWrite();
         s_active_tft->setAddrWindow(cx, cy, cw, ch);
         if (cw == w) {
@@ -265,7 +250,7 @@ private:
             }
         }
         s_active_tft->endWrite();
-        return true;
+        return 1; // 1=continue, 0=abort
     }
 
     // ── Per-clip summary ──────────────────────────────────────────────────────
