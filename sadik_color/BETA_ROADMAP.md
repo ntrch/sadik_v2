@@ -156,6 +156,7 @@ SADIK:READY
 
 **Hedef:** Sprint-8b sonrası ortaya çıkan asset artifact'lerinin çözümü.
 
+- [x] **Tearing fix: PSRAM full-frame backbuffer for PLAY_LOCAL** (commit on `feature/sprint8b-assets`): `mjpeg_player.h` — `_jpegdec_cb` artık MCU tile'ları doğrudan TFT'ye push etmiyor; 40 960 B PSRAM backbuffer'a (160×128×2) kopyalıyor. `decode()` başarıyla döndüğünde `pushImage(0,0,160,128,s_framebuf)` ile tam frame tek SPI transaction olarak blit ediliyor. TE pini kablolu olmadığı için yaşanan yatay yırtılma (orta-alt arası band) ortadan kalkıyor. Byte order değişmedi (JPEGDEC LE + setSwapBytes(true) korundu). PSRAM alloc fail olursa eski tile-push fallback aktif. Build: SUCCESS, no new errors.
 - [ ] **Diagnose**: orijinal `assets/mp4/` kaynaklarında `ffprobe` + `cropdetect` ile letterbox/footer band tespiti
 - [ ] **Encoder fix**: `tools/mjpeg/encode_all.py`'a `crop` filter veya aspect-aware `pad` mantığı
 - [ ] **Q yükseltme**: `-q:v 2` → `-q:v 1` (mid-tone shimmer azalır, ~%30 dosya büyür)

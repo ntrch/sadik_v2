@@ -15,6 +15,11 @@ static const uint16_t MJPEG_STATS_MAX_FRAMES = 240;
 // Target frame interval in microseconds (24 fps).
 static const uint32_t MJPEG_TARGET_FRAME_US = 41667UL; // 1000000 / 24
 
+// Full-frame PSRAM backbuffer size: 160 × 128 × 2 bytes = 40960 bytes.
+// JPEGDEC tile callback writes MCU blocks here; decode() completion triggers
+// one single pushImage() to eliminate mid-scanout partial-frame tearing.
+static const size_t MJPEG_FB_SIZE = DISPLAY_WIDTH * DISPLAY_HEIGHT * 2;  // 40960
+
 class MjpegPlayer {
 public:
     void begin(LGFX_Custom* lcd) {
@@ -29,6 +34,20 @@ public:
         // LE→BE swap on push so SPI wire gets MSB-first as ST7735S expects.
         // This is the standard Bitbank2 + LovyanGFX integration pattern.
         _jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
+
+        // Allocate full-frame PSRAM backbuffer (once, lifetime of process).
+        // MCU tiles are blitted here; frame is pushed atomically after decode().
+        // This eliminates the horizontal tearing band caused by partial TFT
+        // scanout during per-tile pushImage() calls (no TE pin wired).
+        if (!s_framebuf) {
+            s_framebuf = (uint16_t*)psram_or_internal_malloc(MJPEG_FB_SIZE, MALLOC_CAP_8BIT);
+            if (s_framebuf) {
+                Serial.println("MJPEG:FRAMEBUF_ALLOC ok psram");
+            } else {
+                Serial.println("MJPEG:FRAMEBUF_ALLOC fail — falling back to direct tile push");
+            }
+        }
+
         _ready = true;
         // Runtime stat toggles (default: per-frame OFF, summary ON)
         _statsFrameOn   = false;
@@ -128,6 +147,15 @@ public:
 
         uint32_t t_dec_us = micros() - t_dec_start;
 
+        // ── Atomic full-frame push (backbuffer path) ──────────────────────────
+        // If the PSRAM backbuffer was used (s_framebuf != nullptr), the decode
+        // callback populated it tile-by-tile. Push the whole frame in one SPI
+        // transaction now so the panel scanout sees a complete image, not partial
+        // MCU blocks — this is the tearing fix.
+        if (s_framebuf && open_ok && decode_result == 1) {
+            _lcd->pushImage(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, s_framebuf);
+        }
+
         // DIAG: log decode result + first 64 bytes for frame[0] only
         if (_frameIdx == 0) {
             int last_err = _jpeg.getLastError();
@@ -192,10 +220,20 @@ public:
 private:
     static LGFX_Custom* s_active_lcd;
     static JPEGDEC      _jpeg;
+    // Full-frame PSRAM backbuffer shared across all MjpegPlayer instances.
+    // Allocated once in begin(). nullptr = backbuffer unavailable; fall back
+    // to direct tile push (old path) so the device always functions.
+    static uint16_t*    s_framebuf;
 
-    // JPEGDEC tile callback: receives decoded MCU tile, blits via LovyanGFX pushImage.
+    // JPEGDEC tile callback: receives decoded MCU tile.
     // pDraw->pPixels is RGB565 LE (matches setPixelType(RGB565_LITTLE_ENDIAN)).
-    // LovyanGFX pushImage default accepts LE RGB565 uint16_t* — no swap needed.
+    //
+    // When s_framebuf is available: copy the MCU block into the correct region
+    // of the PSRAM backbuffer. No TFT push happens here — the caller does one
+    // atomic pushImage() after decode() completes, eliminating tearing.
+    //
+    // Fallback (s_framebuf == nullptr): push tiles directly to TFT (old path).
+    // Byte order is unchanged in both paths — JPEGDEC LE + setSwapBytes(true).
     static int _jpegdec_cb(JPEGDRAW* pDraw) {
         if (!s_active_lcd) return 0;  // 0 = abort
 
@@ -215,15 +253,27 @@ private:
         if (cy + ch > DISPLAY_HEIGHT) ch = DISPLAY_HEIGHT - cy;
         if (cw <= 0 || ch <= 0) return 1;
 
-        if (cw == w) {
-            // Full-width tile: single pushImage call
-            s_active_lcd->pushImage(cx, cy, cw, ch,
-                                    pixels + (cy - y) * w);
-        } else {
-            // Clipped tile: row by row
+        if (s_framebuf) {
+            // ── Backbuffer path: copy tile into PSRAM framebuffer ───────────
+            // Each row of the (clipped) tile is memcpy'd into the correct
+            // scanline of the 160-wide buffer. uint16_t is RGB565 LE — same
+            // byte order as what pushImage will later receive. No byte swap.
+            const uint16_t* src_base = pixels + (cy - y) * w + (cx - x);
             for (int16_t row = 0; row < ch; row++) {
-                s_active_lcd->pushImage(cx, cy + row, cw, 1,
-                                        pixels + (cy - y + row) * w + (cx - x));
+                uint16_t* dst = s_framebuf + (cy + row) * DISPLAY_WIDTH + cx;
+                const uint16_t* src = src_base + row * w;
+                memcpy(dst, src, (size_t)cw * 2);
+            }
+        } else {
+            // ── Fallback: direct tile push (original path, no framebuffer) ──
+            if (cw == w) {
+                s_active_lcd->pushImage(cx, cy, cw, ch,
+                                        pixels + (cy - y) * w);
+            } else {
+                for (int16_t row = 0; row < ch; row++) {
+                    s_active_lcd->pushImage(cx, cy + row, cw, 1,
+                                            pixels + (cy - y + row) * w + (cx - x));
+                }
             }
         }
         return 1;  // 1 = continue decoding
@@ -327,3 +377,4 @@ private:
 // Out-of-line statics
 inline LGFX_Custom* MjpegPlayer::s_active_lcd = nullptr;
 inline JPEGDEC      MjpegPlayer::_jpeg;
+inline uint16_t*    MjpegPlayer::s_framebuf   = nullptr;
