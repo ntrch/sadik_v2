@@ -6,6 +6,8 @@
 #   python tools/voice_v2_test_client.py --voice Charon
 #   python tools/voice_v2_test_client.py --voice Fenrir
 #   python tools/voice_v2_test_client.py --voice Orus
+#   python tools/voice_v2_test_client.py --rms-threshold 300   # daha sıkı sessizlik filtresi
+#   python tools/voice_v2_test_client.py --rms-threshold 0     # RMS gate devre dışı
 #
 # Geçerli ses seçenekleri: Puck, Charon, Kore, Fenrir, Aoede, Leda, Orus, Zephyr
 
@@ -52,6 +54,13 @@ CHANNELS      = 1
 DTYPE         = "int16"
 CHUNK_FRAMES  = 1600     # 100 ms @ 16 kHz
 
+# RMS gate (T9.5.3): mic chunk'larını RMS < threshold ise Gemini'ye gönderme.
+# int16 PCM için tipik sessizlik RMS < 200, konuşma RMS > 800.
+# Default 0 (KAPALI): mikrofon gain'i cihaza göre çok değişken (Fuxi-H3 USB
+# mikrofonunda 150 bile %96 chunk'ı kestiği görüldü). Production'da silero VAD
+# (T9.5.5) bunu replace edecek. Şimdilik opt-in.
+RMS_THRESHOLD = 0
+
 # ── Latency telemetri ──────────────────────────────────────────────────────────
 
 class Telemetry:
@@ -84,12 +93,12 @@ class Telemetry:
         print("  Yorum:")
         if self.t_end_of_turn and self.t_first_audio:
             d = (self.t_first_audio - self.t_end_of_turn) * 1000
-            if d < 800:
+            if d < 1000:
                 print(f"  end_of_turn→first_audio = {d:.0f}ms  ✓  Mükemmel, kullanıcı 'anlık' algılar.")
-            elif d < 1500:
-                print(f"  end_of_turn→first_audio = {d:.0f}ms  ~ Kabul edilebilir, ağ gecikmesi normal.")
+            elif d < 2500:
+                print(f"  end_of_turn→first_audio = {d:.0f}ms  ~ Kabul edilebilir (router LLM bekliyor, normal).")
             else:
-                print(f"  end_of_turn→first_audio = {d:.0f}ms  ✗  Yüksek gecikme — ağ veya Gemini yükü?")
+                print(f"  end_of_turn→first_audio = {d:.0f}ms  ✗  Yüksek gecikme — router LLM yavaş veya ağ sorunu.")
         else:
             print("  first_audio alınamadı — sunucu yanıt vermedi ya da hata oluştu.")
         print("=" * 50)
@@ -98,7 +107,7 @@ class Telemetry:
 
 # ── Ana istemci ────────────────────────────────────────────────────────────────
 
-async def run(host: str, port: int, seconds: int, voice: str = "Charon"):
+async def run(host: str, port: int, seconds: int, voice: str = "Charon", rms_threshold: int = RMS_THRESHOLD):
     uri = f"ws://{host}:{port}/api/voice/live?voice={voice}"
     tel = Telemetry()
 
@@ -254,6 +263,7 @@ async def run(host: str, port: int, seconds: int, voice: str = "Charon"):
     # ── Mikrofon kaydı ve gönderme ────────────────────────────────────────────
     async def record_and_send():
         print(f"\n[MIC] {seconds}s kayıt başlıyor — konuşun!")
+        print(f"      RMS gate threshold: {rms_threshold} (int16 RMS)")
         print("      (Kayıt biterken Gemini yanıtını bekleyin...)\n")
 
         loop = asyncio.get_event_loop()
@@ -274,6 +284,7 @@ async def run(host: str, port: int, seconds: int, voice: str = "Charon"):
         )
 
         chunks_sent = 0
+        chunks_gated = 0
         try:
             with stream:
                 deadline = time.monotonic() + seconds
@@ -282,6 +293,16 @@ async def run(host: str, port: int, seconds: int, voice: str = "Charon"):
                         chunk = await asyncio.wait_for(mic_queue.get(), timeout=0.2)
                     except asyncio.TimeoutError:
                         continue
+
+                    # ── RMS gate (T9.5.3) ─────────────────────────────────────
+                    # Compute RMS of the int16 PCM chunk.  Cast to float32 to
+                    # avoid integer overflow when squaring int16 values.
+                    pcm_int16 = chunk.flatten().astype(np.float32)
+                    rms = float(np.sqrt(np.mean(pcm_int16 ** 2)))
+                    if rms < rms_threshold:
+                        chunks_gated += 1
+                        continue  # silence — don't send to Gemini
+
                     pcm_bytes = chunk.tobytes()
                     b64 = base64.b64encode(pcm_bytes).decode("ascii")
                     await ws.send(json.dumps({"type": "audio", "data": b64}))
@@ -295,7 +316,12 @@ async def run(host: str, port: int, seconds: int, voice: str = "Charon"):
             traceback.print_exc()
             return
 
-        print(f"[MIC] Kayıt bitti ({chunks_sent} chunk gönderildi). end_of_turn gönderiliyor...")
+        total_chunks = chunks_sent + chunks_gated
+        gate_pct = (chunks_gated / total_chunks * 100) if total_chunks > 0 else 0
+        print(
+            f"[MIC] Kayıt bitti | sent={chunks_sent} gated={chunks_gated}/{total_chunks} "
+            f"({gate_pct:.0f}% sessizlik). end_of_turn gönderiliyor..."
+        )
         await ws.send(json.dumps({"type": "end_of_turn"}))
         tel.t_end_of_turn = time.monotonic()
 
@@ -349,10 +375,17 @@ def main():
         default="Charon",
         help="Gemini prebuilt ses adı (default: Charon). Seçenekler: Puck, Charon, Kore, Fenrir, Aoede, Leda, Orus, Zephyr",
     )
+    parser.add_argument(
+        "--rms-threshold",
+        default=RMS_THRESHOLD,
+        type=int,
+        help=f"RMS gate eşiği (int16 PCM, default: {RMS_THRESHOLD}). "
+             "Bu değerin altındaki chunk'lar sessizlik sayılır ve Gemini'ye gönderilmez.",
+    )
     args = parser.parse_args()
 
     print(f"\nSADIK v2 — Voice V2 Test İstemcisi")
-    print(f"Host: {args.host}:{args.port}  |  Süre: {args.seconds}s  |  Ses: {args.voice}")
+    print(f"Host: {args.host}:{args.port}  |  Süre: {args.seconds}s  |  Ses: {args.voice}  |  RMS gate: {args.rms_threshold}")
     print(f"Mikrofon: 16kHz mono int16  |  Çıkış: 24kHz mono int16\n")
 
     # Ses cihazlarını listele (debug için)
@@ -365,7 +398,7 @@ def main():
         print(f"[WARN] Ses cihazı sorgulanamadı: {e}\n")
 
     try:
-        asyncio.run(run(args.host, args.port, args.seconds, args.voice))
+        asyncio.run(run(args.host, args.port, args.seconds, args.voice, args.rms_threshold))
     except KeyboardInterrupt:
         print("\n[INFO] Kullanıcı tarafından durduruldu.")
     except Exception as e:

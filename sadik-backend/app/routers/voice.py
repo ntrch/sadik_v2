@@ -530,6 +530,11 @@ async def voice_live_ws(
     Connect ONLY after wakeword fires — cold sessions are never opened.
     Session is opened here and closed when the client disconnects or on error.
 
+    T9.5.3 additions:
+      - 8s idle timeout: if no audio from client for 8s, session is closed.
+      - 30s per-turn audio cap: if mic audio > 30s in one turn, error + force end_of_turn.
+      - Cost telemetry: per-session summary logged at session end.
+
     Latency telemetry is logged at turn_complete with four timestamps:
       t_wake (set by client via {"type":"wake_ts","ts":<monotonic float>})
       t_open, t_ready, t_first (set internally by GeminiLiveService).
@@ -571,7 +576,18 @@ async def voice_live_ws(
     telemetry = LatencyTelemetry()
     router = LiveRouter()
 
+    # ── Cost / session telemetry state (T9.5.3) ────────────────────────────────
+    # Shared mutable container between send_loop and this scope for cost tracking.
+    # Using a dict so send_loop can mutate values via reference.
+    _cost: dict = {
+        "input_audio_chunks": 0,    # total mic chunks received this session
+        "output_audio_chunks": 0,   # total Gemini audio chunks forwarded this session
+        "router_calls": 0,          # how many times LLM router was called
+    }
+
     logger.info("[VoiceLive] WS connected — opening Gemini Live session (voice=%s)", voice)
+
+    t_session_start = time.perf_counter()
 
     try:
         service = build_service(gemini_api_key)
@@ -580,9 +596,11 @@ async def voice_live_ws(
             await websocket.send_text(json.dumps({"type": "ready"}))
 
             # Run receive (Gemini → client) and send (client → Gemini) concurrently.
-            send_task    = asyncio.create_task(_live_send_loop(websocket, live, telemetry))
+            send_task    = asyncio.create_task(
+                _live_send_loop(websocket, live, telemetry, _cost)
+            )
             receive_task = asyncio.create_task(
-                _live_receive_loop(websocket, live, router, session, settings)
+                _live_receive_loop(websocket, live, router, session, settings, _cost)
             )
 
             done, pending = await asyncio.wait(
@@ -607,13 +625,60 @@ async def voice_live_ws(
     finally:
         telemetry.log()
 
+        # ── Cost telemetry summary (T9.5.3) ───────────────────────────────────
+        # Chunk size assumptions:
+        #   input  chunk = CHUNK_FRAMES / MIC_RATE   = 1600 / 16000 = 0.1s (100ms)
+        #   output chunk ≈ 50ms @ 24 kHz (Gemini Live default frame ~1200 samples)
+        session_secs = time.perf_counter() - t_session_start
+        input_audio_s  = _cost["input_audio_chunks"]  * 0.1    # 100ms / chunk
+        output_audio_s = _cost["output_audio_chunks"] * 0.05   # ~50ms / chunk estimate
+        logger.info(
+            "[VoiceLive] SESSION COST SUMMARY | "
+            "session_duration=%.1fs | "
+            "input_audio=%.1fs (%d chunks) | "
+            "output_audio=~%.1fs (%d chunks) | "
+            "router_llm_calls=%d",
+            session_secs,
+            input_audio_s, _cost["input_audio_chunks"],
+            output_audio_s, _cost["output_audio_chunks"],
+            _cost["router_calls"],
+        )
+
+
+# ── Session lifecycle constants (T9.5.3) ──────────────────────────────────────
+_IDLE_TIMEOUT_SECS   = 8    # close session after 8s of no mic audio from client
+_TURN_MAX_SECS       = 30   # force end_of_turn after 30s of continuous mic audio
+_MIC_CHUNK_SECS      = 0.1  # one mic chunk = 100ms (1600 frames @ 16 kHz)
+
 
 async def _live_send_loop(
     websocket: WebSocket,
     live,
     telemetry: "LatencyTelemetry",
+    _cost: dict,
 ) -> None:
-    """Read messages from the client WS and forward audio/control to Gemini."""
+    """Read messages from the client WS and forward audio/control to Gemini.
+
+    T9.5.3 additions:
+      - Tracks last_audio_ts; raises IdleTimeout after _IDLE_TIMEOUT_SECS.
+      - Tracks per-turn audio duration; sends error + forces end_of_turn after
+        _TURN_MAX_SECS of continuous mic audio.
+    """
+    last_audio_ts: float = time.monotonic()   # updated on every audio chunk
+    turn_audio_chunks: int = 0                # chunks in current turn (reset at end_of_turn)
+    turn_cap_exceeded: bool = False           # avoid double-firing cap error
+
+    async def _idle_watchdog() -> None:
+        """Raise asyncio.CancelledError (propagating as IdleTimeout) when idle."""
+        nonlocal last_audio_ts
+        while True:
+            await asyncio.sleep(1.0)
+            if time.monotonic() - last_audio_ts >= _IDLE_TIMEOUT_SECS:
+                logger.info("[VoiceLive] idle timeout %ds, closing session", _IDLE_TIMEOUT_SECS)
+                raise asyncio.CancelledError("idle_timeout")
+
+    watchdog_task = asyncio.create_task(_idle_watchdog())
+
     try:
         while True:
             raw = await websocket.receive_text()
@@ -623,11 +688,39 @@ async def _live_send_loop(
             if msg_type == "audio":
                 # Client sends base64-encoded PCM (16 kHz, 16-bit LE, mono)
                 pcm = _base64.b64decode(msg["data"])
-                await live.send_audio(pcm)
+                last_audio_ts = time.monotonic()
+                _cost["input_audio_chunks"] += 1
+                turn_audio_chunks += 1
+
+                # Per-turn 30s audio cap check
+                turn_audio_secs = turn_audio_chunks * _MIC_CHUNK_SECS
+                if turn_audio_secs > _TURN_MAX_SECS and not turn_cap_exceeded:
+                    turn_cap_exceeded = True
+                    logger.warning(
+                        "[VoiceLive] turn audio cap exceeded (%.0fs > %ds) — forcing end_of_turn",
+                        turn_audio_secs, _TURN_MAX_SECS,
+                    )
+                    try:
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "detail": "turn too long, max 30s",
+                        }))
+                    except Exception:
+                        pass
+                    # Force end_of_turn to Gemini
+                    await live.signal_end_of_turn()
+                    # Don't forward the audio chunk that triggered this
+                    continue
+
+                if not turn_cap_exceeded:
+                    await live.send_audio(pcm)
 
             elif msg_type == "end_of_turn":
                 # User stopped speaking — signal Gemini to generate response
                 await live.signal_end_of_turn()
+                # Reset per-turn counters
+                turn_audio_chunks = 0
+                turn_cap_exceeded = False
 
             elif msg_type == "wake_ts":
                 # Client reports the monotonic timestamp when wakeword fired.
@@ -641,10 +734,27 @@ async def _live_send_loop(
                 logger.warning("[VoiceLive] Unknown client message type: %s", msg_type)
 
     except WebSocketDisconnect:
+        watchdog_task.cancel()
+        raise
+    except asyncio.CancelledError as ce:
+        watchdog_task.cancel()
+        if "idle_timeout" in str(ce):
+            logger.info("[VoiceLive] send_loop: idle_timeout fired, closing WS")
+            try:
+                await websocket.close(code=1000)
+            except Exception:
+                pass
         raise
     except Exception as e:
+        watchdog_task.cancel()
         logger.error("[VoiceLive] send_loop error: %s", e)
         raise
+    finally:
+        watchdog_task.cancel()
+        try:
+            await watchdog_task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 async def _live_receive_loop(
@@ -653,15 +763,15 @@ async def _live_receive_loop(
     router: "LiveRouter",
     session: "AsyncSession",
     settings: dict,
+    _cost: dict,
 ) -> None:
     """Stream events from Gemini back to the client over WebSocket.
 
-    T9.5.2 Adım 3 — LiveRouter integration:
-      ("audio",         bytes)       → forward ONLY if router.is_muted() == False
-      ("transcript",    str,  bool)  → router.on_transcript() + forward to client
-      ("turn_complete", None)        → router.on_turn_complete() → LLM routing
-                                       → send tool_result or nothing
-                                       → reset router for next turn
+    T9.5.3 — A-path audio buffer until router decision:
+      Audio chunks arriving before turn_complete are buffered (not forwarded).
+      After router decision:
+        - ("chat", ...) → flush buffer to client, then forward directly.
+        - ("tool", ...) → drop buffer, set mute (existing behaviour).
 
     Wire protocol (server → client):
       {"type": "audio",        "data": "<b64>", "mime": "audio/pcm;rate=24000"}
@@ -669,25 +779,109 @@ async def _live_receive_loop(
       {"type": "turn_complete"}
       {"type": "tool_result",  "tool_name": str, "status": "ok"|"error",
                                "data": {...}, "error": str|null}
+      {"type": "error",        "detail": "turn too long, max 30s"}
     """
     from app.services.live_router import LiveRouter  # import for type reference
+    from collections import deque
+
+    # ── A-path audio buffer (T9.5.3) ──────────────────────────────────────────
+    # Audio chunks are buffered here until the router makes its decision after
+    # turn_complete.  Max 100 chunks (~2s @ 50ms/chunk).  Overflow → drop + warn.
+    _AUDIO_BUFFER_MAX = 100
+    audio_buffer: deque[bytes] = deque()
+    turn_decided = False   # True after router returns for this turn
+
+    # Timestamp tracking for A-path latency telemetry
+    t_turn_complete: float | None = None
+    t_router_started: float | None = None
+
+    # T9.5.3 fix: router LLM çağrısını turn_complete'de DEĞİL, ilk transcript geldiği
+    # an background task olarak başlat. `gemini-3.1-flash-live-preview` modelinde
+    # transcript tek shot olarak geliyor (finished flag yok) → ilk transcript = final.
+    # turn_complete (Gemini audio stream sonu) 5-15s sürebilir; o ana kadar
+    # beklemek A-path latency'sini patlatıyor. Erken başlatmak ~1s LLM roundtrip'i
+    # Gemini audio stream süresinin içine saklar.
+    router_task: "asyncio.Task | None" = None
+
+    async def _apply_router_decision(result):
+        """Router decision geldi — buffer'ı flush et veya drop et, turn_decided set et."""
+        nonlocal turn_decided
+        kind_r = result[0]
+        turn_decided = True
+        if kind_r == "tool":
+            _, tool_name, status, data, error = result
+            logger.info(
+                "[VoiceLive] tool_result tool=%s status=%s | dropping %d buffered audio chunks (early)",
+                tool_name, status, len(audio_buffer),
+            )
+            audio_buffer.clear()
+            await websocket.send_text(json.dumps({
+                "type":      "tool_result",
+                "tool_name": tool_name,
+                "status":    status,
+                "data":      data,
+                "error":     error,
+            }))
+        else:
+            # Chat — buffer'daki tüm chunk'ları flush et
+            flushed = 0
+            t_first_sent: float | None = None
+            while audio_buffer:
+                chunk = audio_buffer.popleft()
+                payload = json.dumps({
+                    "type": "audio",
+                    "data": _base64.b64encode(chunk).decode("ascii"),
+                    "mime": "audio/pcm;rate=24000",
+                })
+                await websocket.send_text(payload)
+                _cost["output_audio_chunks"] += 1
+                if t_first_sent is None:
+                    t_first_sent = time.perf_counter()
+                flushed += 1
+            if t_router_started is not None and t_first_sent is not None:
+                latency_ms = (t_first_sent - t_router_started) * 1000
+                logger.info(
+                    "[VoiceLive] A-path EARLY flush: %d chunks, router_started→first_audio_client=%.0f ms",
+                    flushed, latency_ms,
+                )
 
     try:
         async for event in live.receive_messages():
             kind = event[0]
 
+            # T9.5.3 fix: her audio event'inde router_task'ın done olup olmadığını kontrol et.
+            # turn_complete beklemeden flush/drop kararını uygula → A-path latency düşer.
+            if router_task is not None and router_task.done() and not turn_decided:
+                try:
+                    _result = router_task.result()
+                    await _apply_router_decision(_result)
+                except Exception as e:
+                    logger.error("[VoiceLive] router_task error: %s", e)
+                    turn_decided = True  # don't keep buffering
+
             if kind == "audio":
                 if router.is_muted():
-                    # B-path tool detected — drop this audio chunk server-side.
-                    # Chunks already sent before mute fires are already at client (accepted).
-                    logger.debug("[VoiceLive] audio chunk DROPPED (muted)")
-                else:
+                    # Tool path confirmed — drop audio
+                    logger.debug("[VoiceLive] audio chunk DROPPED (muted/tool path)")
+                elif turn_decided:
+                    # Chat path confirmed, router already flushed the buffer —
+                    # forward subsequent chunks directly
                     payload = json.dumps({
                         "type": "audio",
                         "data": _base64.b64encode(event[1]).decode("ascii"),
                         "mime": "audio/pcm;rate=24000",
                     })
                     await websocket.send_text(payload)
+                    _cost["output_audio_chunks"] += 1
+                else:
+                    # Waiting for router decision — buffer the chunk
+                    if len(audio_buffer) >= _AUDIO_BUFFER_MAX:
+                        logger.warning(
+                            "[VoiceLive] audio_buffer overflow (%d chunks), dropping oldest",
+                            _AUDIO_BUFFER_MAX,
+                        )
+                        audio_buffer.popleft()  # drop oldest to make room
+                    audio_buffer.append(event[1])
 
             elif kind == "transcript":
                 _, text, finished = event
@@ -702,32 +896,33 @@ async def _live_receive_loop(
                     "finished": finished,
                 }))
 
+                # T9.5.3 fix: router'ı transcript geldiği an başlat (turn_complete bekleme)
+                if router_task is None and text.strip():
+                    t_router_started = time.perf_counter()
+                    _cost["router_calls"] += 1
+                    logger.info("[VoiceLive] starting B-path LLM router (early, on transcript)")
+                    router_task = asyncio.create_task(
+                        router.on_turn_complete(session, settings)
+                    )
+
             elif kind == "turn_complete":
-                # Forward turn_complete to client first (A-path audio is done)
+                t_turn_complete = time.perf_counter()
                 await websocket.send_text(json.dumps({"type": "turn_complete"}))
 
-                # Run B-path LLM routing
-                logger.info("[VoiceLive] running B-path LLM router...")
-                result = await router.on_turn_complete(session, settings)
-                kind_r = result[0]
+                # Router henüz dönmediyse burada bekle (edge: çok hızlı turn veya OpenAI yavaş)
+                if not turn_decided:
+                    if router_task is None:
+                        logger.warning("[VoiceLive] no transcript before turn_complete — starting router late")
+                        _cost["router_calls"] += 1
+                        router_task = asyncio.create_task(
+                            router.on_turn_complete(session, settings)
+                        )
+                    result = await router_task
+                    if t_router_started is not None:
+                        router_ms = (time.perf_counter() - t_router_started) * 1000
+                        logger.info("[VoiceLive] router decided in %.0fms (from start, late)", router_ms)
+                    await _apply_router_decision(result)
 
-                if kind_r == "tool":
-                    _, tool_name, status, data, error = result
-                    logger.info(
-                        "[VoiceLive] tool_result tool=%s status=%s", tool_name, status
-                    )
-                    await websocket.send_text(json.dumps({
-                        "type":      "tool_result",
-                        "tool_name": tool_name,
-                        "status":    status,
-                        "data":      data,
-                        "error":     error,
-                    }))
-                else:
-                    # Pure chat turn — Live audio already delivered, nothing extra
-                    logger.info("[VoiceLive] B-path: chat turn, no tool action")
-
-                # Reset router state for next turn (unmute + clear transcript)
                 router.reset_turn()
                 break
 
