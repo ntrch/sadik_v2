@@ -123,7 +123,8 @@ V2 sonrası tool path = B hattı (sessiz, görsel-only sonuç).
 - **LGFX gizli rowstart shift:** Panel ve memory width farkı → `cfg.offset_x` ile cancel. Uniform renk maskeliyor; gradient testi şart.
 - **Wakeword duration yanlış (45375ms):** 24f@24fps = 1000ms olarak düzeltildi (`c5c6b83`).
 - **N16R8 boot loop:** `opi_opi` denemesinde; `qio_opi` ile stabil.
-- **Voice latency 28s:** Henüz çözülmedi; Sprint 9.5'in tek hedefi.
+- **Voice latency 28s:** T9.5.1 spike ile çözüldü — Gemini Live `end_of_turn→first_audio` ortalama **789ms** (6 test, 718-813 aralık). open→ready ~1.1s tek seferlik session açılış maliyeti.
+- **Gemini Live TR telafuz/vurgu zayıflığı:** Bilinen kısıt (preview model). Charon sesi karakter olarak uygun bulundu; telafuz hataları beta'da kabul. Post-beta alternatif değerlendirme: Cartesia Sonic-TR, ElevenLabs TR ses, ya da yeni Gemini Live versiyonu.
 
 ---
 

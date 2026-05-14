@@ -2,7 +2,7 @@ import logging
 import asyncio
 import json
 import time
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query, WebSocket, WebSocketDisconnect
 from typing import Optional, AsyncIterator
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -495,3 +495,164 @@ async def list_tools():
         {"name": t.name, "description": t.description}
         for t in TOOLS.values()
     ]
+
+
+# ── Voice V2 — Gemini Live proxy (Sprint 9.5, T9.5.1) ─────────────────────────
+#
+# Flag-gated: voice_v2_enabled must be "true" in settings to activate.
+# Default: false — V1 pipeline (above) keeps working unchanged.
+#
+# WebSocket wire protocol (server → client):
+#   {"type": "ready"}                          — session open, mic stream can start
+#   {"type": "audio", "data": "<base64 PCM>"}  — 24 kHz PCM chunk from Gemini
+#   {"type": "turn_complete"}                  — Gemini finished speaking this turn
+#   {"type": "error", "detail": "..."}         — fatal error, connection will close
+#   {"type": "latency", ...}                   — telemetry snapshot at turn_complete
+#
+# WebSocket wire protocol (client → server):
+#   {"type": "audio", "data": "<base64 PCM>"}  — 16 kHz PCM from mic (post-RMS gate)
+#   {"type": "end_of_turn"}                    — user stopped speaking (manual VAD)
+#   {"type": "ping"}                           — keepalive (server ignores, WS layer handles)
+
+import base64 as _base64
+
+
+@router.websocket("/live")
+async def voice_live_ws(
+    websocket: WebSocket,
+    voice: str = Query(default="Charon", description="Gemini prebuilt voice name (e.g. Charon, Fenrir, Orus)"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Gemini Live audio proxy WebSocket.
+
+    Gated behind voice_v2_enabled setting (default "false").
+    Connect ONLY after wakeword fires — cold sessions are never opened.
+    Session is opened here and closed when the client disconnects or on error.
+
+    Latency telemetry is logged at turn_complete with four timestamps:
+      t_wake (set by client via {"type":"wake_ts","ts":<monotonic float>})
+      t_open, t_ready, t_first (set internally by GeminiLiveService).
+    """
+    await websocket.accept()
+
+    # ── Feature flag check ─────────────────────────────────────────────────────
+    settings = await get_settings_map(session)
+    voice_v2_enabled = settings.get("voice_v2_enabled", "false").lower() == "true"
+    if not voice_v2_enabled:
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "detail": "voice_v2_enabled is false — enable in settings to use Gemini Live",
+        }))
+        await websocket.close(code=1008)
+        logger.warning("[VoiceLive] Connection rejected: voice_v2_enabled=false")
+        return
+
+    # ── API key ────────────────────────────────────────────────────────────────
+    gemini_api_key = settings.get("gemini_api_key", "").strip()
+    if not gemini_api_key:
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "detail": "gemini_api_key not configured in settings",
+        }))
+        await websocket.close(code=1008)
+        logger.error("[VoiceLive] Connection rejected: no gemini_api_key")
+        return
+
+    # ── Telemetry init ─────────────────────────────────────────────────────────
+    from app.services.gemini_live_service import GeminiLiveService, LatencyTelemetry, build_service
+    telemetry = LatencyTelemetry()
+
+    logger.info("[VoiceLive] WS connected — opening Gemini Live session (voice=%s)", voice)
+
+    try:
+        service = build_service(gemini_api_key)
+        async with service.session(telemetry=telemetry, voice_name=voice) as live:
+            # Signal client that session is ready
+            await websocket.send_text(json.dumps({"type": "ready"}))
+
+            # Run receive (Gemini → client) and send (client → Gemini) concurrently.
+            send_task    = asyncio.create_task(_live_send_loop(websocket, live, telemetry))
+            receive_task = asyncio.create_task(_live_receive_loop(websocket, live))
+
+            done, pending = await asyncio.wait(
+                [send_task, receive_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+                try:
+                    await t
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+    except WebSocketDisconnect:
+        logger.info("[VoiceLive] WS disconnected cleanly")
+    except Exception as e:
+        logger.error("[VoiceLive] Session error: %s", e)
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "detail": str(e)}))
+        except Exception:
+            pass
+    finally:
+        telemetry.log()
+
+
+async def _live_send_loop(
+    websocket: WebSocket,
+    live,
+    telemetry: "LatencyTelemetry",
+) -> None:
+    """Read messages from the client WS and forward audio/control to Gemini."""
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            msg = json.loads(raw)
+            msg_type = msg.get("type", "")
+
+            if msg_type == "audio":
+                # Client sends base64-encoded PCM (16 kHz, 16-bit LE, mono)
+                pcm = _base64.b64decode(msg["data"])
+                await live.send_audio(pcm)
+
+            elif msg_type == "end_of_turn":
+                # User stopped speaking — signal Gemini to generate response
+                await live.signal_end_of_turn()
+
+            elif msg_type == "wake_ts":
+                # Client reports the monotonic timestamp when wakeword fired.
+                # Used to compute wake→first_audio latency.
+                telemetry.t_wake = float(msg.get("ts", 0))
+
+            elif msg_type == "ping":
+                pass  # keepalive, no-op
+
+            else:
+                logger.warning("[VoiceLive] Unknown client message type: %s", msg_type)
+
+    except WebSocketDisconnect:
+        raise
+    except Exception as e:
+        logger.error("[VoiceLive] send_loop error: %s", e)
+        raise
+
+
+async def _live_receive_loop(websocket: WebSocket, live) -> None:
+    """Stream audio chunks from Gemini back to the client over WebSocket."""
+    try:
+        async for chunk in live.receive_audio():
+            # Forward raw PCM as base64 JSON frame
+            payload = json.dumps({
+                "type": "audio",
+                "data": _base64.b64encode(chunk).decode("ascii"),
+                "mime": "audio/pcm;rate=24000",
+            })
+            await websocket.send_text(payload)
+
+        # Turn complete
+        await websocket.send_text(json.dumps({"type": "turn_complete"}))
+
+    except WebSocketDisconnect:
+        raise
+    except Exception as e:
+        logger.error("[VoiceLive] receive_loop error: %s", e)
+        raise

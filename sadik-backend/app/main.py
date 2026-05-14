@@ -113,6 +113,11 @@ DEFAULT_SETTINGS = {
     "user_persona": "general",
     "user_activities": "",          # CSV: "code,writing,learning"
     "user_preset_modes": "",        # CSV: "coding,writing,break,working"
+    # ── Voice V2 — Gemini Live (Sprint 9.5) ──────────────────────────────────
+    # Set voice_v2_enabled to "true" to activate the Gemini Live proxy endpoint.
+    # Default "false" keeps V1 pipeline (Whisper+OpenAI+TTS) fully operational.
+    "voice_v2_enabled": "false",
+    "gemini_api_key": "",           # Google AI Studio key — never sent to client
 }
 
 @asynccontextmanager
