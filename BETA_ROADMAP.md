@@ -628,6 +628,60 @@ Aşağıdaki sprint 6'ya kadar sıralı planlandı. Her sprint tamamlandığınd
 
 ---
 
+### Sprint 9.5 (beta-blocker): Voice V2 — Gemini Live + dual pipeline
+**Amaç:** Mevcut ~28s e2e voice latency'sini Gemini Live audio↔audio ile <1s ilk ses seviyesine indir; tool calling güvenilirliğini koru.
+
+**Mimari (karar):**
+```
+wakeword (openWakeWord) → RMS gate → B-first router
+                                      │
+                                      ├─ B) Tool: Whisper STT → LLM(tools) → execute → MJPEG done/error klip (SES YOK)
+                                      └─ A) Conversation (B'de tool yoksa): Gemini Live audio↔audio → speaker + talking anim
+```
+
+**Kararlar:**
+- Router: B önce dene, tool yoksa A'ya düş. Conversation +1s ek latency kabul.
+- TTS hattı **tamamen sökülür** (ElevenLabs + OpenAI TTS + edge-tts → silinir).
+- Session lifecycle: 8s sessizlik → kapat, 30s/turn audio cap.
+- Backend FastAPI proxy üzerinden çağrı (key cihazda değil).
+- Settings'e `gemini_api_key` field eklenir.
+
+**Tasks:**
+- [ ] **T9.5.1** Gemini Live spike — auth, audio I/O, wakeword→ilk ses latency ölçümü, backend proxy iskeleti, `gemini_live_service.py` taslak
+- [ ] **T9.5.2** Pipeline split — A/B hatları, B-first intent router, Live mute mekanizması, `voice_service.py` refactor
+- [ ] **T9.5.3** Cost gating — RMS+silero gate, session lifecycle (8s/30s), per-turn budget cap, telemetry
+- [ ] **T9.5.4** TTS sökme — ElevenLabs/OpenAI TTS/edge-tts kaldır; settings'ten provider field'larını temizle; done/error MJPEG trigger'ları B hattına bağla
+- [ ] **T9.5.5** Cleanup + integration — dead code, settings UI'da `gemini_api_key`, integration tests, latency telemetry dashboard, BETA_ROADMAP güncelleme
+
+**Exit criteria:** Wakeword→ilk ses A hattında <1s (p50), B hattında <5s; mevcut 12 tool çalışıyor; tool path'te ses çıkmıyor (yalnız MJPEG); TTS dependency'leri silindi.
+
+---
+
+### Sprint 9.6a (beta-blocker, S9.5 sonrası): Proactive Agent — rule-based
+**Amaç:** SADIK reaktif değil, proaktif. Kullanıcıya zamanında, anlamlı sesli (Live) ya da görsel öneri sunsun. Bu fazda **kural-tabanlı**; LLM reasoner S9.6b post-beta.
+
+**Mimari (karar):**
+- Signal aggregator: takvim event'leri, pomodoro state, alışkanlık streak, task deadline.
+- Rule engine: sabit if-then kuralları (örn. "takvim event'i 10dk sonra + user idle → konuş", "pomodoro break başladı → 'mola zamanı' söyle").
+- Delivery router (privacy tier'a göre):
+  - **Full / Hybrid:** Live session aç → konuşur. Quiet hours + frekans cap kontrol edilir.
+  - **Local-only:** sadece sessiz görsel (MJPEG klip + app notification). Live yok, LLM yok.
+- Feedback: kullanıcı "yine söyleme / şu saatlerde sorma" → tercihler DB'ye yazılır.
+
+**Tasks:**
+- [ ] **T9.6a.1** Signal aggregator — periyodik snapshot + event hook (calendar, pomodoro, habit, task)
+- [ ] **T9.6a.2** Rule engine — kural seti (v1: 5-8 kural), evaluator, urgency scoring
+- [ ] **T9.6a.3** Quiet rules — kullanıcı tarafından ayarlanabilir sessiz saatler, frekans cap (saatte max N), DND state
+- [ ] **T9.6a.4** Delivery router — privacy tier guard + Live proaktif call (Full/Hybrid) + visual-only path (Local-only)
+- [ ] **T9.6a.5** Feedback loop — "yine söyleme / faydalıydı" UI + tercih persistance
+- [ ] **T9.6a.6** Settings UI — proaktif aç/kapa, quiet hours, frekans cap
+
+**Exit criteria:** Takvim event'i 10dk öncesi Full/Hybrid'de SADIK konuşur; Local-only'de sessiz bildirim. Kullanıcı "yine söyleme" → bir daha aynı sinyal tetiklemez. Frekans cap çalışıyor (test: saatte 5+ tetik → 5'ten fazlası bastırılır).
+
+**Sprint 9.6b (post-beta) notu:** LLM reasoner katmanı — periyodik snapshot + kullanıcı profili → LLM "konuş / sus / sessiz öner" kararı. S9.6a'nın rule engine'i fallback olarak kalır.
+
+---
+
 ### Sprint 9 (post-beta): Hosted billing migration
 **Amaç:** Production-grade billing — Stripe secret server'da, webhook public URL'de, kullanıcı hesap sistemi.
 
