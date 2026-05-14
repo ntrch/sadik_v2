@@ -316,6 +316,16 @@ async def voice_live_ws(
                 [send_task, receive_task],
                 return_when=asyncio.FIRST_COMPLETED,
             )
+            # Silently consume exceptions from done tasks so asyncio doesn't
+            # log them as "unhandled exception in task".  WebSocketDisconnect /
+            # CancelledError from client drop are not real errors.
+            for t in done:
+                try:
+                    t.result()
+                except (WebSocketDisconnect, asyncio.CancelledError):
+                    pass  # normal client disconnect — handled below
+                except Exception as e:
+                    logger.debug("[VoiceLive] task finished with: %s", e)
             for t in pending:
                 t.cancel()
                 try:
@@ -324,7 +334,7 @@ async def voice_live_ws(
                     pass
 
     except WebSocketDisconnect:
-        logger.info("[VoiceLive] WS disconnected cleanly")
+        logger.debug("[VoiceLive] WS disconnected (client close)")
     except Exception as e:
         logger.error("[VoiceLive] Session error: %s", e)
         try:

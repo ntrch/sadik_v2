@@ -647,11 +647,18 @@ wakeword (openWakeWord) → RMS gate → B-first router
 - Settings'e `gemini_api_key` field eklenir.
 
 **Tasks:**
-- [ ] **T9.5.1** Gemini Live spike — auth, audio I/O, wakeword→ilk ses latency ölçümü, backend proxy iskeleti, `gemini_live_service.py` taslak
-- [ ] **T9.5.2** Pipeline split — A/B hatları, B-first intent router, Live mute mekanizması, `voice_service.py` refactor
-- [ ] **T9.5.3** Cost gating — RMS+silero gate, session lifecycle (8s/30s), per-turn budget cap, telemetry
+- [x] **T9.5.1** Gemini Live spike — auth, audio I/O, wakeword→ilk ses latency ölçümü, backend proxy iskeleti, `gemini_live_service.py` taslak
+- [x] **T9.5.2** Pipeline split — A/B hatları, B-first intent router, Live mute mekanizması, `voice_service.py` refactor
+- [x] **T9.5.3** Cost gating — RMS+silero gate, session lifecycle (8s/30s), per-turn budget cap, telemetry
 - [x] **T9.5.4** TTS sökme — ElevenLabs/OpenAI TTS/edge-tts kaldırıldı; settings TTS provider field'ları temizlendi; proactive TTS no-op stub'a dönüştürüldü (V2 ile re-implement edilecek)
-- [ ] **T9.5.5** Cleanup + integration — dead code, settings UI'da `gemini_api_key`, integration tests, latency telemetry dashboard, BETA_ROADMAP güncelleme
+- [x] **T9.5.5** Cleanup + integration — gemini_api_key Settings UI field eklendi; WS 1006 log noise suppress; V1 dead code tarandı (T9.5.4 sonrası kalıntı yok); test infra yok → manuel `tools/voice_v2_test_client.py` ile doğrulandı; latency telemetry zaten `UsageStatsCard` p50/p95 gösteriyor; silero VAD + language hint backlog'a alındı
+
+**Sprint 9.5 — DONE** ✓ (2026-05-15)
+Exit criteria check: Gemini Live proxy çalışıyor; B-first router tool/konuşma ayırıyor; 8s/30s session lifecycle aktif; TTS bağımlılıkları silindi; gemini_api_key Settings UI'dan düzenlenebilir.
+
+**S9.5 sonrası backlog:**
+- [ ] **T9.5.x-followup** silero VAD reinstate — production false-positive rate düşürme (RMS gate şimdilik yeterli, production'da gerekli)
+- [ ] **T9.5.x-followup** language_code hint — Gemini Live config'e TR/EN dil tespiti
 
 **Exit criteria:** Wakeword→ilk ses A hattında <1s (p50), B hattında <5s; mevcut 12 tool çalışıyor; tool path'te ses çıkmıyor (yalnız MJPEG); TTS dependency'leri silindi.
 

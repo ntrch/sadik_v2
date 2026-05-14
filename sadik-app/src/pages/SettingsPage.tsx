@@ -33,6 +33,7 @@ import UsageStatsCard from '../components/usage/UsageStatsCard';
 
 const DEFAULT_SETTINGS: Settings = {
   openai_api_key: '',
+  gemini_api_key: '',
   llm_model: 'gpt-4o-mini',
   connection_method: 'serial',
   serial_port: 'auto',
@@ -67,6 +68,7 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
   const { theme, toggle: toggleTheme } = useTheme();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ports, setPorts] = useState<SerialPort[]>([]);
   const [wakeModels, setWakeModels] = useState<WakeModel[]>([]);
@@ -1495,6 +1497,24 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
                 {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             </div>
+          </Field>
+          <Field label="Gemini Erişim Anahtarı">
+            <div className="relative">
+              <input
+                type={showGeminiKey ? 'text' : 'password'}
+                value={settings.gemini_api_key ?? ''}
+                onChange={(e) => set('gemini_api_key', e.target.value)}
+                placeholder="AIza..."
+                className="input-field pr-10"
+              />
+              <button onClick={() => setShowGeminiKey(!showGeminiKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
+                {showGeminiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+            <p className="text-[11px] text-text-muted mt-1.5">
+              Sesli asistan V2 (Gemini Live) için Google AI Studio anahtarı. Voice V2 etkinken gerekli.
+            </p>
           </Field>
           <Field label="Yapay zeka modeli">
             <select
