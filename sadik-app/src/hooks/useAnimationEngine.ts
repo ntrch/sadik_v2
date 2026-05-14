@@ -61,7 +61,7 @@ export function useAnimationEngine(
   deviceConnected: boolean,
   sadikPosition: 'left' | 'right' | 'top' = 'left',
   personaSlug: string = 'sadik',
-  deviceVariant: 'mini' | 'color' | null = null,
+  deviceVariant: 'mini' | 'color' | 'color_v2' | null = null,
 ) {
   const engine = getAnimationEngine();
   const bufferRef = useRef<Uint8Array>(new Uint8Array(1024));
@@ -125,7 +125,7 @@ export function useAnimationEngine(
   useEffect(() => {
     deviceVariantRef.current = deviceVariant;
     // When variant changes to non-color, reset last clip tracking
-    if (deviceVariant !== 'color') {
+    if (deviceVariant !== 'color' && deviceVariant !== 'color_v2') {
       lastColorClipSentRef.current = null;
       lastColorClipSentAtRef.current = 0;
       if (pendingColorClipTimerRef.current) {
@@ -305,7 +305,7 @@ export function useAnimationEngine(
       setEngineState(state);
       // Color variant: translate clip changes to PLAY_LOCAL:<name> ASCII commands.
       // The firmware (color) manages its own LittleFS playback; we just tell it which clip.
-      if (deviceVariantRef.current === 'color' && deviceConnectedRef.current) {
+      if ((deviceVariantRef.current === 'color' || deviceVariantRef.current === 'color_v2') && deviceConnectedRef.current) {
         const colorClip = toColorClipName(state.currentClipName);
         if (colorClip) {
           const isForce = COLOR_CLIP_FORCE_SET.has(colorClip);

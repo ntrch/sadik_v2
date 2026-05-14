@@ -807,9 +807,12 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 - [x] **Sub-1.1 — Scaffold `sadik_v3/` + platformio.ini + config.h**: `sadik_color/sadik-firmware/` kopyalandı → `sadik_v3/sadik-firmware/`. `platformio.ini`: board=esp32-s3-devkitc-1, lib_deps=JPEGDEC+LovyanGFX, qio_opi N16R8 config, `-DSADIK_VARIANT_COLOR_V2=1`. `config.h`: DISPLAY_WIDTH=320/HEIGHT=170, T-Display-S3 8-bit parallel pin defines (LCD_D0-D7, WR/RD/DC/CS/RST, LCD_BL=38, PWR_EN=15), eski SPI defines kaldırıldı. `display_manager.h/cpp` + `mjpeg_player.h/cpp` Sub-1.2/1.3'te rewrite edilecek — sadece kopya kaldı.
 - [x] **Sub-1.2 — display_manager: LovyanGFX parallel panel config**: ST7789 + 8-bit bus + DMA. Init + clear smoke test. `display_manager.h` komple rewrite: Panel_ST7789 + Bus_Parallel8 @ 20MHz, PWR_EN HIGH boot, setRotation(1) landscape, setSwapBytes(true) kanonik byte order, Light_PWM backlight. offset_x=35 T-Display-S3 GRAM offset başlangıç (DIAG:GRADIENT Faz-3'te doğrulanacak). API surface korundu (tft(), pushFrameRgb565, setBrightness, sleep/wake).
 - [x] **Sub-1.3 — mjpeg_player: 320×170 frame decode + blit**: JPEGDEC decode → LGFX pushPixels. Throughput hedef: 24fps.
+- [x] **Sub-1.4a — encode_all.py 320×170 Q=85 parametrize + wakeword manifest fix**: `sadik_v3/sadik-firmware/scripts/encode_all.py` oluşturuldu (TARGET_W=320, TARGET_H=170, Q=-q:v 2); `--sync-ts` flag + ayrı `sync_manifest_to_ts.py`; `colorClipManifest.ts` wakeword 45375→1000ms düzeltildi.
+- [ ] **Sub-1.4b — re-encode assets at 320×170 Q=85**: Donanım gelince çalıştır: `python encode_all.py --sync-ts ../../sadik-app/src/assets/colorClipManifest.ts`. Hardware dependency.
 
 ### Sub-2: Serial handshake + clip playback
 - [ ] **Sub-2.1 — PLAY_LOCAL + APP_CONNECTED handshake**: variant string "color_v2", backend recognition.
+  - [x] **Faz 2 — App-side color_v2 support**: `parseDeviceLine` color_v2 kabul ediyor; `DeviceVariant` union güncellendi; `DEVICE_DIMENSIONS` helper map eklendi; `OledPreview` 320×170 variant-aware (ayrı CSS boyut, doğru aspect ratio); `useAnimationEngine` + `AppContext` tip güncellemeleri. typecheck GREEN.
 - [ ] **Sub-2.2 — LittleFS clip upload + playback smoke test**.
 
 **Exit criteria:** `mode_working_text` LittleFS'ten 24fps akıyor, APP_CONNECTED handshake OK, build GREEN.

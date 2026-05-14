@@ -444,7 +444,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ── Device variant — updated from connectedDevice; declared here so it's
   //    available to useAnimationEngine before connectedDevice state is set up.
   // Starts as null — pump must NOT fire until device_profile WS confirms variant.
-  const [deviceVariant, setDeviceVariant] = useState<'mini' | 'color' | null>(null);
+  const [deviceVariant, setDeviceVariant] = useState<'mini' | 'color' | 'color_v2' | null>(null);
 
   // ── Weather state ────────────────────────────────────────────────────────────
   const [weatherEnabled, setWeatherEnabledState] = useState(false);
@@ -787,8 +787,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (connectedDevice && deviceStatus.connected && variant === 'mini') {
       console.log('[AppContext] APP_CONNECTED → mini firmware (variant confirmed)');
       deviceApi.sendCommand('APP_CONNECTED').catch(() => {});
-    } else if (connectedDevice && variant === 'color') {
-      console.log('[AppContext] APP_CONNECTED SKIPPED — color device, would corrupt codec path');
+    } else if (connectedDevice && (variant === 'color' || variant === 'color_v2')) {
+      console.log(`[AppContext] APP_CONNECTED SKIPPED — ${variant} device, would corrupt codec path`);
     }
   }, [connectedDevice, deviceStatus.connected]);
 
@@ -825,7 +825,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const isWindowHiddenRef = useRef(false);
   const connectedRef = useRef(false);
   connectedRef.current = deviceStatus.connected;
-  const deviceVariantConnectedRef = useRef<'mini' | 'color' | null>(null);
+  const deviceVariantConnectedRef = useRef<'mini' | 'color' | 'color_v2' | null>(null);
 
   // markAppActivity: reset the inactivity clock. Call at every user-initiated action.
   const markAppActivity = useCallback(() => {

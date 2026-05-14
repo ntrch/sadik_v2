@@ -6,16 +6,19 @@ import { AppContext } from '../../context/AppContext';
 const DISPLAY_W = 180;
 const DISPLAY_H = 90;
 
-// Color display: ST7735S 160×128 — same CSS container, different aspect ratio feel
-const COLOR_DISPLAY_W = 180;
-const COLOR_DISPLAY_H = 112;
+// Color display dimensions (CSS px — scaled to fit sidebar)
+const COLOR_DIMS: Record<'color' | 'color_v2', { w: number; h: number; label: string }> = {
+  color:    { w: 180, h: 112, label: '160×128 RGB565' },
+  color_v2: { w: 180, h: 96,  label: '320×170 RGB565' },  // 320/170 ≈ 1.88:1 landscape
+};
 
 export default function OledPreview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageDataRef = useRef<ImageData | null>(null);
   const { frameBuffer, frameVersion, engineState, connectedDevice } = useContext(AppContext);
 
-  const isColor = connectedDevice?.variant === 'color';
+  const variant = connectedDevice?.variant ?? null;
+  const isColor = variant === 'color' || variant === 'color_v2';
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -28,7 +31,7 @@ export default function OledPreview() {
   }, []);
 
   useEffect(() => {
-    // For color variant, we don't render the mono frame buffer — firmware handles display
+    // For color variants, we don't render the mono frame buffer — firmware handles display
     if (isColor) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -56,15 +59,16 @@ export default function OledPreview() {
     ctx.putImageData(imgData, 0, 0);
   }, [frameVersion, frameBuffer, isColor]);
 
-  // ── Color variant preview — shows active clip name on a simulated TFT screen ──
-  if (isColor) {
+  // ── Color variant preview (color or color_v2) ────────────────────────────────
+  if (isColor && (variant === 'color' || variant === 'color_v2')) {
+    const dims = COLOR_DIMS[variant];
     const clipName = engineState.currentClipName ?? 'idle';
     return (
       <div
         className="relative border border-border rounded-lg overflow-hidden oled-glow"
         style={{
-          width: `${COLOR_DISPLAY_W}px`,
-          height: `${COLOR_DISPLAY_H}px`,
+          width: `${dims.w}px`,
+          height: `${dims.h}px`,
           background: 'linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 100%)',
         }}
       >
@@ -79,7 +83,7 @@ export default function OledPreview() {
             background: 'linear-gradient(90deg, #ff3b30 0%, #34c759 50%, #007aff 100%)',
             WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
           }}>
-            160×128 RGB565
+            {dims.label}
           </span>
           <span style={{
             fontSize: 8, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.05em',
