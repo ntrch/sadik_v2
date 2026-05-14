@@ -15,10 +15,11 @@ static const uint16_t MJPEG_STATS_MAX_FRAMES = 240;
 // Target frame interval in microseconds (24 fps).
 static const uint32_t MJPEG_TARGET_FRAME_US = 41667UL; // 1000000 / 24
 
-// Full-frame PSRAM backbuffer size: 160 × 128 × 2 bytes = 40960 bytes.
+// Full-frame PSRAM backbuffer size: DISPLAY_WIDTH × DISPLAY_HEIGHT × 2 bytes.
+// For 320×170 ST7789: 320 * 170 * 2 = 108800 bytes (== FRAME_BYTES in config.h).
 // JPEGDEC tile callback writes MCU blocks here; decode() completion triggers
 // one single pushImage() to eliminate mid-scanout partial-frame tearing.
-static const size_t MJPEG_FB_SIZE = DISPLAY_WIDTH * DISPLAY_HEIGHT * 2;  // 40960
+static const size_t MJPEG_FB_SIZE = DISPLAY_WIDTH * DISPLAY_HEIGHT * 2;  // 108800 @ 320x170
 
 class MjpegPlayer {
 public:
@@ -318,7 +319,7 @@ private:
             s_diag_cb_count++;
         }
 
-        // Clip to display bounds (160×128 landscape)
+        // Clip to display bounds (DISPLAY_WIDTH × DISPLAY_HEIGHT)
         if (x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT) return 1;
         int16_t cx = x, cy = y;
         int16_t cw = w, ch = h;
@@ -331,7 +332,7 @@ private:
         if (s_framebuf) {
             // ── Backbuffer path: copy tile into PSRAM framebuffer ───────────
             // Each row of the (clipped) tile is memcpy'd into the correct
-            // scanline of the 160-wide buffer. uint16_t is RGB565 LE — same
+            // scanline of the DISPLAY_WIDTH-wide buffer. uint16_t is RGB565 LE — same
             // byte order as what pushImage will later receive. No byte swap.
             const uint16_t* src_base = pixels + (cy - y) * w + (cx - x);
             for (int16_t row = 0; row < ch; row++) {
