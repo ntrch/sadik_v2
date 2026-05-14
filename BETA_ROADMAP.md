@@ -797,6 +797,25 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 
 ---
 
+## Color Sprint-9: T-Display-S3 migration (LILYGO, ST7789 320x170 8-bit parallel)
+
+**Durum:** WIP — Sub-1.1 DONE.
+
+**Amaç:** sadik_color firmware'i `sadik_v3/` altında T-Display-S3'e taşı. 8-bit parallel bus, ST7789 320×170.
+
+### Sub-1: Scaffold + display init
+- [x] **Sub-1.1 — Scaffold `sadik_v3/` + platformio.ini + config.h**: `sadik_color/sadik-firmware/` kopyalandı → `sadik_v3/sadik-firmware/`. `platformio.ini`: board=esp32-s3-devkitc-1, lib_deps=JPEGDEC+LovyanGFX, qio_opi N16R8 config, `-DSADIK_VARIANT_COLOR_V2=1`. `config.h`: DISPLAY_WIDTH=320/HEIGHT=170, T-Display-S3 8-bit parallel pin defines (LCD_D0-D7, WR/RD/DC/CS/RST, LCD_BL=38, PWR_EN=15), eski SPI defines kaldırıldı. `display_manager.h/cpp` + `mjpeg_player.h/cpp` Sub-1.2/1.3'te rewrite edilecek — sadece kopya kaldı.
+- [ ] **Sub-1.2 — display_manager: LovyanGFX parallel panel config**: ST7789 + 8-bit bus + DMA. Init + clear smoke test.
+- [ ] **Sub-1.3 — mjpeg_player: 320×170 frame decode + blit**: JPEGDEC decode → LGFX pushPixels. Throughput hedef: 24fps.
+
+### Sub-2: Serial handshake + clip playback
+- [ ] **Sub-2.1 — PLAY_LOCAL + APP_CONNECTED handshake**: variant string "color_v2", backend recognition.
+- [ ] **Sub-2.2 — LittleFS clip upload + playback smoke test**.
+
+**Exit criteria:** `mode_working_text` LittleFS'ten 24fps akıyor, APP_CONNECTED handshake OK, build GREEN.
+
+---
+
 ## 6. Concurrency zones (iki hesap paralel çalışma)
 
 Her sprint içinde **zone A** ve **zone B** ayrıldı. Aynı anda iki hesap:

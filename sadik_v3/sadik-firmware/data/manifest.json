@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "generated": "2026-05-11T18:02:48.767Z",
+  "clips": [
+    {
+      "name": "blink",
+      "bytes": 62854,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "break_text",
+      "bytes": 75539,
+      "loop": true,
+      "fps": 24
+    },
+    {
+      "name": "confirming",
+      "bytes": 188754,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "dancing",
+      "bytes": 650855,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "didnthear",
+      "bytes": 119084,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "done",
+      "bytes": 176505,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "idle",
+      "bytes": 75880,
+      "loop": true,
+      "fps": 24
+    },
+    {
+      "name": "idle_alt_left_look",
+      "bytes": 72062,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "idle_alt_look_down",
+      "bytes": 64868,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "idle_alt_right_look",
+      "bytes": 67726,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "listening",
+      "bytes": 300006,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "mode_break",
+      "bytes": 290884,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "mode_gaming",
+      "bytes": 662253,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "mode_gaming_text",
+      "bytes": 110057,
+      "loop": true,
+      "fps": 24
+    },
+    {
+      "name": "mode_meeting_text",
+      "bytes": 80441,
+      "loop": true,
+      "fps": 24
+    },
+    {
+      "name": "mode_working",
+      "bytes": 666675,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "mode_working_text",
+      "bytes": 102954,
+      "loop": true,
+      "fps": 24
+    },
+    {
+      "name": "return_to_idle",
+      "bytes": 31002,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "talking",
+      "bytes": 84965,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "thinking",
+      "bytes": 378588,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "understanding",
+      "bytes": 61874,
+      "loop": false,
+      "fps": 24
+    },
+    {
+      "name": "wakeword",
+      "bytes": 81723,
+      "loop": false,
+      "fps": 24
+    }
+  ]
+}
