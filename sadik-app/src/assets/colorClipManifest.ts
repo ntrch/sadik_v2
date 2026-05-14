@@ -34,5 +34,5 @@ export const COLOR_CLIP_DURATION_MS: Record<string, number> = {
   talking             : 2500,
   thinking            : 10875,
   understanding       : 2500,
-  wakeword            : 45375,
+  wakeword            : 1000,
 };
