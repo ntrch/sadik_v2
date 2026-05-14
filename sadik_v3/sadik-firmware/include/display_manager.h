@@ -6,83 +6,90 @@
 #include "rtos_tasks.h"
 
 // =============================================================================
-// LGFX_Custom — LovyanGFX config for ST7735S 160×128 on ESP32-S3 N16R8
+// LGFX_Custom — LovyanGFX config for ST7789 320×170 on T-Display-S3
 //
-// Pin map (from config.h, S3 branch):
-//   SCK  = 12  (FSPI SCK  / TFT SCL)
-//   MOSI = 11  (FSPI MOSI / TFT SDA)
-//   DC   =  4
-//   CS   =  5
-//   RST  =  8
-//   MISO = -1  (write-only panel)
+// Pin map (from config.h, v3 branch):
+//   D0-D7 = 39,40,41,42,45,46,47,48
+//   WR    =  8   (Write strobe)
+//   RD    =  9   (Read strobe)
+//   DC    =  7   (Data/Command)
+//   CS    =  6   (Chip select)
+//   RST   =  5   (Hardware reset)
+//   BL    = 38   (Backlight PWM)
+//   PWR_EN= 15   (LCD power enable, active HIGH)
 //
-// SPI host:   SPI2_HOST  (FSPI on S3)
-// Write freq: 40 MHz     (matches TFT_SPI_HZ)
-// Read  freq: 16 MHz     (safe default for ST7735S)
+// Bus:   Bus_Parallel8  @ 20 MHz start
+// Panel: Panel_ST7789
 //
-// Panel geometry:
-//   panel_width  = 128 (short side)
-//   panel_height = 160 (long side — physical chip orientation)
-//   offset_rotation = 1 → landscape 160 wide × 128 tall
-//     (mirrors Adafruit setRotation(1))
+// Panel geometry (portrait-native, rotated to landscape):
+//   panel_width  = 170  (short side)
+//   panel_height = 320  (long side)
+//   offset_x     = 35   (T-Display-S3: 240-wide GRAM, 170-wide panel, column start=35)
+//   offset_y     = 0
+//   offset_rotation = 0 (portrait native; setRotation(1) applied at runtime)
 //
 // Color order:
-//   rgb_order = true  → BGR
-//   Adafruit INITR_BLACKTAB sets MADCTL bit 3 (BGR=1) → panel reads pixel
-//   data as BGR. With rgb_order=false the R and B channels swap (red shows
-//   as blue/lacivert, yellow shows as cyan, etc.). Hardware-verified on
-//   boot rainbow text 2026-05-11.
+//   invert    = true   (ST7789 IPS panel needs inversion ON)
+//   rgb_order = false  (RGB — ST7789 default)
 //
-// invert = false  (INITR_BLACKTAB does not set display inversion)
+// setSwapBytes(true): kanonik byte order — JPEGDEC emits LE host-native;
+//   LovyanGFX expects BE over the bus → single global swap toggle (Sprint-8 verified).
 // =============================================================================
 
 class LGFX_Custom : public lgfx::LGFX_Device {
-    lgfx::Panel_ST7735S _panel;
-    lgfx::Bus_SPI       _bus;
+    lgfx::Panel_ST7789  _panel;
+    lgfx::Bus_Parallel8 _bus;
+    lgfx::Light_PWM     _light;
 public:
     LGFX_Custom() {
-        // ── SPI bus config ─────────────────────────────────────────────────
+        // ── 8-bit parallel bus config ──────────────────────────────────────────
         {
             auto cfg = _bus.config();
-            cfg.spi_host    = SPI2_HOST;
-            cfg.spi_mode    = 0;
-            cfg.freq_write  = 60000000;   // TFT_SPI_HZ (tearing minimization; 40→60→80 ramp)
-            cfg.freq_read   = 16000000;
-            cfg.pin_sclk    = TFT_SCK;    // 12
-            cfg.pin_mosi    = TFT_MOSI;   // 11
-            cfg.pin_miso    = -1;
-            cfg.pin_dc      = TFT_DC;     // 4
-            cfg.use_lock    = true;
-            // DIAG-S8c: rebuild with -DDIAG_NO_DMA=1 in platformio.ini to
-            // disable DMA and rule it out as a cause of the top-band bug.
-#if defined(DIAG_NO_DMA) && DIAG_NO_DMA
-            cfg.dma_channel = -1;
-#else
-            cfg.dma_channel = SPI_DMA_CH_AUTO;
-#endif
+            cfg.freq_write = 20000000;  // 20 MHz start; tune after DIAG:GRADIENT pass
+            cfg.pin_wr  = LCD_WR;
+            cfg.pin_rd  = LCD_RD;
+            cfg.pin_rs  = LCD_DC;       // rs = Data/Command (LovyanGFX naming)
+            cfg.pin_d0  = LCD_D0;
+            cfg.pin_d1  = LCD_D1;
+            cfg.pin_d2  = LCD_D2;
+            cfg.pin_d3  = LCD_D3;
+            cfg.pin_d4  = LCD_D4;
+            cfg.pin_d5  = LCD_D5;
+            cfg.pin_d6  = LCD_D6;
+            cfg.pin_d7  = LCD_D7;
             _bus.config(cfg);
             _panel.setBus(&_bus);
         }
-        // ── Panel config ───────────────────────────────────────────────────
+        // ── Panel config ───────────────────────────────────────────────────────
         {
             auto cfg = _panel.config();
-            cfg.pin_cs          = TFT_CS;    // 5
-            cfg.pin_rst         = TFT_RST;   // 8
-            cfg.pin_busy        = -1;
-            cfg.panel_width     = 128;
-            cfg.panel_height    = 160;
-            cfg.memory_height   = 162;   // ST7735S GRAM is 132×162; avoids GRAM wrap
-            cfg.offset_x        = 4;  // S8c: cancel LGFX rowstart shift (mh_swap-ph_swap = 132-128 = 4)
-            cfg.offset_y        = 0;
-            cfg.offset_rotation = 1;   // landscape 160×128 — matches Adafruit setRotation(1)
+            cfg.pin_cs   = LCD_CS;
+            cfg.pin_rst  = LCD_RST;
+            cfg.pin_busy = -1;
+            // Portrait-native dimensions; setRotation(1) at runtime → 320×170 landscape
+            cfg.panel_width      = 170;
+            cfg.panel_height     = 320;
+            cfg.offset_x         = 35;   // T-Display-S3: GRAM is 240-wide; col start = (240-170)/2 = 35
+            cfg.offset_y         = 0;
+            cfg.offset_rotation  = 0;
             cfg.dummy_read_pixel = 8;
             cfg.dummy_read_bits  = 1;
-            cfg.readable        = false;
-            cfg.invert          = false;
-            cfg.rgb_order       = true;   // BGR — INITR_BLACKTAB sets MADCTL BGR bit
-            cfg.dlen_16bit      = false;
-            cfg.bus_shared      = false;
+            cfg.readable         = false;
+            cfg.invert           = true;  // ST7789 IPS: invert ON
+            cfg.rgb_order        = false; // RGB (not BGR)
+            cfg.dlen_16bit       = false;
+            cfg.bus_shared       = false;
             _panel.config(cfg);
+        }
+        // ── Backlight (LovyanGFX Light_PWM) ───────────────────────────────────
+        {
+            auto cfg = _light.config();
+            cfg.pin_bl      = LCD_BL;
+            cfg.invert      = false;
+            cfg.freq        = TFT_PWM_FREQ;
+            cfg.pwm_channel = TFT_PWM_CHANNEL;
+            _light.config(cfg);
+            _panel.setLight(&_light);
         }
         setPanel(&_panel);
     }
@@ -96,16 +103,22 @@ struct TftLock {
     ~TftLock() { if (tftMutex) xSemaphoreGive(tftMutex); }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DisplayManager — Color Sprint-8: ST7735S SPI TFT (160×128 landscape)
+// =============================================================================
+// DisplayManager — ST7789 320×170 8-bit parallel (T-Display-S3)
 //
 // Single render path: RGB565 codec frames via pushFrameRgb565() / tile blits.
 // Text drawing uses LovyanGFX built-in fonts.
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 
 // RGB565 colour constants used by the renderer
 #define DM_WHITE 0xFFFF
 #define DM_BLACK 0x0000
+
+// Legacy framebuffer region aliases — full-screen on 320×170
+#define LEGACY_FB_OFFSET_X  0
+#define LEGACY_FB_OFFSET_Y  0
+#define LEGACY_FB_WIDTH     DISPLAY_WIDTH
+#define LEGACY_FB_HEIGHT    DISPLAY_HEIGHT
 
 class DisplayManager {
 public:
@@ -116,53 +129,38 @@ public:
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-    // Initialise SPI bus and TFT controller.
+    // Initialise power rail, parallel bus and TFT controller.
     void begin() {
-        TftLock _lock;
-        // Backlight PWM setup BEFORE TFT init so the panel never flashes at full
-        // brightness during boot.
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-        ledcAttach(TFT_BLK, TFT_PWM_FREQ, TFT_PWM_RESOLUTION);
-#else
-        ledcSetup(TFT_PWM_CHANNEL, TFT_PWM_FREQ, TFT_PWM_RESOLUTION);
-        ledcAttachPin(TFT_BLK, TFT_PWM_CHANNEL);
-#endif
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-        ledcWrite(TFT_BLK, _currentBrightness);
-#else
-        ledcWrite(TFT_PWM_CHANNEL, _currentBrightness);
-#endif
+        // PWR_EN must be asserted before any bus activity — panel is dead otherwise.
+        pinMode(PWR_EN, OUTPUT);
+        digitalWrite(PWR_EN, HIGH);
 
+        TftLock _lock;
         _tft.init();
-        // SPI wire is MSB-first 16-bit on ST7735S. ESP32 stores uint16_t in LE
-        // memory, so push paths must byte-swap before write. JPEGDEC emits LE
-        // (host-native), DisplayManager-internal LE buffers do the same — this
-        // single global swap toggle handles both.
+        // landscape 320×170 (rotation=1 on portrait-native panel)
+        _tft.setRotation(1);
+        // kanonik byte order: JPEGDEC emits LE host-native; LovyanGFX needs BE
+        // on the bus → single global swap handles both. Sprint-8 verified.
         _tft.setSwapBytes(true);
         _tft.fillScreen(DM_BLACK);
+        // Bring backlight up after init to avoid flash during panel reset
+        _tft.setBrightness(_currentBrightness);
 
-        Serial.print("BOOT:OK display=ST7735S 160x128 lgfx spi=");
-        Serial.print(TFT_SPI_HZ);
-        Serial.print(" brightness=");
+        Serial.print("BOOT:OK display=ST7789 320x170 parallel8 brightness=");
         Serial.println(_currentBrightness);
     }
 
-    // ── Compatibility stubs (used by TextRenderer; no-ops now that the 1-bit
-    //    framebuffer is removed — text methods write directly to TFT) ───────────
-    void clear() {}       // safe no-op for text path
-    void sendBuffer() {}  // text draws direct to TFT
+    // ── Compatibility stubs (text path writes directly to TFT) ────────────────
+    void clear() {}       // no-op
+    void sendBuffer() {}  // no-op
 
     // ── Brightness / power ────────────────────────────────────────────────────
 
-    // Backlight brightness 0..255 via PWM on TFT_BLK pin.
+    // Backlight brightness 0..255 via LovyanGFX Light_PWM.
     void setBrightness(uint8_t value) {
         _currentBrightness = value;
         if (!_sleeping) {
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-            ledcWrite(TFT_BLK, value);
-#else
-            ledcWrite(TFT_PWM_CHANNEL, value);
-#endif
+            _tft.setBrightness(value);
         }
     }
 
@@ -178,11 +176,7 @@ public:
             TftLock _lock;
             _tft.fillScreen(DM_BLACK);
         }
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-        ledcWrite(TFT_BLK, 0);
-#else
-        ledcWrite(TFT_PWM_CHANNEL, 0);
-#endif
+        _tft.setBrightness(0);
     }
 
     // Wake: restore backlight to user-set brightness.
@@ -193,11 +187,7 @@ public:
             TftLock _lock;
             _tft.fillScreen(DM_BLACK);
         }
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-        ledcWrite(TFT_BLK, _currentBrightness);
-#else
-        ledcWrite(TFT_PWM_CHANNEL, _currentBrightness);
-#endif
+        _tft.setBrightness(_currentBrightness);
     }
 
     bool isSleeping() const {
@@ -211,11 +201,10 @@ public:
         _tft.fillScreen(DM_BLACK);
     }
 
-    // ── Text helpers ─────────────────────────────────────────────────────────
+    // ── Text helpers ──────────────────────────────────────────────────────────
     //
     // Text rendering uses LovyanGFX built-in Font0 (6×8 px per char),
-    // scaled via setTextSize(). Font0 matches the old Adafruit GFX default font.
-    // Four sizes:
+    // scaled via setTextSize(). Four sizes:
     //   24 → setTextSize(3)  — 18×24 px
     //   18 → setTextSize(2)  — 12×16 px
     //   12 → setTextSize(2)  — same bucket
@@ -262,8 +251,8 @@ public:
         int16_t charW = 6 * fe.size;
         int16_t charH = 8 * fe.size;
         int16_t w = static_cast<int16_t>(strlen(text)) * charW;
-        int16_t x = LEGACY_FB_OFFSET_X + (LEGACY_FB_WIDTH  - w)      / 2;
-        int16_t y = LEGACY_FB_OFFSET_Y + (LEGACY_FB_HEIGHT - charH)  / 2;
+        int16_t x = LEGACY_FB_OFFSET_X + (LEGACY_FB_WIDTH  - w)     / 2;
+        int16_t y = LEGACY_FB_OFFSET_Y + (LEGACY_FB_HEIGHT - charH) / 2;
 
         _tft.setCursor(x, y);
         _tft.print(text);
@@ -314,8 +303,8 @@ public:
         int16_t charW = 6 * 3;
         int16_t charH = 8 * 3;
         int16_t w = static_cast<int16_t>(strlen(text)) * charW;
-        int16_t x = LEGACY_FB_OFFSET_X + (LEGACY_FB_WIDTH  - w)      / 2;
-        int16_t y = LEGACY_FB_OFFSET_Y + (LEGACY_FB_HEIGHT - charH)  / 2;
+        int16_t x = LEGACY_FB_OFFSET_X + (LEGACY_FB_WIDTH  - w)     / 2;
+        int16_t y = LEGACY_FB_OFFSET_Y + (LEGACY_FB_HEIGHT - charH) / 2;
 
         _tft.setCursor(x, y);
         _tft.print(text);
@@ -361,13 +350,11 @@ public:
         _tft.print(line2);
     }
 
-    // Push a 40960-byte RGB565 LE frame (160×128) directly to the TFT.
+    // Push a 108800-byte RGB565 LE frame (320×170) directly to the TFT.
     // Used by CMD_FRAME_DATA (desktop app streaming raw frames over serial).
     void pushFrameRgb565(const uint8_t* buf) {
         if (_sleeping) return;
         TftLock _lock;
-        // LovyanGFX pushImage accepts RGB565 LE (uint16_t*) directly.
-        // No byte-swap needed — pushImage handles endianness internally.
         _tft.pushImage(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT,
                        reinterpret_cast<const uint16_t*>(buf));
     }
@@ -375,7 +362,7 @@ public:
     // Alias so any remaining call sites still compile.
     void showRawFrame(const uint8_t* buf) { pushFrameRgb565(buf); }
 
-    // ── Codec decoder access ───────────────────────────────────────────────
+    // ── Codec decoder access ──────────────────────────────────────────────────
     // Expose raw LCD pointer so mjpeg_player.h can call pushImage directly
     // for partial tile updates.
     LGFX_Custom* tft() { return &_tft; }
