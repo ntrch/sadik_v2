@@ -27,7 +27,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import AsyncIterator, Callable, Optional
+from typing import AsyncIterator, Callable, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +102,9 @@ class GeminiLiveService:
         system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
         telemetry: Optional[LatencyTelemetry] = None,
         voice_name: str = "Charon",
+        input_transcription: bool = True,
     ) -> "_LiveSession":
-        return _LiveSession(self._api_key, system_prompt, telemetry, voice_name)
+        return _LiveSession(self._api_key, system_prompt, telemetry, voice_name, input_transcription)
 
 
 class _LiveSession:
@@ -115,14 +116,16 @@ class _LiveSession:
         system_prompt: str,
         telemetry: Optional[LatencyTelemetry],
         voice_name: str = "Charon",
+        input_transcription: bool = True,
     ) -> None:
-        self._api_key       = api_key
-        self._system_prompt = system_prompt
-        self._telemetry     = telemetry or LatencyTelemetry()
-        self._voice_name    = voice_name
-        self._session       = None   # google.genai Live session
-        self._client        = None   # google.genai.Client
-        self._activity_started = False  # manual VAD: tracks whether activity_start was sent
+        self._api_key            = api_key
+        self._system_prompt      = system_prompt
+        self._telemetry          = telemetry or LatencyTelemetry()
+        self._voice_name         = voice_name
+        self._input_transcription = input_transcription
+        self._session            = None   # google.genai Live session
+        self._client             = None   # google.genai.Client
+        self._activity_started   = False  # manual VAD: tracks whether activity_start was sent
 
     async def __aenter__(self) -> "_LiveSession":
         self._telemetry.t_open = time.monotonic()
@@ -161,6 +164,11 @@ class _LiveSession:
                     disabled=True
                 )
             ),
+            # T9.5.2 — Request user-speech transcription from Gemini.
+            # Enabled by default; set input_transcription=False to skip (legacy path).
+            # Wire: inputAudioTranscription: {} → server sends inputTranscription events.
+            # Transcripts arrive independently of model audio turns (see notes/T9_5_2_router_design.md).
+            **({"input_audio_transcription": genai_types.AudioTranscriptionConfig()} if self._input_transcription else {}),
         )
 
         # Live API model selection (2026-05, key listesinden doğrulandı):
@@ -252,23 +260,50 @@ class _LiveSession:
         await self._session.send_realtime_input(audio_stream_end=True)
         logger.debug("[GeminiLive] audio_stream_end sent")
 
-    async def receive_audio(self) -> AsyncIterator[bytes]:
-        """Async generator that yields raw PCM audio chunks from Gemini.
+    async def receive_messages(self):
+        """Async generator that yields typed event tuples from Gemini.
 
-        Yields bytes as soon as they arrive. Sets t_first on the first chunk.
-        The generator exits when the session turn is complete.
+        T9.5.2 — replaces receive_audio(); multiplex audio + transcripts + turn_complete.
+
+        Yields:
+            ("audio",         bytes)                    — raw PCM audio chunk (24 kHz)
+            ("transcript",    str,   bool)              — user input transcript; bool=finished
+            ("turn_complete", None)                     — Gemini finished this turn
+
+        The generator exits after yielding ("turn_complete", None).
+        Callers must handle all three tuple forms; unrecognised tuples can be ignored.
+
+        Notes:
+        - t_first is recorded on the first audio chunk (latency telemetry).
+        - Transcript events are independent of audio turns (may interleave freely).
+        - finished=False → incremental / partial; finished=True → final for this segment.
         """
         if self._session is None:
             raise RuntimeError("Session not open")
 
         first_received = False
         async for response in self._session.receive():
-            # Server-side turn complete — generator ends naturally
-            if response.server_content and response.server_content.turn_complete:
+            sc = response.server_content
+
+            # ── Turn complete ─────────────────────────────────────────────────────
+            if sc and sc.turn_complete:
                 logger.info("[GeminiLive] Turn complete received")
+                yield ("turn_complete", None)
                 break
 
-            # Audio data
+            # ── Input transcription (T9.5.2) ─────────────────────────────────────
+            if sc and sc.input_transcription is not None:
+                tr = sc.input_transcription
+                text     = tr.text     or ""
+                finished = bool(tr.finished)
+                if text:
+                    logger.debug(
+                        "[GeminiLive] input_transcription finished=%s text=%r",
+                        finished, text[:120],
+                    )
+                    yield ("transcript", text, finished)
+
+            # ── Audio data ────────────────────────────────────────────────────────
             if response.data:
                 if not first_received:
                     self._telemetry.t_first = time.monotonic()
@@ -277,11 +312,11 @@ class _LiveSession:
                         "[GeminiLive] First audio chunk (open→first=%.0fms)",
                         (self._telemetry.t_first - self._telemetry.t_open) * 1000,
                     )
-                yield response.data
+                yield ("audio", response.data)
 
-            # Text (if model emits partial transcript — informational only)
+            # ── Model text (informational, not forwarded to client) ───────────────
             if response.text:
-                logger.debug("[GeminiLive] Text: %s", response.text[:80])
+                logger.debug("[GeminiLive] model text: %s", response.text[:80])
 
     # ── Echo test ──────────────────────────────────────────────────────────────
 
@@ -303,8 +338,11 @@ class _LiveSession:
             turn_complete=True,
         )
         chunks: list[bytes] = []
-        async for chunk in self.receive_audio():
-            chunks.append(chunk)
+        async for event in self.receive_messages():
+            if event[0] == "audio":
+                chunks.append(event[1])
+            elif event[0] == "turn_complete":
+                break
         return b"".join(chunks)
 
 

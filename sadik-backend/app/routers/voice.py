@@ -503,11 +503,12 @@ async def list_tools():
 # Default: false — V1 pipeline (above) keeps working unchanged.
 #
 # WebSocket wire protocol (server → client):
-#   {"type": "ready"}                          — session open, mic stream can start
-#   {"type": "audio", "data": "<base64 PCM>"}  — 24 kHz PCM chunk from Gemini
-#   {"type": "turn_complete"}                  — Gemini finished speaking this turn
-#   {"type": "error", "detail": "..."}         — fatal error, connection will close
-#   {"type": "latency", ...}                   — telemetry snapshot at turn_complete
+#   {"type": "ready"}                                          — session open, mic stream can start
+#   {"type": "audio", "data": "<base64 PCM>"}                 — 24 kHz PCM chunk from Gemini
+#   {"type": "transcript", "text": "...", "finished": bool}   — T9.5.2: user input transcription
+#   {"type": "turn_complete"}                                  — Gemini finished speaking this turn
+#   {"type": "error", "detail": "..."}                        — fatal error, connection will close
+#   {"type": "latency", ...}                                   — telemetry snapshot at turn_complete
 #
 # WebSocket wire protocol (client → server):
 #   {"type": "audio", "data": "<base64 PCM>"}  — 16 kHz PCM from mic (post-RMS gate)
@@ -532,6 +533,12 @@ async def voice_live_ws(
     Latency telemetry is logged at turn_complete with four timestamps:
       t_wake (set by client via {"type":"wake_ts","ts":<monotonic float>})
       t_open, t_ready, t_first (set internally by GeminiLiveService).
+
+    T9.5.2 Adım 3 — LiveRouter integration:
+      - LiveRouter instance shared between send/receive loops via _LiveContext.
+      - receive_loop gates audio forwarding via router.is_muted().
+      - turn_complete triggers router.on_turn_complete() → LLM routing.
+      - tool_result sent to client; mute cleared after each turn.
     """
     await websocket.accept()
 
@@ -560,7 +567,9 @@ async def voice_live_ws(
 
     # ── Telemetry init ─────────────────────────────────────────────────────────
     from app.services.gemini_live_service import GeminiLiveService, LatencyTelemetry, build_service
+    from app.services.live_router import LiveRouter
     telemetry = LatencyTelemetry()
+    router = LiveRouter()
 
     logger.info("[VoiceLive] WS connected — opening Gemini Live session (voice=%s)", voice)
 
@@ -572,7 +581,9 @@ async def voice_live_ws(
 
             # Run receive (Gemini → client) and send (client → Gemini) concurrently.
             send_task    = asyncio.create_task(_live_send_loop(websocket, live, telemetry))
-            receive_task = asyncio.create_task(_live_receive_loop(websocket, live))
+            receive_task = asyncio.create_task(
+                _live_receive_loop(websocket, live, router, session, settings)
+            )
 
             done, pending = await asyncio.wait(
                 [send_task, receive_task],
@@ -636,20 +647,89 @@ async def _live_send_loop(
         raise
 
 
-async def _live_receive_loop(websocket: WebSocket, live) -> None:
-    """Stream audio chunks from Gemini back to the client over WebSocket."""
-    try:
-        async for chunk in live.receive_audio():
-            # Forward raw PCM as base64 JSON frame
-            payload = json.dumps({
-                "type": "audio",
-                "data": _base64.b64encode(chunk).decode("ascii"),
-                "mime": "audio/pcm;rate=24000",
-            })
-            await websocket.send_text(payload)
+async def _live_receive_loop(
+    websocket: WebSocket,
+    live,
+    router: "LiveRouter",
+    session: "AsyncSession",
+    settings: dict,
+) -> None:
+    """Stream events from Gemini back to the client over WebSocket.
 
-        # Turn complete
-        await websocket.send_text(json.dumps({"type": "turn_complete"}))
+    T9.5.2 Adım 3 — LiveRouter integration:
+      ("audio",         bytes)       → forward ONLY if router.is_muted() == False
+      ("transcript",    str,  bool)  → router.on_transcript() + forward to client
+      ("turn_complete", None)        → router.on_turn_complete() → LLM routing
+                                       → send tool_result or nothing
+                                       → reset router for next turn
+
+    Wire protocol (server → client):
+      {"type": "audio",        "data": "<b64>", "mime": "audio/pcm;rate=24000"}
+      {"type": "transcript",   "text": "...", "finished": bool}
+      {"type": "turn_complete"}
+      {"type": "tool_result",  "tool_name": str, "status": "ok"|"error",
+                               "data": {...}, "error": str|null}
+    """
+    from app.services.live_router import LiveRouter  # import for type reference
+
+    try:
+        async for event in live.receive_messages():
+            kind = event[0]
+
+            if kind == "audio":
+                if router.is_muted():
+                    # B-path tool detected — drop this audio chunk server-side.
+                    # Chunks already sent before mute fires are already at client (accepted).
+                    logger.debug("[VoiceLive] audio chunk DROPPED (muted)")
+                else:
+                    payload = json.dumps({
+                        "type": "audio",
+                        "data": _base64.b64encode(event[1]).decode("ascii"),
+                        "mime": "audio/pcm;rate=24000",
+                    })
+                    await websocket.send_text(payload)
+
+            elif kind == "transcript":
+                _, text, finished = event
+                label = "FINAL" if finished else "incr"
+                logger.info("[VoiceLive] transcript (%s): %r", label, text[:120])
+                # Accumulate in router buffer
+                router.on_transcript(text, finished)
+                # Also forward to client for real-time display
+                await websocket.send_text(json.dumps({
+                    "type": "transcript",
+                    "text": text,
+                    "finished": finished,
+                }))
+
+            elif kind == "turn_complete":
+                # Forward turn_complete to client first (A-path audio is done)
+                await websocket.send_text(json.dumps({"type": "turn_complete"}))
+
+                # Run B-path LLM routing
+                logger.info("[VoiceLive] running B-path LLM router...")
+                result = await router.on_turn_complete(session, settings)
+                kind_r = result[0]
+
+                if kind_r == "tool":
+                    _, tool_name, status, data, error = result
+                    logger.info(
+                        "[VoiceLive] tool_result tool=%s status=%s", tool_name, status
+                    )
+                    await websocket.send_text(json.dumps({
+                        "type":      "tool_result",
+                        "tool_name": tool_name,
+                        "status":    status,
+                        "data":      data,
+                        "error":     error,
+                    }))
+                else:
+                    # Pure chat turn — Live audio already delivered, nothing extra
+                    logger.info("[VoiceLive] B-path: chat turn, no tool action")
+
+                # Reset router state for next turn (unmute + clear transcript)
+                router.reset_turn()
+                break
 
     except WebSocketDisconnect:
         raise

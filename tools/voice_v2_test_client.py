@@ -198,10 +198,37 @@ async def run(host: str, port: int, seconds: int, voice: str = "Charon"):
                         print(f"[INFO] İlk audio frame alındı (wake→first={latency_ms:.0f}ms)")
                     audio_queue.append(pcm_bytes)
 
+                elif mtype == "transcript":
+                    # T9.5.2 — kullanıcı konuşma transkripsiyonu
+                    text     = msg.get("text", "")
+                    finished = msg.get("finished", False)
+                    if finished:
+                        print(f"[TRANSCRIPT] (FINAL) {text}")
+                    else:
+                        print(f"[TRANSCRIPT] (incr)  {text}")
+
                 elif mtype == "turn_complete":
                     tel.t_turn_complete = time.monotonic()
                     tc_ms = (tel.t_turn_complete - tel.t_wake_sent) * 1000
                     print(f"[INFO] turn_complete alındı (wake→complete={tc_ms:.0f}ms)")
+                    # Don't set the flag yet — a tool_result may immediately follow.
+                    # If no tool_result arrives within 5s, treat as chat turn (A-path only).
+                    asyncio.get_event_loop().call_later(5.0, turn_complete_flag.set)
+
+                elif mtype == "tool_result":
+                    # T9.5.2 Adım 3 — B-path tool execution result
+                    tool_name = msg.get("tool_name", "?")
+                    status    = msg.get("status", "?")
+                    data      = msg.get("data", {})
+                    error     = msg.get("error")
+                    if status == "ok":
+                        result_text = (data or {}).get("result", "")
+                        print(f"[TOOL] OK  {tool_name}")
+                        if result_text:
+                            print(f"       {result_text[:200]}")
+                    else:
+                        print(f"[TOOL] ERR {tool_name} — {error}")
+                    # After tool_result the turn is fully done
                     turn_complete_flag.set()
                     break
 
