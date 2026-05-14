@@ -1025,86 +1025,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const queueSweepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   /**
-   * Change 1: intensity-aware spoken proactive suggestion.
-   * - "strong" level → prepend "Dikkat! …" (assertive framing).
-   * - "gentle" level → prepend "Küçük bir öneri: …" (soft framing).
-   * NOTE: The TTS backend (ElevenLabs/OpenAI/edge-tts) does not expose a
-   * style/speed/voice variant through the /api/voice/tts endpoint — it accepts
-   * only { text }.  Intensity distinction is therefore wording-only (no style param).
-   *
-   * Change 2: after TTS finishes, arm an 8-second one-shot STT window IF the
-   * voice assistant is idle.  Recognised words resolve to accept/reject/timeout.
-   * Accept and reject trigger the same handlers as the UI buttons.  If the voice
-   * assistant is busy (voiceAssistantActiveRef = true) the STT window is skipped —
-   * buttons remain the only path.
+   * T9.5.4: speakProactive is a no-op stub — TTS hat kaldırıldı.
+   * Proactive ses Voice V2 (Gemini Live) ile re-implement edilecek.
    */
-  const speakProactive = useCallback(async (text: string, intensity?: 'gentle' | 'strong', insightKey?: string) => {
-    if (isProactiveSpeakingRef.current) return;
-    isProactiveSpeakingRef.current = true;
-    try {
-      // Change 1: prepend intensity-based prefix to the spoken text
-      let spokenText = text;
-      if (intensity === 'strong') {
-        spokenText = `Dikkat! ${text}`;
-      } else if (intensity === 'gentle') {
-        spokenText = `Küçük bir öneri: ${text}`;
-      }
-
-      const audioBlob = await voiceApi.tts(spokenText);
-      const url   = URL.createObjectURL(audioBlob);
-      const audio = new Audio(url);
-      currentProactiveAudioRef.current = { audio, url };
-
-      // Route to the user's selected speaker if the browser supports setSinkId
-      if (audioOutputDeviceIdRef.current !== 'default') {
-        const audioWithSink = audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
-        if (typeof audioWithSink.setSinkId === 'function') {
-          try { await audioWithSink.setSinkId(audioOutputDeviceIdRef.current); } catch { /* best-effort */ }
-        }
-      }
-
-      // Show the talking animation (same one used during voice assistant TTS)
-      // while the proactive suggestion plays, instead of the static MOLA text.
-      getAnimationEngine().triggerEvent('assistant_speaking');
-      lastAppActivityMsRef.current = Date.now();  // proactive TTS = activity
-
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        isProactiveSpeakingRef.current = false;
-        if (currentProactiveAudioRef.current?.audio === audio) {
-          currentProactiveAudioRef.current = null;
-        }
-
-        // Change 2: arm STT window only when:
-        //   - voice assistant is not active
-        //   - intensity is set (only break/task insights, not break-end announcements)
-        //   - not already armed for this exact suggestion (dedup guard)
-        const sttKey = insightKey ?? text;
-        const alreadyArmed = _sttArmedForKeyRef.current === sttKey;
-        // Focus guard: if user started typing while TTS was playing, skip STT arm.
-        const inputBusy = isInputFocused();
-        if (!voiceAssistantActiveRef.current && intensity !== undefined && !alreadyArmed && !inputBusy) {
-          _sttArmedForKeyRef.current = sttKey;
-          armProactiveSttWindowRef.current();
-        } else {
-          if (alreadyArmed) console.log('[Proactive][STT] skipped — already armed for this key');
-          _returnToIdleRef.current();
-        }
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        isProactiveSpeakingRef.current = false;
-        if (currentProactiveAudioRef.current?.audio === audio) {
-          currentProactiveAudioRef.current = null;
-        }
-        _returnToIdleRef.current();
-      };
-      await audio.play();
-    } catch {
-      isProactiveSpeakingRef.current = false;
-    }
+  // T9.5.4: TTS hat kaldırıldı — proactive ses desteği Voice V2 (Gemini Live) ile gelecek.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const speakProactive = useCallback(async (_text: string, _intensity?: 'gentle' | 'strong', _insightKey?: string) => {
+    // no-op: TTS removed; proactive audio will be re-wired to Gemini Live V2 path.
+    console.log('[Proactive] TTS no-op (T9.5.4)');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Intentional: reads all state through refs — no deps needed
+  }, []);
 
   /**
    * Change 2: one-shot 8-second STT window for proactive accept/reject.
@@ -2324,41 +2254,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
           } catch { /* best-effort */ }
 
-          // TTS — only for daily (non-silent) habits
-          if (!isSilent) {
-            // Mark isProactiveSpeaking so app-usage poll gates TTS during habit playback.
-            // Record lastHabitFiredAt so app-usage insights are deferred 1 min (spec).
-            lastHabitFiredAtRef.current = Date.now();
-            (async () => {
-              try {
-                isProactiveSpeakingRef.current = true;
-                pauseWakeWord();
-                const blob  = await voiceApi.tts(ttsText);
-                const url   = URL.createObjectURL(blob);
-                const audio = new Audio(url);
-                audio.onended = () => {
-                  URL.revokeObjectURL(url);
-                  isProactiveSpeakingRef.current = false;
-                  resumeWakeWord();
-                  returnToIdle();
-                };
-                audio.onerror = () => {
-                  URL.revokeObjectURL(url);
-                  isProactiveSpeakingRef.current = false;
-                  resumeWakeWord();
-                  returnToIdle();
-                };
-                // Show speaking animation while habit reminder TTS plays
-                getAnimationEngine().triggerEvent('assistant_speaking');
-                await audio.play();
-              } catch {
-                // TTS failed — wake word was paused; resume it
-                isProactiveSpeakingRef.current = false;
-                resumeWakeWord();
-                returnToIdle();
-              }
-            })();
-          }
+          // T9.5.4: habit TTS kaldırıldı — ses feedback Voice V2 (Gemini Live) ile gelecek.
+          void isSilent; // suppress unused-var warning
           break;
         }
       }

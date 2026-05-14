@@ -44,12 +44,6 @@ const DEFAULT_SETTINGS: Settings = {
   pomodoro_sessions_before_long_break: '4',
   microphone_device: 'default',
   speaker_device: 'default',
-  tts_provider: 'elevenlabs',
-  tts_openai_voice: 'onyx',
-  tts_voice: 'tr-TR-EmelNeural',
-  elevenlabs_api_key: '',
-  elevenlabs_voice_id: '',
-  elevenlabs_model_id: 'eleven_v3',
   wake_word_enabled: 'true',
 user_name: '',
   greeting_style: 'dostum',
@@ -64,14 +58,6 @@ const GREETING_PRESETS = [
   { value: 'hocam',    label: 'Hocam' },
 ];
 
-const OPENAI_VOICES = [
-  { value: 'alloy',   label: 'Alloy — Nötr' },
-  { value: 'echo',    label: 'Echo — Erkek' },
-  { value: 'fable',   label: 'Fable — İngiliz Aksanı' },
-  { value: 'onyx',    label: 'Onyx — Derin Erkek (önerilen)' },
-  { value: 'nova',    label: 'Nova — Kadın' },
-  { value: 'shimmer', label: 'Shimmer — Yumuşak Kadın' },
-];
 
 interface SettingsPageProps {
   onOpenFeedback?: () => void;
@@ -81,7 +67,6 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
   const { theme, toggle: toggleTheme } = useTheme();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ports, setPorts] = useState<SerialPort[]>([]);
   const [wakeModels, setWakeModels] = useState<WakeModel[]>([]);
@@ -907,102 +892,6 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
 
         {/* ── 2. SES ───────────────────────────────────────────────────────────── */}
         <Section title="Ses" icon={Mic} color="purple">
-          {/* TTS Provider */}
-          <Field label="TTS Sağlayıcısı">
-            <div className="flex flex-col gap-2">
-              {[
-                { value: 'elevenlabs', label: 'ElevenLabs', sublabel: 'Birincil — klonlanmış ses (erişim anahtarı gerekli)' },
-                { value: 'openai',     label: 'OpenAI TTS', sublabel: 'Yedek 1 — doğal ses (erişim anahtarı gerekli)' },
-                { value: 'edge',       label: 'Edge TTS',   sublabel: 'Yedek 2 — ücretsiz, robotik ses' },
-              ].map(({ value, label, sublabel }) => (
-                <label key={value} className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="tts_provider"
-                    value={value}
-                    checked={settings.tts_provider === value}
-                    onChange={() => set('tts_provider', value)}
-                    className="accent-accent-purple mt-0.5"
-                  />
-                  <div>
-                    <span className="text-sm text-text-primary block">{label}</span>
-                    <span className="text-xs text-text-muted">{sublabel}</span>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </Field>
-
-          {/* ElevenLabs fields */}
-          {settings.tts_provider === 'elevenlabs' && (
-            <>
-              <Field label="ElevenLabs Erişim Anahtarı">
-                <div className="relative">
-                  <input
-                    type={showElevenLabsKey ? 'text' : 'password'}
-                    value={settings.elevenlabs_api_key}
-                    onChange={(e) => set('elevenlabs_api_key', e.target.value)}
-                    placeholder="sk-..."
-                    className="input-field pr-10"
-                  />
-                  <button
-                    onClick={() => setShowElevenLabsKey(!showElevenLabsKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
-                  >
-                    {showElevenLabsKey ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              </Field>
-              <Field label="ElevenLabs Voice ID">
-                <input
-                  type="text"
-                  value={settings.elevenlabs_voice_id}
-                  onChange={(e) => set('elevenlabs_voice_id', e.target.value)}
-                  placeholder="xxxxxxxxxxxxxxxxxxxxxxxx"
-                  className="input-field"
-                />
-              </Field>
-              <Field label="ElevenLabs Modeli">
-                <select
-                  value={settings.elevenlabs_model_id}
-                  onChange={(e) => set('elevenlabs_model_id', e.target.value)}
-                  className="input-field"
-                >
-                  <option value="eleven_v3">eleven_v3 (V3 — Human-like, 70+ languages)</option>
-                  <option value="eleven_multilingual_v2">eleven_multilingual_v2 (Türkçe için önerilen)</option>
-                  <option value="eleven_turbo_v2_5">eleven_turbo_v2_5 (Hızlı, düşük gecikme)</option>
-                  <option value="eleven_monolingual_v1">eleven_monolingual_v1 (İngilizce)</option>
-                </select>
-              </Field>
-            </>
-          )}
-
-          {settings.tts_provider === 'openai' && (
-            <Field label="OpenAI Sesi">
-              <select
-                value={settings.tts_openai_voice}
-                onChange={(e) => set('tts_openai_voice', e.target.value)}
-                className="input-field"
-              >
-                {OPENAI_VOICES.map((v) => (
-                  <option key={v.value} value={v.value}>{v.label}</option>
-                ))}
-              </select>
-            </Field>
-          )}
-
-          {settings.tts_provider === 'edge' && (
-            <Field label="Edge TTS Sesi">
-              <input
-                type="text"
-                value={settings.tts_voice}
-                onChange={(e) => set('tts_voice', e.target.value)}
-                className="input-field"
-                placeholder="tr-TR-EmelNeural"
-              />
-            </Field>
-          )}
-
           <div className="border-t border-border pt-4 mt-2 space-y-3">
             <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Ses Aygıtları</p>
             <p className="text-xs text-text-muted leading-relaxed">

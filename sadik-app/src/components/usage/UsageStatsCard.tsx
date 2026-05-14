@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Clock, Activity, DollarSign, Mic, Cpu, Volume2 } from 'lucide-react';
+import { BarChart3, Clock, Activity, DollarSign, Mic, Cpu } from 'lucide-react';
 import { usageApi, UsageStats } from '../../api/usage';
 
 const TOOL_LABELS: Record<string, string> = {
@@ -110,7 +110,6 @@ export default function UsageStatsCard() {
             </div>
             <LatencyRow label="STT (Whisper)" icon={Mic} ms={stats.avg_stt_ms} color="text-accent-cyan" />
             <LatencyRow label="LLM (ilk token)" icon={Cpu} ms={stats.avg_llm_ttfb_ms} color="text-accent-purple" />
-            <LatencyRow label="TTS (ilk chunk)" icon={Volume2} ms={stats.avg_tts_ttfb_ms} color="text-accent-green" />
             <div className="border-t border-border pt-2 flex justify-between text-[11px] text-text-muted">
               <span>P50 uçtan uca</span>
               <span className="font-semibold text-text-secondary">{stats.p50_total_ms > 0 ? `${stats.p50_total_ms} ms` : '—'}</span>
@@ -141,7 +140,6 @@ export default function UsageStatsCard() {
               {[
                 { label: 'STT (Whisper)', usd: stats.cost_breakdown.stt_usd },
                 { label: 'LLM (GPT-4o-mini)', usd: stats.cost_breakdown.llm_usd },
-                { label: 'TTS', usd: stats.cost_breakdown.tts_usd },
               ].map(({ label, usd }) => (
                 <div key={label} className="flex justify-between text-[11px] text-text-muted">
                   <span>{label}</span>

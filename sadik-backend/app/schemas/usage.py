@@ -11,7 +11,6 @@ class UsageStats(BaseModel):
     p95_total_ms: int
     avg_stt_ms: int
     avg_llm_ttfb_ms: int
-    avg_tts_ttfb_ms: int
     top_tools: list[dict]  # [{name, count}]
     total_prompt_tokens: int
     total_completion_tokens: int

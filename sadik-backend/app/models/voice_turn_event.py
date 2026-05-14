@@ -10,7 +10,6 @@ class VoiceTurnEvent(Base):
     # Latency breakdown (ms)
     stt_ms = Column(Integer, nullable=True)
     llm_ms = Column(Integer, nullable=True)   # TTFB, not full completion
-    tts_ms = Column(Integer, nullable=True)   # first chunk
     total_ms = Column(Integer, nullable=True)  # end-to-end
     # Token usage
     prompt_tokens = Column(Integer, nullable=True)
@@ -20,8 +19,6 @@ class VoiceTurnEvent(Base):
     tool_count = Column(Integer, default=0)
     # Audio durations
     user_audio_seconds = Column(Float, nullable=True)
-    tts_audio_chars = Column(Integer, nullable=True)
     # Provider info
     stt_provider = Column(String(20), default="whisper-1")
-    tts_provider = Column(String(20), nullable=True)
     llm_model = Column(String(40), default="gpt-4o-mini")

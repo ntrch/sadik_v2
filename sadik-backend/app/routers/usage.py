@@ -55,7 +55,6 @@ async def get_my_usage(
 
     avg_stt  = _safe_avg([t.stt_ms for t in turns])
     avg_llm  = _safe_avg([t.llm_ms for t in turns])
-    avg_tts  = _safe_avg([t.tts_ms for t in turns])
 
     # Top tools — count occurrences across all tool_names CSVs
     tool_counter: Counter = Counter()
@@ -82,7 +81,6 @@ async def get_my_usage(
         p95_total_ms=p95,
         avg_stt_ms=avg_stt,
         avg_llm_ttfb_ms=avg_llm,
-        avg_tts_ttfb_ms=avg_tts,
         top_tools=top_tools,
         total_prompt_tokens=total_prompt,
         total_completion_tokens=total_completion,
@@ -90,6 +88,5 @@ async def get_my_usage(
         cost_breakdown={
             "stt_usd": cost["stt_usd"],
             "llm_usd": cost["llm_usd"],
-            "tts_usd": cost["tts_usd"],
         },
     )

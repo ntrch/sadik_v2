@@ -650,7 +650,7 @@ wakeword (openWakeWord) → RMS gate → B-first router
 - [ ] **T9.5.1** Gemini Live spike — auth, audio I/O, wakeword→ilk ses latency ölçümü, backend proxy iskeleti, `gemini_live_service.py` taslak
 - [ ] **T9.5.2** Pipeline split — A/B hatları, B-first intent router, Live mute mekanizması, `voice_service.py` refactor
 - [ ] **T9.5.3** Cost gating — RMS+silero gate, session lifecycle (8s/30s), per-turn budget cap, telemetry
-- [ ] **T9.5.4** TTS sökme — ElevenLabs/OpenAI TTS/edge-tts kaldır; settings'ten provider field'larını temizle; done/error MJPEG trigger'ları B hattına bağla
+- [x] **T9.5.4** TTS sökme — ElevenLabs/OpenAI TTS/edge-tts kaldırıldı; settings TTS provider field'ları temizlendi; proactive TTS no-op stub'a dönüştürüldü (V2 ile re-implement edilecek)
 - [ ] **T9.5.5** Cleanup + integration — dead code, settings UI'da `gemini_api_key`, integration tests, latency telemetry dashboard, BETA_ROADMAP güncelleme
 
 **Exit criteria:** Wakeword→ilk ses A hattında <1s (p50), B hattında <5s; mevcut 12 tool çalışıyor; tool path'te ses çıkmıyor (yalnız MJPEG); TTS dependency'leri silindi.
