@@ -1,7 +1,12 @@
 # SADIK v2 — Project Checkpoint
 
-> **Son guncelleme:** 2026-04-15
-> **Checkpoint versiyonu:** v14.0
+> ⚠️ **OUTDATED (2026-04-15, v14.0).** Voice pipeline tamamen değişti (Sprint 9.5):
+> V1 Whisper STT + ElevenLabs/OpenAI/edge-tts hattı **söküldü**, Voice V2 Gemini Live
+> audio↔audio (B-first router) aktif. Bu dokümandaki `/api/voice/stt`,
+> `/api/voice/tts`, `_HALLUCINATION_PATTERNS` referansları geçersiz.
+> Güncel proje özeti: **`summary.md`**. Source of truth roadmap: **`BETA_ROADMAP.md`**.
+> Full refresh post-beta.
+
 > **Proje sahibi:** Eren (ntrch)
 
 ---

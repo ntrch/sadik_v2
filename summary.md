@@ -204,8 +204,9 @@ Bileşenler:
 **Kararlar:**
 - **Beta hattı:** S9.6a beta'ya yetişecek. S9.6b (LLM reasoner) post-beta.
 - **Privacy tier davranışı:**
-  - **Full / Hybrid:** S9.6a kural-tabanlı + (sonra) S9.6b reasoner, Live ile konuşur.
-  - **Local-only:** sadece zaman-tabanlı yerel alarm (takvim/pomodoro), sessiz görsel + notification. LLM yok, Live yok, "düşünen" katman yok.
+  - **Full / Hybrid:** S9.6a kural-tabanlı + (sonra) S9.6b reasoner. Üç katmanlı teslim: Live sesli + native OS bildirim + app içi toast.
+  - **Local-only:** Live KAPALI, ama native OS bildirim + app içi toast AÇIK. LLM yok, "düşünen" katman yok; mevcut behavioral_patterns/habits/integration scheduler'lar zaten Local-only'de çalışıyor, korunur.
+- **Mevcut "güçlü ve nazik hatırlatma" logic'i** (behavioral_patterns, habits_service, integration sync) TÜM tier'larda korunur. S9.6a yeni katman olarak yalnız sesli teslim ekler, eski reaktif/sessiz hatırlatmalar dokunulmaz.
 - **Sıra:** S9.5 tamamlanır → S9.6a başlar (sıralı, paralel session yok). S9.5'in Live altyapısı S9.6 için temel.
 
 **S9.6a scope (beta için yetişecek):**
