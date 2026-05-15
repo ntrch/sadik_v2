@@ -47,6 +47,8 @@ export class VoiceLiveService {
   private playbackQueue: Int16Array[] = [];
   private isPlayingAudio = false;
   private triggerSource: 'wakeword' | 'mic_tap' = 'wakeword';
+  // Resolved when playback queue drains to idle (isPlayingAudio=false, queue empty).
+  private playbackIdleResolve: (() => void) | null = null;
 
   /**
    * Open a new Gemini Live WS session.
@@ -112,16 +114,37 @@ export class VoiceLiveService {
   }
 
   /**
-   * Graceful disconnect (code 1000). Stops playback and tears down.
+   * Graceful disconnect: drain playback queue first, then close WS + AudioContext.
+   * Awaitable — resolves once audio has finished and WS is closed.
+   * Use for turn_complete and any path where Gemini audio should finish playing.
    */
-  disconnect(): void {
+  async disconnect(): Promise<void> {
     if (!this.ws) return;
-    console.log('[VoiceLive] disconnect (graceful)');
+    console.log('[VoiceLive] disconnect (graceful) — waiting for playback drain');
+
+    // Wait until the playback queue is fully drained
+    if (this.isPlayingAudio || this.playbackQueue.length > 0) {
+      await new Promise<void>((resolve) => {
+        this.playbackIdleResolve = resolve;
+      });
+    }
+
+    console.log('[VoiceLive] playback drained — closing WS');
     this._stopPlayback();
-    if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       this.ws.close(1000, 'client_disconnect');
     }
     // onclose will call _teardown + callbacks.onClose
+  }
+
+  /**
+   * Immediate close: cut audio and close WS right now.
+   * Use for cancel, error, and idle_timeout paths.
+   */
+  forceClose(): void {
+    if (!this.ws) return;
+    console.log('[VoiceLive] forceClose (immediate)');
+    this._forceClose();
   }
 
   /** True if WS is open. */
@@ -215,6 +238,12 @@ export class VoiceLiveService {
   private _drainQueue(): void {
     if (this.playbackQueue.length === 0) {
       this.isPlayingAudio = false;
+      // Notify any pending graceful disconnect that audio is done
+      if (this.playbackIdleResolve) {
+        const resolve = this.playbackIdleResolve;
+        this.playbackIdleResolve = null;
+        resolve();
+      }
       return;
     }
 
@@ -245,6 +274,12 @@ export class VoiceLiveService {
   private _stopPlayback(): void {
     this.playbackQueue = [];
     this.isPlayingAudio = false;
+    // Clear any pending drain promise (forceClose path — resolve so callers don't hang)
+    if (this.playbackIdleResolve) {
+      const resolve = this.playbackIdleResolve;
+      this.playbackIdleResolve = null;
+      resolve();
+    }
     if (this.audioCtx && this.audioCtx.state !== 'closed') {
       this.audioCtx.close().catch(() => {});
       this.audioCtx = null;

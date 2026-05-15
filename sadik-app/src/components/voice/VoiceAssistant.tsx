@@ -54,13 +54,14 @@ const STATUS_LABELS: Record<VoiceState, string> = {
   speaking:  'Konuşuyor...',
 };
 
-// VAD config — same as V1, proven in production
-const POST_ROLL_SILENCE_MS = 800;
+// VAD config — T9.5.6 tuned: longer silence tolerance to prevent early cut on
+// short words ("selam") or mid-sentence breath pauses.
+const POST_ROLL_SILENCE_MS = 1500;  // was 800 — extra 700ms hangover
 const MIN_RECORDING_MS     = 1500;
 const VAD_CONFIG = {
   positiveSpeechThreshold: 0.6,
   negativeSpeechThreshold: 0.35,
-  redemptionFrames: 24,
+  redemptionFrames: 48,   // was 24 (~750ms) → ~1500ms silence tolerance
   minSpeechFrames: 4,
   preSpeechPadFrames: 10,
 };
@@ -174,16 +175,41 @@ export default function VoiceAssistant() {
   }, [returnToIdle, resumeWakeWord]);
 
   // ── Full session teardown ──────────────────────────────────────────────────
+  //
+  // Graceful reasons (await disconnect — let Gemini audio finish):
+  //   turn_complete, tool_result, server_error, wakeword_grace_timeout
+  //   Default for any unrecognised reason: graceful (safest).
+  //
+  // Force reasons (forceClose — cut immediately):
+  //   cancel, error, idle_timeout
 
   const endSession = useCallback((reason: string) => {
     console.log(`[Voice] endSession reason=${reason}`);
     clearWakewordGrace();
-    voiceLiveService.disconnect();
     stopMicPipeline();
-    if (!continuousConversationRef.current) {
-      destroyVAD();
+
+    const forceReasons = ['cancel', 'error', 'idle_timeout'];
+    if (forceReasons.includes(reason)) {
+      voiceLiveService.forceClose();
+      if (!continuousConversationRef.current) {
+        destroyVAD();
+      }
+      returnToIdleFlow();
+    } else {
+      // Graceful: drain playback queue before closing
+      voiceLiveService.disconnect().then(() => {
+        if (!continuousConversationRef.current) {
+          destroyVAD();
+        }
+        returnToIdleFlow();
+      }).catch(() => {
+        // disconnect() should not throw, but be safe
+        if (!continuousConversationRef.current) {
+          destroyVAD();
+        }
+        returnToIdleFlow();
+      });
     }
-    returnToIdleFlow();
   }, [clearWakewordGrace, stopMicPipeline, destroyVAD, returnToIdleFlow, continuousConversationRef]);
 
   // ── Cancel ─────────────────────────────────────────────────────────────────
@@ -191,7 +217,7 @@ export default function VoiceAssistant() {
   const cancelVoice = useCallback(() => {
     console.log('[Voice] cancelVoice');
     clearWakewordGrace();
-    voiceLiveService.disconnect();
+    voiceLiveService.forceClose();
     stopMicPipeline();
     destroyVAD();
     setActiveTool(null);
@@ -471,7 +497,7 @@ export default function VoiceAssistant() {
   useEffect(() => {
     const onUnload = () => {
       clearWakewordGrace();
-      voiceLiveService.disconnect();
+      voiceLiveService.forceClose();
       stopMicPipeline();
       destroyVAD();
       returnToIdle();
@@ -480,7 +506,7 @@ export default function VoiceAssistant() {
     return () => {
       window.removeEventListener('beforeunload', onUnload);
       clearWakewordGrace();
-      voiceLiveService.disconnect();
+      voiceLiveService.forceClose();
       stopMicPipeline();
       destroyVAD();
       returnToIdle();
