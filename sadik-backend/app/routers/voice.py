@@ -2,79 +2,16 @@ import logging
 import asyncio
 import json
 import time
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query, WebSocket, WebSocketDisconnect
-from typing import Optional
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from pydantic import BaseModel
 from app.database import get_session
 from app.models.setting import Setting
-from app.services.voice_service import voice_service
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
-
-
-# ── Hallucination filter ───────────────────────────────────────────────────────
-# Whisper sometimes generates plausible-sounding but fabricated text when the
-# input is silent or very low energy.  These patterns are reliable indicators
-# of hallucinations in Turkish-language transcription sessions.
-
-_HALLUCINATION_PATTERNS = [
-    # Subtitle / caption noise
-    "altyazı", "altyazi", "alt yazı", "alt yazi",
-    "altyazılar", "altyazilar",
-    "m.k.", " mk ",
-    "subtitles", "subtitle",
-    # YouTube / social media
-    "thanks for watching", "thank you for watching",
-    "abone ol", "like and subscribe",
-    "lütfen abone olun", "lutfen abone olun",
-    "beğen", "begen", "yorumlar",
-    "bir sonraki video", "izlemeye devam",
-    # Gratitude hallucinations (very common in Turkish)
-    "teşekkürler", "tesekkurler",
-    "teşekkür ederim", "tesekkur ederim",
-    "izlediğiniz için", "izlediginiz icin",
-    "dinlediğiniz için", "dinlediginiz icin",
-    # Farewell / social-filler hallucinations (Whisper loops on silence)
-    "hoşçakalın", "hoscakalin", "hoşça kalın", "hosca kalin",
-    "güle güle", "gule gule",
-    "afiyet olsun",
-    "kolay gelsin",
-    "iyi günler", "iyi gunler",
-    "iyi akşamlar", "iyi aksamlar",
-    "hayırlı olsun", "hayirli olsun",
-    # URL / domain
-    "www.", "http", ".com", ".net",
-    # Music / noise symbols
-    "♪", "♫", "....",
-    # Common ambient / TV hallucinations
-    "sesli kitap", "devam ediyor",
-    "hoş geldiniz", "hos geldiniz",
-    "merhaba arkadaşlar", "merhaba arkadaslar",
-    "bu videoda", "bu bölümde", "bu bolumde",
-    "bir dahaki", "sonraki bölüm",
-]
-
-
-def _is_hallucination(text: str) -> bool:
-    """Return True when *text* looks like a Whisper hallucination."""
-    stripped = text.strip()
-    if len(stripped) < 3:
-        return True
-    lower = stripped.lower()
-    for pattern in _HALLUCINATION_PATTERNS:
-        if pattern in lower:
-            return True
-    # Repetitive patterns — Whisper often loops the same short phrase
-    words = stripped.split()
-    if len(words) >= 4:
-        unique = set(w.lower() for w in words)
-        if len(unique) <= 2:
-            return True
-    return False
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -86,63 +23,6 @@ async def get_settings_map(session: AsyncSession) -> dict:
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
-
-
-@router.post("/stt")
-async def speech_to_text(
-    audio: UploadFile = File(...),
-    prompt: Optional[str] = Form(None),
-    fast: int = Query(0, description="Set to 1 for wake-word path: disables OpenAI retries"),
-    session: AsyncSession = Depends(get_session),
-):
-    """Transcribe uploaded audio with Whisper.
-
-    Returns ``{"text": ""}`` (empty string) for silent chunks and
-    hallucinated outputs so callers always receive a well-formed response.
-
-    Pass *prompt* to bias Whisper toward expected vocabulary — e.g. the wake
-    word name.  Omit for normal conversational transcription.
-
-    Hallucination filtering is only applied for wake-word detection chunks
-    (filename starts with "wake").  Conversation recordings ("recording.*")
-    skip the filter because phrases like "teşekkür ederim" are legitimate
-    speech that happens to also appear in the hallucination list.
-    """
-    settings = await get_settings_map(session)
-    api_key  = settings.get("openai_api_key", "")
-    if not api_key:
-        raise HTTPException(status_code=400, detail="OpenAI API key not configured")
-
-    audio_bytes = await audio.read()
-    filename = audio.filename or ""
-    logger.info(
-        "STT upload: filename=%r, content_type=%r, size=%d bytes",
-        filename, audio.content_type, len(audio_bytes),
-    )
-
-    if len(audio_bytes) <= 512:
-        logger.warning("STT: upload too small (%d bytes), returning empty", len(audio_bytes))
-        return {"text": ""}
-
-    try:
-        text = await voice_service.stt(audio_bytes, api_key, prompt=prompt, fast=bool(fast))
-    except Exception as e:
-        # Return empty text on transient failures (timeout, 5xx, network) so
-        # the frontend can recover gracefully (handleDidntHear) instead of
-        # surfacing a 500 to the user.
-        logger.warning(f"STT failed transiently, returning empty: {e}")
-        return {"text": ""}
-
-    # Hallucination filter — ONLY for wake-word detection chunks.
-    # Conversation recordings skip the filter; the frontend has its own
-    # guards (G1-G3) that handle noise without discarding real speech.
-    is_wake_word_chunk = filename.startswith("wake")
-    if is_wake_word_chunk and _is_hallucination(text):
-        logger.warning("STT: hallucination filtered (wake): %r", text)
-        return {"text": ""}
-
-    logger.info("STT result (%s): %r", "wake" if is_wake_word_chunk else "conv", text)
-    return {"text": text}
 
 
 @router.get("/devices")
@@ -206,10 +86,9 @@ async def list_tools():
     ]
 
 
-# ── Voice V2 — Gemini Live proxy (Sprint 9.5, T9.5.1) ─────────────────────────
+# ── Voice V2 — Gemini Live proxy (Sprint 9.5) ─────────────────────────────────
 #
-# Flag-gated: voice_v2_enabled must be "true" in settings to activate.
-# Default: false — V1 pipeline (above) keeps working unchanged.
+# V1 pipeline (Whisper+OpenAI+TTS) removed (T9.5.6). Gemini Live is the only path.
 #
 # WebSocket wire protocol (server → client):
 #   {"type": "ready"}                                          — session open, mic stream can start
@@ -235,8 +114,7 @@ async def voice_live_ws(
 ):
     """Gemini Live audio proxy WebSocket.
 
-    Gated behind voice_v2_enabled setting (default "false").
-    Connect ONLY after wakeword fires — cold sessions are never opened.
+    Connect ONLY after wakeword fires or mic-tap — cold sessions are never opened.
     Session is opened here and closed when the client disconnects or on error.
 
     T9.5.3 additions:
@@ -256,19 +134,8 @@ async def voice_live_ws(
     """
     await websocket.accept()
 
-    # ── Feature flag check ─────────────────────────────────────────────────────
+    # ── Settings + API key ─────────────────────────────────────────────────────
     settings = await get_settings_map(session)
-    voice_v2_enabled = settings.get("voice_v2_enabled", "false").lower() == "true"
-    if not voice_v2_enabled:
-        await websocket.send_text(json.dumps({
-            "type": "error",
-            "detail": "voice_v2_enabled is false — enable in settings to use Gemini Live",
-        }))
-        await websocket.close(code=1008)
-        logger.warning("[VoiceLive] Connection rejected: voice_v2_enabled=false")
-        return
-
-    # ── API key ────────────────────────────────────────────────────────────────
     gemini_api_key = settings.get("gemini_api_key", "").strip()
     if not gemini_api_key:
         await websocket.send_text(json.dumps({
@@ -643,7 +510,12 @@ async def _live_receive_loop(
                     await _apply_router_decision(result)
 
                 router.reset_turn()
-                break
+                # Reset per-turn state for next turn
+                audio_buffer.clear()
+                turn_decided = False
+                t_turn_complete = None
+                t_router_started = None
+                router_task = None
 
     except WebSocketDisconnect:
         raise

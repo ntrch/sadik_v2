@@ -10,7 +10,6 @@ import http from '../api/http';
 import { statsApi, AppInsight } from '../api/stats';
 import { tasksApi } from '../api/tasks';
 import { workspacesApi } from '../api/workspaces';
-import { voiceApi } from '../api/voice';
 import { weatherApi, CurrentWeather } from '../api/weather';
 import { integrationsApi, IntegrationStatus } from '../api/integrations';
 import { wakeWordService } from '../services/wakeWordService';
@@ -1054,9 +1053,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const ACCEPT_WORDS = ['evet', 'tamam', 'olur', 'kabul', 'mola ver', 'başlat'];
-    const REJECT_WORDS = ['hayır', 'yok', 'reddet', 'istemiyorum', 'sonra', 'geç'];
-    const WINDOW_MS    = 8000;
+    const WINDOW_MS = 8000;
 
     // ── Mic contention fix: pause wake word before grabbing the device ──────
     // Windows WASAPI does not allow two concurrent capture sessions on the same
@@ -1107,31 +1104,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     if (chunks.length === 0) return; // timeout path — card stays visible
 
-    try {
-      const blob  = new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' });
-      const transcript = await voiceApi.stt(blob);
-      const lower = transcript.toLowerCase().trim();
-      console.log('[Proactive][STT] transcript:', transcript);
-
-      const isAccept = ACCEPT_WORDS.some((w) => lower.includes(w));
-      const isReject = REJECT_WORDS.some((w) => lower.includes(w));
-
-      if (isAccept) {
-        console.log('[Proactive][STT] → accept');
-        await _acceptInsightForSttRef.current();
-      } else if (isReject) {
-        console.log('[Proactive][STT] → reject');
-        _denyInsightForSttRef.current();
-      } else {
-        console.log('[Proactive][STT] → timeout (no keyword matched)');
-        // Card stays visible — buttons remain the only path
-      }
-    } catch {
-      // STT failed — card stays visible
-    } finally {
-      // Clear the dedup key so the next suggestion (different key) can arm STT again.
-      _sttArmedForKeyRef.current = null;
-    }
+    // T9.5.6: Whisper STT removed; proactive STT accept/reject window is no-op
+    // until re-wired to Voice V2 (Gemini Live) in a future sprint (S9.6a).
+    // speakProactive is already a no-op stub (T9.5.4), so this path never runs.
+    // Clear dedup key so future suggestions can arm again.
+    _sttArmedForKeyRef.current = null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // reads all state via refs
 

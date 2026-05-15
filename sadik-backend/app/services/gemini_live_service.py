@@ -8,7 +8,6 @@ Architecture notes:
   Our RMS+VAD gate (voice_service.py _rms_gate) handles silence detection locally.
   Letting Gemini's own VAD control the turn boundary would conflict with our B-first
   router logic and cost-gating in T9.5.3. Decision: keep full control on our side.
-- voice_v2_enabled flag: default False. Set to "true" in settings to activate.
 
 Dependencies:
     pip install google-genai  (google-generativeai ≥ 0.8 ships the Live client)

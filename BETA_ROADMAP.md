@@ -660,6 +660,9 @@ Exit criteria check: Gemini Live proxy çalışıyor; B-first router tool/konuş
 - [ ] **T9.5.x-followup** silero VAD reinstate — production false-positive rate düşürme (RMS gate şimdilik yeterli, production'da gerekli)
 - [ ] **T9.5.x-followup** language_code hint — Gemini Live config'e TR/EN dil tespiti
 
+**T9.5.6 — Voice V2 Frontend Entegrasyonu (sprint genişletme)**
+- [x] **T9.5.6** — Electron app `/api/voice/live` WS bağlantısı, mic stream (16k int16), 24k playback, V1 dead code sökme, voice_v2_enabled flag kaldırma, continuous mode multi-turn, animation (success→done, fail→error). Cost discipline: API call sadece wakeword/mic-tap sonrası.
+
 **Exit criteria:** Wakeword→ilk ses A hattında <1s (p50), B hattında <5s; mevcut 12 tool çalışıyor; tool path'te ses çıkmıyor (yalnız MJPEG); TTS dependency'leri silindi.
 
 ---

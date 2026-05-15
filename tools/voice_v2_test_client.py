@@ -132,7 +132,7 @@ async def run(host: str, port: int, seconds: int, voice: str = "Charon", rms_thr
     try:
         raw = await asyncio.wait_for(ws.recv(), timeout=15)
     except asyncio.TimeoutError:
-        print("[HATA] 'ready' mesajı 15s içinde gelmedi. Backend ayakta mı? voice_v2_enabled=true mi?")
+        print("[HATA] 'ready' mesajı 15s içinde gelmedi. Backend ayakta mı? gemini_api_key ayarlı mı?")
         await ws.close()
         tel.print_table()
         return
