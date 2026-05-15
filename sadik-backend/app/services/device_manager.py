@@ -11,7 +11,7 @@ class DeviceManager:
         self._port: Optional[str] = None
         self._ip: Optional[str] = None
 
-    async def connect(self, method: str, port: Optional[str] = None, ip: Optional[str] = None, baudrate: int = 460800) -> bool:
+    async def connect(self, method: str, port: Optional[str] = None, ip: Optional[str] = None, baudrate: int = 921600) -> bool:
         # Idempotency guard: if we are already connected to the requested target,
         # skip the disconnect+reopen cycle. Reopening serial pulses DTR on Windows
         # and resets the ESP32 (visible as boot screen on OLED). Only re-establish
@@ -42,7 +42,7 @@ class DeviceManager:
             return reachable
         return False
 
-    async def auto_connect(self, baudrate: int = 460800) -> dict:
+    async def auto_connect(self, baudrate: int = 921600) -> dict:
         """Auto-detect SADIK device via serial protocol verification and connect."""
         # If already connected via WiFi, return success immediately
         if self._method == "wifi":

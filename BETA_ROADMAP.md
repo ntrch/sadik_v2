@@ -881,6 +881,7 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 - [ ] **Sub-1.4b — re-encode assets at 320×170 Q=85**: Donanım gelince çalıştır: `python encode_all.py --sync-ts ../../sadik-app/src/assets/colorClipManifest.ts`. Hardware dependency.
 
 ### Sub-2: Serial handshake + clip playback
+- [x] **T6 baud=921600 done** — backend default 460800 → 921600, T-Display S3 firmware uyumu (main.py, privacy.py, device.py, device_manager.py, serial_service.py, sadik.db).
 - [ ] **Sub-2.1 — PLAY_LOCAL + APP_CONNECTED handshake**: variant string "color_v2", backend recognition.
   - [x] **Faz 2 — App-side color_v2 support**: `parseDeviceLine` color_v2 kabul ediyor; `DeviceVariant` union güncellendi; `DEVICE_DIMENSIONS` helper map eklendi; `OledPreview` 320×170 variant-aware (ayrı CSS boyut, doğru aspect ratio); `useAnimationEngine` + `AppContext` tip güncellemeleri. typecheck GREEN.
 - [ ] **Sub-2.2 — LittleFS clip upload + playback smoke test**.

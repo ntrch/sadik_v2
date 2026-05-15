@@ -168,7 +168,7 @@ class SerialService:
             pass
         return None
 
-    async def auto_detect_and_connect(self, baudrate: int = 460800) -> dict:
+    async def auto_detect_and_connect(self, baudrate: int = 921600) -> dict:
         """Scan all serial ports, verify SADIK device via PING/PONG protocol,
         and keep the connection open on first match.
 
@@ -240,7 +240,7 @@ class SerialService:
                 "error": "No SADIK device responded to PING on any available port.",
             }
 
-    async def open(self, port: str, baudrate: int = 460800) -> bool:
+    async def open(self, port: str, baudrate: int = 921600) -> bool:
         """Open serial port for manual (non-auto-detect) connection.
 
         Bug 1 fix: adds settle + reset_input_buffer so boot-time noise (DEVICE:,

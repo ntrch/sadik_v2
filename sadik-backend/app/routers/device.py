@@ -22,7 +22,7 @@ async def connect_device(body: DeviceConnect):
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Setting).where(Setting.key == "serial_baudrate"))
         s = result.scalar_one_or_none()
-        baudrate = int(s.value) if s else 460800
+        baudrate = int(s.value) if s else 921600
 
     ok = await device_manager.connect(body.method, port=body.port, ip=body.ip, baudrate=baudrate)
     status = device_manager.get_status()
@@ -55,7 +55,7 @@ async def auto_connect_device():
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Setting).where(Setting.key == "serial_baudrate"))
         s = result.scalar_one_or_none()
-        baudrate = int(s.value) if s else 460800
+        baudrate = int(s.value) if s else 921600
 
     result = await device_manager.auto_connect(baudrate=baudrate)
     if result["connected"]:
