@@ -3,6 +3,7 @@ import { Mic, MicOff, Volume2, Radio, X } from 'lucide-react';
 import { MicVAD } from '@ricky0123/vad-web';
 import { AppContext } from '../../context/AppContext';
 import { voiceLiveService, ToolResult } from '../../services/voiceLiveService';
+import { narrationService } from '../../services/narrationService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -441,21 +442,42 @@ export default function VoiceAssistant() {
 
       onToolResult: (result: ToolResult) => {
         console.log('[Voice] tool_result', result.tool_name, result.status);
-        // Reset firstAudioReceivedRef so the first narration audio chunk after
-        // tool execution correctly transitions state to 'speaking'.
-        firstAudioReceivedRef.current = false;
         setActiveTool(null);
+
+        // Animation cue: confirmation or error clip
         if (result.status === 'ok') {
-          // Done clip: tool succeeded (plays in parallel with narration audio)
           triggerEvent('confirmation_success');
         } else {
-          // Error clip: tool failed
           triggerEvent('soft_error');
         }
-        // T9.5.7: do NOT fast-disconnect here.
-        // Backend feeds result text to Gemini Live → narration audio chunks will
-        // arrive → onAudio fires → state transitions to 'speaking'.
-        // Session ends naturally on turn_complete (onTurnComplete handler below).
+
+        // T9.5.7 (revised): open a separate narration mini-session.
+        // The main Live WS will close naturally on turn_complete (no audio coming from it).
+        // narrationService opens /api/voice/narrate → TTS-mode Gemini Live session.
+        const narrationText = result.status === 'ok'
+          ? (result.data?.result as string | undefined) ?? ''
+          : 'Bu isteği yerine getiremedim, tekrar dener misin?';
+
+        if (narrationText) {
+          console.log('[Voice] opening narration mini-session for tool result');
+          narrationService.speak(narrationText, {
+            onFirstAudio: () => {
+              // Narration audio starting → speaking state
+              setVoiceState('speaking');
+            },
+            onDone: () => {
+              console.log('[Voice] narration done → returnToIdleFlow');
+              returnToIdleFlow();
+            },
+            onError: (detail) => {
+              console.error('[Voice] narration error:', detail);
+              returnToIdleFlow();
+            },
+          });
+        } else {
+          // No text to narrate (empty result) → go idle
+          returnToIdleFlow();
+        }
       },
 
       onError: (detail: string) => {

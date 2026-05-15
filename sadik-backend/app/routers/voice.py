@@ -390,33 +390,28 @@ async def _live_receive_loop(
     router_task: "asyncio.Task | None" = None
 
     async def _apply_router_decision(result):
-        """Router decision geldi — buffer'ı flush et veya drop et, turn_decided set et.
+        """Router decision geldi — bufferʼı flush et veya drop et, turn_decided set et.
 
-        T9.5.7 — Tool branch artık mute YAPMIYOR.
-        - tool_result event'i frontend'e gönderilir (animation cue için).
-        - audio_buffer drop edilir (router öncesi birikmiş Gemini audio'yu temizle).
-        - live.send_narration() ile tool result text'i Gemini Live'a feed edilir.
-        - Live audio chunks gelmeye başlayınca mevcut audio forwarding (turn_decided=True
-          kabul) doğrudan client'a akıtır — kullanıcı sesli yanıt duyar.
+        T9.5.7 (revised) — Tool branch:
+        - tool_result eventʼi frontendʼe gönderilir (animation cue için).
+        - audio_buffer drop edilir (router öncesi birikmiş Gemini audioʼyu temizle).
+        - turn_decided=True set edilir — mevcut Live session artık audio göndermiyor.
+        - Narration: frontend /api/voice/narrate mini-session açar (ayrı WS, ayrı session).
+        - Bu session turn_complete sonrası graceful close olur.
         """
         nonlocal turn_decided
         kind_r = result[0]
         if kind_r == "tool":
             _, tool_name, status, data, error = result
             logger.info(
-                "[VoiceLive] tool_result tool=%s status=%s | dropping %d buffered audio chunks, starting narration",
+                "[VoiceLive] tool_result tool=%s status=%s | dropping %d buffered audio chunks",
                 tool_name, status, len(audio_buffer),
             )
-            # T9.5.7 Fix 6: clear buffer BEFORE setting turn_decided=True.
-            # If turn_decided were set first, the event loop could tick and forward
-            # pre-narration audio chunks via the `elif turn_decided` branch before
-            # the buffer is cleared — closing the race window.
+            # T9.5.7: clear buffer BEFORE setting turn_decided=True (race-window close).
             audio_buffer.clear()
             turn_decided = True
-            # NOTE: router.mute() intentionally NOT called (T9.5.7).
-            # Live audio is allowed to flow so narration audio reaches the client.
 
-            # 1. Send tool_result event — frontend uses for animation cue
+            # Send tool_result event — frontend opens /api/voice/narrate for audio
             await websocket.send_text(json.dumps({
                 "type":      "tool_result",
                 "tool_name": tool_name,
@@ -424,23 +419,6 @@ async def _live_receive_loop(
                 "data":      data,
                 "error":     error,
             }))
-
-            # 2. Feed result text to Gemini Live → Live will speak it
-            if status == "ok":
-                result_text = data.get("result", "") if data else ""
-                narration_prompt = (
-                    f"Aşağıdaki bilgiyi kullanıcıya kısa, doğal ve Türkçe olarak söyle. "
-                    f"Bilgiyi olduğu gibi aktar, kendi yorumunu ekleme:\n\n{result_text}"
-                )
-            else:
-                # Error case: generic short Turkish message
-                narration_prompt = "Bu isteği yerine getiremedim, tekrar dener misin?"
-
-            try:
-                await live.send_narration(narration_prompt)
-                logger.info("[VoiceLive] narration sent for tool=%s status=%s", tool_name, status)
-            except Exception as narr_exc:
-                logger.error("[VoiceLive] send_narration failed: %s", narr_exc)
         else:
             # Chat — buffer'daki tüm chunk'ları flush et
             turn_decided = True
@@ -556,3 +534,131 @@ async def _live_receive_loop(
     except Exception as e:
         logger.error("[VoiceLive] receive_loop error: %s", e)
         raise
+
+
+# ── Narration mini-session endpoint (T9.5.7) ─────────────────────────────────
+#
+# WebSocket /api/voice/narrate?voice=Charon
+#
+# Wire protocol (client → server):
+#   {"type": "narrate", "text": "<TTS text>"}
+#
+# Wire protocol (server → client):
+#   {"type": "ready"}                                        — session open
+#   {"type": "audio", "data": "<b64>", "mime": "audio/pcm;rate=24000"}
+#   {"type": "turn_complete"}                                — narration done, socket closing
+#   {"type": "error", "detail": "..."}                       — fatal error
+#
+# Called ONLY from frontend onToolResult callback — cost discipline ✓
+
+_NARRATE_SYSTEM_PROMPT = (
+    "Sen bir seslendirme motorusun (TTS). Aşağıdaki metni kullanıcıya "
+    "TÜRKÇE OLARAK AYNEN OKU. Hiçbir bilgiyi değiştirme, ekleme, çıkarma, "
+    "yorumlama yapma. Sayıları, yer adlarını, birimleri olduğu gibi söyle. "
+    "Sadece doğal bir seslendirme tonunda oku."
+)
+
+
+@router.websocket("/narrate")
+async def voice_narrate_ws(
+    websocket: WebSocket,
+    voice: str = Query(default="Charon", description="Gemini prebuilt voice name"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Narration mini-session: TTS-mode Gemini Live session for tool result audio.
+
+    Opens a fresh Gemini Live session per narration request.  The session is
+    intentionally single-turn and TTS-only — no mic, no chat, no tools.
+    Frontend calls this ONLY after receiving a tool_result event (cost discipline ✓).
+    """
+    import os
+    from app.services.gemini_live_service import GeminiLiveService, LatencyTelemetry
+    from google.genai import types as genai_types
+
+    await websocket.accept()
+    logger.info("[Narrate] WS accepted voice=%s", voice)
+
+    # 1. Read narrate message from client
+    try:
+        raw = await websocket.receive_text()
+        msg = json.loads(raw)
+    except Exception as e:
+        logger.error("[Narrate] Failed to read first message: %s", e)
+        await websocket.send_text(json.dumps({"type": "error", "detail": "İlk mesaj okunamadı"}))
+        await websocket.close(1000)
+        return
+
+    if msg.get("type") != "narrate" or not msg.get("text"):
+        logger.error("[Narrate] Invalid first message: %s", msg)
+        await websocket.send_text(json.dumps({"type": "error", "detail": "Geçersiz narrate mesajı"}))
+        await websocket.close(1000)
+        return
+
+    narrate_text: str = str(msg["text"])
+    logger.info("[Narrate] text=%r", narrate_text[:120])
+
+    # 2. Get API key from settings
+    settings_map = await get_settings_map(session)
+    api_key = settings_map.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        logger.error("[Narrate] No Gemini API key")
+        await websocket.send_text(json.dumps({"type": "error", "detail": "Gemini API anahtarı eksik"}))
+        await websocket.close(1000)
+        return
+
+    # 3. Open mini Live session (TTS-only config: no mic input, no tools, pure audio output)
+    svc = GeminiLiveService(api_key)
+    telemetry = LatencyTelemetry(t_wake=time.monotonic())
+
+    try:
+        async with svc.session(
+            system_prompt=_NARRATE_SYSTEM_PROMPT,
+            telemetry=telemetry,
+            voice_name=voice,
+            input_transcription=False,
+        ) as live:
+            await websocket.send_text(json.dumps({"type": "ready"}))
+            logger.info("[Narrate] Gemini Live session open")
+
+            # Send narration text as user turn
+            await live._session.send_client_content(
+                turns=genai_types.Content(
+                    role="user",
+                    parts=[genai_types.Part(text=narrate_text)],
+                ),
+                turn_complete=True,
+            )
+            logger.info("[Narrate] text sent to Gemini (%d chars)", len(narrate_text))
+
+            # 4. Stream audio chunks to client
+            async for event in live.receive_messages():
+                kind = event[0]
+                if kind == "audio":
+                    payload = json.dumps({
+                        "type": "audio",
+                        "data": _base64.b64encode(event[1]).decode("ascii"),
+                        "mime": "audio/pcm;rate=24000",
+                    })
+                    await websocket.send_text(payload)
+                elif kind == "turn_complete":
+                    # Narration done — notify client and stop
+                    await websocket.send_text(json.dumps({"type": "turn_complete"}))
+                    logger.info("[Narrate] turn_complete — closing")
+                    break
+                # Ignore transcript events (TTS mode, no input transcription)
+
+    except WebSocketDisconnect:
+        logger.info("[Narrate] client disconnected")
+        return
+    except Exception as e:
+        logger.error("[Narrate] error: %s", e)
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "detail": str(e)}))
+        except Exception:
+            pass
+
+    try:
+        await websocket.close(1000)
+    except Exception:
+        pass
+    logger.info("[Narrate] session closed")

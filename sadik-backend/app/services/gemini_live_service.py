@@ -299,15 +299,13 @@ class _LiveSession:
             sc = response.server_content
 
             # ── Turn complete ─────────────────────────────────────────────────────
-            # T9.5.7: break removed — narration sends a 2nd Gemini turn via
-            # send_client_content() after turn_complete.  Generator must keep
-            # running so narration audio chunks reach the caller.
-            # Generator exits naturally when the SDK iterator ends (StopAsyncIteration
-            # or 1006 close from Gemini), which falls through to normal exception handling.
+            # T9.5.7 (revised): narration now uses a separate mini-session via
+            # /api/voice/narrate — this session is single-turn only.
+            # Yield turn_complete and break so the generator exits cleanly.
             if sc and sc.turn_complete:
-                logger.info("[GeminiLive] Turn complete received — continuing (narration path active)")
+                logger.info("[GeminiLive] Turn complete received — yielding and closing generator")
                 yield ("turn_complete", None)
-                # do NOT break here
+                break
 
             # ── Input transcription (T9.5.2) ─────────────────────────────────────
             if sc and sc.input_transcription is not None:
@@ -335,31 +333,6 @@ class _LiveSession:
             # ── Model text (informational, not forwarded to client) ───────────────
             if response.text:
                 logger.debug("[GeminiLive] model text: %s", response.text[:80])
-
-    # ── Narration (T9.5.7) ────────────────────────────────────────────────────
-
-    async def send_narration(self, text: str) -> None:
-        """Send a text prompt to Gemini Live so it speaks the result aloud.
-
-        Used by the tool-result path (B-path) to narrate tool results via Live
-        instead of going silent after tool execution.  The session must already
-        be open (called from within an active `async with service.session():`
-        block).
-
-        The caller is responsible for NOT calling this when the session has
-        already been closed or when privacy Local-only mode is active.
-        """
-        if self._session is None:
-            raise RuntimeError("Session not open")
-        from google.genai import types as genai_types
-        await self._session.send_client_content(
-            turns=genai_types.Content(
-                role="user",
-                parts=[genai_types.Part(text=text)],
-            ),
-            turn_complete=True,
-        )
-        logger.info("[GeminiLive] send_narration sent (%d chars)", len(text))
 
     # ── Echo test ──────────────────────────────────────────────────────────────
 

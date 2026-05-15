@@ -1010,21 +1010,7 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
               </p>
             </Field>
 
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-medium text-text-secondary mb-0.5">Sürekli konuşma modu</p>
-                <p className="text-xs text-text-muted leading-relaxed">
-                  Sadık cevap verdikten sonra otomatik olarak dinlemeye geçer. Konuşmayı bitirmek için X'e tıklayın.
-                </p>
-              </div>
-              <button
-                onClick={() => setDraftContinuousConversation((v) => !v)}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
-                  ${draftContinuousConversation ? 'bg-accent-purple' : 'bg-bg-input border border-border'}`}>
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform
-                  ${draftContinuousConversation ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
-            </div>
+            {/* continuous_conversation: beta'da gizlendi — tek-turn enforced (T9.5.7). */}
           </div>
         </Section>
 
