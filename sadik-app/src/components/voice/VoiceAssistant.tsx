@@ -98,10 +98,7 @@ export default function VoiceAssistant() {
   const speechDetectedRef    = useRef(false);  // VAD confirmed speech in this turn
 
   // ── Mic PCM pipeline refs ──────────────────────────────────────────────────
-  // AudioContext + ScriptProcessor for 48→16kHz downsampling and chunking.
-  const micAudioCtxRef       = useRef<AudioContext | null>(null);
-  const micProcessorRef      = useRef<ScriptProcessorNode | null>(null);
-  const micSourceRef         = useRef<MediaStreamAudioSourceNode | null>(null);
+  // PCM is fed from VAD onFrameProcessed (16kHz Float32) — no ScriptProcessor.
   const micPipeActiveRef     = useRef(false);   // true when sending PCM to WS
   // PCM accumulator: we accumulate samples until CHUNK_FRAMES
   const pcmAccumulatorRef    = useRef<number[]>([]);
@@ -140,18 +137,6 @@ export default function VoiceAssistant() {
   const stopMicPipeline = useCallback(() => {
     micPipeActiveRef.current = false;
     pcmAccumulatorRef.current = [];
-    if (micProcessorRef.current) {
-      micProcessorRef.current.disconnect();
-      micProcessorRef.current = null;
-    }
-    if (micSourceRef.current) {
-      micSourceRef.current.disconnect();
-      micSourceRef.current = null;
-    }
-    if (micAudioCtxRef.current && micAudioCtxRef.current.state !== 'closed') {
-      micAudioCtxRef.current.close().catch(() => {});
-      micAudioCtxRef.current = null;
-    }
   }, []);
 
   const destroyVAD = useCallback(() => {
@@ -231,51 +216,6 @@ export default function VoiceAssistant() {
     return () => window.removeEventListener('keydown', onKey);
   }, [cancelVoice]);
 
-  // ── Mic PCM pipeline ───────────────────────────────────────────────────────
-  // Sets up a ScriptProcessor on the mic stream that:
-  //   - Downsamples 48kHz → 16kHz (simple decimation: keep every 3rd sample)
-  //   - Accumulates CHUNK_FRAMES int16 samples
-  //   - Sends chunk to voiceLiveService only when micPipeActiveRef is true
-
-  const startMicPipeline = useCallback(async (stream: MediaStream): Promise<void> => {
-    // Cleanup any existing pipeline first
-    stopMicPipeline();
-
-    const ctx = new AudioContext({ sampleRate: 48000 });
-    micAudioCtxRef.current = ctx;
-
-    const source = ctx.createMediaStreamSource(stream);
-    micSourceRef.current = source;
-
-    // ScriptProcessor bufferSize 4096 @ 48kHz = ~85ms latency, acceptable
-    // eslint-disable-next-line deprecation/deprecation
-    const processor = ctx.createScriptProcessor(4096, 1, 1);
-    micProcessorRef.current = processor;
-
-    const RATIO = 3; // 48kHz / 16kHz = 3 (integer decimation)
-
-    processor.onaudioprocess = (e: AudioProcessingEvent) => {
-      if (!micPipeActiveRef.current) return;
-
-      const input = e.inputBuffer.getChannelData(0);
-      // Simple decimation: take every RATIO-th sample
-      for (let i = 0; i < input.length; i += RATIO) {
-        // Clamp and convert to int16
-        const s = Math.max(-1, Math.min(1, input[i]));
-        pcmAccumulatorRef.current.push(s < 0 ? s * 32768 : s * 32767);
-
-        if (pcmAccumulatorRef.current.length >= CHUNK_FRAMES) {
-          const chunk = new Int16Array(pcmAccumulatorRef.current.splice(0, CHUNK_FRAMES));
-          voiceLiveService.pipeMicChunk(chunk);
-        }
-      }
-    };
-
-    source.connect(processor);
-    // Connect to destination silently — ScriptProcessor requires a destination
-    processor.connect(ctx.destination);
-  }, [stopMicPipeline]);
-
   // ── Core session start ─────────────────────────────────────────────────────
 
   const startListeningRef = useRef<(triggerSource: 'wakeword' | 'mic_tap') => Promise<void>>(
@@ -321,16 +261,6 @@ export default function VoiceAssistant() {
       }
       persistentStreamRef.current = stream;
       console.log('[Voice] New mic stream acquired');
-    }
-
-    // ── Start mic PCM pipeline ─────────────────────────────────────────────
-    try {
-      await startMicPipeline(stream);
-    } catch (e) {
-      console.error('[Voice] mic pipeline setup failed:', e);
-      setError('Mikrofon pipeline başlatılamadı');
-      resumeWakeWord();
-      return;
     }
 
     // ── VAD setup ─────────────────────────────────────────────────────────
@@ -390,6 +320,19 @@ export default function VoiceAssistant() {
 
           onVADMisfire: () => {
             console.log('[Voice] VAD misfire (speech too short)');
+          },
+
+          onFrameProcessed: (_probs: { isSpeech: number }, frame: Float32Array) => {
+            if (!micPipeActiveRef.current) return;
+            // frame is 16kHz Float32, length 512 (~32ms) — already correct rate
+            for (let i = 0; i < frame.length; i++) {
+              const s = Math.max(-1, Math.min(1, frame[i]));
+              pcmAccumulatorRef.current.push(s < 0 ? s * 32768 : s * 32767);
+            }
+            while (pcmAccumulatorRef.current.length >= CHUNK_FRAMES) {
+              const chunk = new Int16Array(pcmAccumulatorRef.current.splice(0, CHUNK_FRAMES));
+              voiceLiveService.pipeMicChunk(chunk);
+            }
           },
 
           baseAssetPath: '/vad/',
@@ -489,7 +432,7 @@ export default function VoiceAssistant() {
     });
   }, [
     markAppActivity, pauseWakeWord, resumeWakeWord, triggerEvent,
-    startMicPipeline, clearWakewordGrace, endSession, returnToIdleFlow,
+    clearWakewordGrace, endSession, returnToIdleFlow,
     continuousConversationRef, destroyVAD,
   ]);
 

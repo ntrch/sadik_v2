@@ -52,6 +52,9 @@
 ## DevTools console
 - [ ] Zero error (sadece beklenen mesajlar: VAD warm-up, stream logs)
 - [ ] WS logları: [VoiceLive] prefixli, trigger source görünür
+- [ ] ScriptProcessor deprecation warning YOK (ScriptProcessor tamamen kaldırıldı)
+- [ ] Mimari: tek AudioContext (VAD internal), tek mic stream tüketicisi
+  - PCM: MicVAD.onFrameProcessed → 16kHz Float32 → Int16Array → voiceLiveService.pipeMicChunk
 
 ## Network tab
 - [ ] `/api/voice/live` WS tek seferlik açılıyor
