@@ -47,6 +47,9 @@ export class VoiceLiveService {
   private wsReady = false;
   private callbacks: VoiceLiveCallbacks | null = null;
   private audioCtx: AudioContext | null = null;
+  // Pre-ready end_of_turn buffer: if signalEndOfTurn() is called before WS
+  // is ready (early-speech window), set this flag and flush after 'ready'.
+  private pendingEndOfTurn = false;
   // Playback queue: each item is a 24kHz Int16Array chunk waiting to play.
   // We schedule chunks sequentially by chaining AudioBufferSourceNode.onended.
   private playbackQueue: Int16Array[] = [];
@@ -74,6 +77,7 @@ export class VoiceLiveService {
     this.isPlayingAudio = false;
     this.wsReady = false;
     this.pendingAudioQueue = [];
+    this.pendingEndOfTurn = false;
 
     const url = `${WS_BASE}/api/voice/live?voice=${VOICE_NAME}`;
     console.log(`[VoiceLive] Opening WS (trigger=${triggerSource}): ${url}`);
@@ -137,9 +141,17 @@ export class VoiceLiveService {
 
   /**
    * Signal end of turn — call after VAD onSpeechEnd (+hangover).
+   * If WS is not yet ready (early-speech window), the flag is buffered and
+   * flushed immediately after the 'ready' message arrives.
    */
   signalEndOfTurn(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws) return;
+    if (!this.wsReady) {
+      console.log('[VoiceLive] signalEndOfTurn (pre-ready) — buffered as pendingEndOfTurn');
+      this.pendingEndOfTurn = true;
+      return;
+    }
+    if (this.ws.readyState !== WebSocket.OPEN) return;
     console.log('[VoiceLive] signalEndOfTurn');
     this._send({ type: 'end_of_turn' });
   }
@@ -209,6 +221,12 @@ export class VoiceLiveService {
             this._send({ type: 'audio', data: b64 });
           }
           this.pendingAudioQueue = [];
+        }
+        // Flush buffered end_of_turn (spoken before WS was ready — "selam" fix)
+        if (this.pendingEndOfTurn) {
+          console.log('[VoiceLive] flushing buffered end_of_turn (pre-ready speech)');
+          this.pendingEndOfTurn = false;
+          this._send({ type: 'end_of_turn' });
         }
         this.callbacks?.onReady();
         break;
@@ -339,6 +357,7 @@ export class VoiceLiveService {
     this._stopPlayback();
     this.wsReady = false;
     this.pendingAudioQueue = [];
+    this.pendingEndOfTurn = false;
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.onerror = null;
@@ -354,6 +373,7 @@ export class VoiceLiveService {
     this.ws = null;
     this.wsReady = false;
     this.pendingAudioQueue = [];
+    this.pendingEndOfTurn = false;
     this.callbacks = null;
   }
 

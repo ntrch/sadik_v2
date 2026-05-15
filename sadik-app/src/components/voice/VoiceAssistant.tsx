@@ -166,6 +166,9 @@ export default function VoiceAssistant() {
   }, []);
 
   const returnToIdleFlow = useCallback(() => {
+    // Idempotency guard: skip if already idle and session already torn down.
+    // Prevents double dispatch when both endSession and onClose call this.
+    if (voiceStateRef.current === 'idle' && !sessionActiveRef.current) return;
     setError(null);
     setActiveTool(null);
     setStatusOverride(null);
@@ -186,10 +189,15 @@ export default function VoiceAssistant() {
 
   const endSession = useCallback((reason: string) => {
     console.log(`[Voice] endSession reason=${reason}`);
+    // Flip sessionActiveRef synchronously BEFORE any async disconnect so that
+    // ws.onclose (which fires synchronously on server-close) sees it already
+    // false and skips the redundant returnToIdleFlow call. returnToIdleFlow
+    // itself also has an idempotency guard as a second line of defence.
+    sessionActiveRef.current = false;
     clearWakewordGrace();
     stopMicPipeline();
 
-    const forceReasons = ['cancel', 'error', 'idle_timeout'];
+    const forceReasons = ['cancel', 'error', 'idle_timeout', 'wakeword_grace_timeout'];
     if (forceReasons.includes(reason)) {
       voiceLiveService.forceClose();
       if (!continuousConversationRef.current) {
@@ -339,7 +347,12 @@ export default function VoiceAssistant() {
 
             postRollTimerRef.current = setTimeout(() => {
               postRollTimerRef.current = null;
-              if (voiceStateRef.current !== 'listening') return;
+              const st = voiceStateRef.current;
+              // Allow end_of_turn if fully listening OR if WS is still
+              // connecting (idle + sessionActive = "waking" window — pre-ready
+              // speech case). signalEndOfTurn() handles buffering when pre-ready.
+              const isWaking = st === 'idle' && sessionActiveRef.current;
+              if (st !== 'listening' && !isWaking) return;
               console.log('[Voice] VAD post-roll expired → signalEndOfTurn');
               micPipeActiveRef.current = false;
               // Flush any remaining accumulated PCM
@@ -437,6 +450,9 @@ export default function VoiceAssistant() {
 
       onToolResult: (result: ToolResult) => {
         console.log('[Voice] tool_result', result.tool_name, result.status);
+        // Reset firstAudioReceivedRef so the first narration audio chunk after
+        // tool execution correctly transitions state to 'speaking'.
+        firstAudioReceivedRef.current = false;
         setActiveTool(null);
         if (result.status === 'ok') {
           // Done clip: tool succeeded (plays in parallel with narration audio)
