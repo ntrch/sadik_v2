@@ -104,7 +104,8 @@ interface SadikBoolSetting {
 
 const SADIK_SETTINGS: SadikBoolSetting[] = [
   { key: 'wake_word_enabled',         label: 'Uyandırma Kelimesi'      },
-  { key: 'continuous_conversation',   label: 'Sürekli Konuşma Modu'    },
+  // continuous_conversation: beta'da gizlendi — tek-turn enforced (T9.5.7).
+  // Post-beta'da multi-session pattern ile re-introduce edilecek.
   { key: 'close_to_tray',             label: 'Sisteme Küçült'           },
   { key: 'proactive_suggestions',     label: 'Proaktif Öneriler'        },
   { key: 'spoken_proactive',          label: 'Sesli Proaktif Öneriler'  },

@@ -433,19 +433,10 @@ export default function VoiceAssistant() {
       onTurnComplete: () => {
         console.log('[Voice] turn_complete');
         firstAudioReceivedRef.current = false;  // reset for next turn
-        if (continuousConversationRef.current) {
-          // Multi-turn: keep WS open, suspend mic pipe, wait for next speech
-          console.log('[Voice] Continuous mode: suspending pipe, arming VAD for next turn');
-          micPipeActiveRef.current  = false;
-          speechDetectedRef.current = false;
-          vadSpeechActiveRef.current = false;
-          setVoiceState('listening');
-          triggerEvent('user_speaking');
-        } else {
-          // Single-turn: close session
-          endSession('turn_complete');
-          triggerEvent('conversation_finished');
-        }
+        // Tek-turn enforced: her turn_complete → session kapat.
+        // Continuous mode beta'dan çıkarıldı; post-beta'da multi-session pattern ile re-introduce edilecek.
+        endSession('turn_complete');
+        triggerEvent('conversation_finished');
       },
 
       onToolResult: (result: ToolResult) => {

@@ -145,13 +145,19 @@ export class VoiceLiveService {
    * flushed immediately after the 'ready' message arrives.
    */
   signalEndOfTurn(): void {
-    if (!this.ws) return;
+    if (!this.ws) {
+      console.warn('[VoiceLive] signalEndOfTurn called but WS is not open (state=null)');
+      return;
+    }
     if (!this.wsReady) {
       console.log('[VoiceLive] signalEndOfTurn (pre-ready) — buffered as pendingEndOfTurn');
       this.pendingEndOfTurn = true;
       return;
     }
-    if (this.ws.readyState !== WebSocket.OPEN) return;
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      console.warn(`[VoiceLive] signalEndOfTurn called but WS is not open (state=${this.ws.readyState})`);
+      return;
+    }
     console.log('[VoiceLive] signalEndOfTurn');
     this._send({ type: 'end_of_turn' });
   }

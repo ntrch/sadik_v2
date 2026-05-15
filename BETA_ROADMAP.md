@@ -669,6 +669,7 @@ Exit criteria check: Gemini Live proxy çalışıyor; B-first router tool/konuş
 **S9.5 sonrası backlog (ek):**
 - [ ] **T9.5.x-followup** Privacy Local-only: tool narration kapatma (Live KAPALI ise tool result chat'e yazılır)
 - [ ] **T9.5.x-followup** Gemini Live multi-turn: preview model turn_complete'te session'ı kapatıyor. Stable model'e geçildiğinde continuous mode multi-turn re-validate edilmeli.
+- [ ] **T9.5.x-followup** — Continuous mode multi-turn: post-beta'da Gemini Live multi-session support (per-turn yeni session + context preservation) ile re-introduce edilecek. Beta'da tek-turn enforced (T9.5.7).
 
 ---
 

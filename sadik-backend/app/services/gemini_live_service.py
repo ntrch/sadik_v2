@@ -158,11 +158,11 @@ class _LiveSession:
                     )
                 )
             ),
-            # thinking_budget=0 → minimum thinking, lowest latency.
-            # Supported via LiveConnectConfig.thinking_config (ThinkingConfig).
-            # 0 = disabled/minimal; -1 = automatic; model default range is model-dependent.
-            # Verified: google-genai SDK LiveConnectConfig has thinking_config field (2026-05).
-            thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+            # 3.1 preview: thinking_level default 'minimal' (latency).
+            # 2.5 idi ise thinking_budget=0 idi; 3.1'de thinking_level enum kullanılır.
+            # SDK'da thinking_level desteklenmiyorsa alan kaldırıldı — preview default zaten minimal.
+            # (thinking_config field kaldırıldı: 3.1 preview SDK'da ThinkingConfig.thinking_level
+            #  henüz desteklenmiyor; default minimal olarak çalışır.)
             # Disable automatic activity detection — we gate via RMS+VAD ourselves.
             # This prevents Gemini from interrupting mid-sentence based on its own VAD.
             realtime_input_config=genai_types.RealtimeInputConfig(
@@ -183,15 +183,14 @@ class _LiveSession:
         )
 
         # Live API model selection (2026-05):
-        #   PRIMARY  : gemini-2.5-flash-native-audio-latest  ← stable, multi-turn safe
-        #   FALLBACK : gemini-3.1-flash-live-preview         ← preview, latency regression
-        #                                                       and single-turn session
-        # Geçiş notu: 3.1 → 2.5 sebebi: continuous mode multi-turn,
-        #             7.9s → ?ms first audio latency düşüşü beklenir
+        #   PRIMARY  : gemini-3.1-flash-live-preview         ← preview, yeni features için tercih
+        #   FALLBACK : gemini-2.5-flash-native-audio-latest  ← stable, multi-turn de çalışmadı
+        # Geçiş notu: 2.5 → 3.1 sebebi: tek-turn enforced (continuous mode beta'dan çıktı),
+        #             multi-turn ikisinde de çalışmadı; 3.1 yeni features için tercih edildi.
         # ALT-2    : gemini-2.5-flash-native-audio-preview-12-2025
         # ALT-3    : gemini-2.5-flash-native-audio-preview-09-2025
         # Ref: https://ai.google.dev/gemini-api/docs/models#live-api
-        model = "models/gemini-2.5-flash-native-audio-latest"
+        model = "models/gemini-3.1-flash-live-preview"
         logger.info("[GeminiLive] Connecting to %s (voice=%s)", model, self._voice_name)
 
         # Connect — the async context manager yields the live session
