@@ -158,6 +158,11 @@ class _LiveSession:
                     )
                 )
             ),
+            # thinking_budget=0 → minimum thinking, lowest latency.
+            # Supported via LiveConnectConfig.thinking_config (ThinkingConfig).
+            # 0 = disabled/minimal; -1 = automatic; model default range is model-dependent.
+            # Verified: google-genai SDK LiveConnectConfig has thinking_config field (2026-05).
+            thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
             # Disable automatic activity detection — we gate via RMS+VAD ourselves.
             # This prevents Gemini from interrupting mid-sentence based on its own VAD.
             realtime_input_config=genai_types.RealtimeInputConfig(
@@ -177,13 +182,16 @@ class _LiveSession:
             **({"input_audio_transcription": genai_types.AudioTranscriptionConfig()} if self._input_transcription else {}),
         )
 
-        # Live API model selection (2026-05, key listesinden doğrulandı):
-        #   PRIMARY  : gemini-3.1-flash-live-preview  ← Eren'in seçimi, yeni nesil
-        #   ALT-1    : gemini-2.5-flash-native-audio-latest
-        #   ALT-2    : gemini-2.5-flash-native-audio-preview-12-2025
-        #   ALT-3    : gemini-2.5-flash-native-audio-preview-09-2025
+        # Live API model selection (2026-05):
+        #   PRIMARY  : gemini-2.5-flash-native-audio-latest  ← stable, multi-turn safe
+        #   FALLBACK : gemini-3.1-flash-live-preview         ← preview, latency regression
+        #                                                       and single-turn session
+        # Geçiş notu: 3.1 → 2.5 sebebi: continuous mode multi-turn,
+        #             7.9s → ?ms first audio latency düşüşü beklenir
+        # ALT-2    : gemini-2.5-flash-native-audio-preview-12-2025
+        # ALT-3    : gemini-2.5-flash-native-audio-preview-09-2025
         # Ref: https://ai.google.dev/gemini-api/docs/models#live-api
-        model = "models/gemini-3.1-flash-live-preview"
+        model = "models/gemini-2.5-flash-native-audio-latest"
         logger.info("[GeminiLive] Connecting to %s (voice=%s)", model, self._voice_name)
 
         # Connect — the async context manager yields the live session
