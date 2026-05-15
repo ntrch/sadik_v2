@@ -61,7 +61,9 @@ _DEFAULT_SYSTEM_PROMPT = (
     "Sen SADIK'sın — kullanıcının kişisel masaüstü asistanısın. "
     "Türkçe konuş, samimi ve kısa cevaplar ver. "
     "Araç çalıştırma veya takvim/görev gibi işlemler için 'bunu bir bakıyorum' de ve dur — "
-    "bu konuşma hattında araç yok. Sadece sohbet et."
+    "bu konuşma hattında araç yok. Sadece sohbet et. "
+    "Kullanıcı SADECE Türkçe konuşur. Tüm input audio'yu Türkçe (tr-TR) olarak yorumla ve transcribe et. "
+    "Asla başka dilde transcribe etme."
 )
 
 # Audio format sent TO Gemini (from microphone after RMS gate).
@@ -167,9 +169,12 @@ class _LiveSession:
             # Enabled by default; set input_transcription=False to skip (legacy path).
             # Wire: inputAudioTranscription: {} → server sends inputTranscription events.
             # Transcripts arrive independently of model audio turns (see notes/T9_5_2_router_design.md).
-            # T9.5.7: language_codes=['tr-TR'] — prevents short Turkish utterances
-            # from being mistranscribed as Korean (e.g. "selam" → '있었어.').
-            **({"input_audio_transcription": genai_types.AudioTranscriptionConfig(language_codes=["tr-TR"])} if self._input_transcription else {}),
+            # NOTE: language_codes parameter is only supported in Vertex AI (Enterprise) mode,
+            # not Gemini Developer API. Workaround: hint via system_instruction.
+            # If transcription quality remains poor, post-beta candidates:
+            #   1. Migrate to Vertex AI for language_codes support
+            #   2. Disable input_audio_transcription, route via separate Whisper STT pre-Live
+            **({"input_audio_transcription": genai_types.AudioTranscriptionConfig()} if self._input_transcription else {}),
         )
 
         # Live API model selection (2026-05, key listesinden doğrulandı):
