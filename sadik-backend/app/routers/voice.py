@@ -401,15 +401,18 @@ async def _live_receive_loop(
         """
         nonlocal turn_decided
         kind_r = result[0]
-        turn_decided = True
         if kind_r == "tool":
             _, tool_name, status, data, error = result
             logger.info(
                 "[VoiceLive] tool_result tool=%s status=%s | dropping %d buffered audio chunks, starting narration",
                 tool_name, status, len(audio_buffer),
             )
-            # Drop A-path audio that arrived before router decision
+            # T9.5.7 Fix 6: clear buffer BEFORE setting turn_decided=True.
+            # If turn_decided were set first, the event loop could tick and forward
+            # pre-narration audio chunks via the `elif turn_decided` branch before
+            # the buffer is cleared — closing the race window.
             audio_buffer.clear()
+            turn_decided = True
             # NOTE: router.mute() intentionally NOT called (T9.5.7).
             # Live audio is allowed to flow so narration audio reaches the client.
 
@@ -440,6 +443,7 @@ async def _live_receive_loop(
                 logger.error("[VoiceLive] send_narration failed: %s", narr_exc)
         else:
             # Chat — buffer'daki tüm chunk'ları flush et
+            turn_decided = True
             flushed = 0
             t_first_sent: float | None = None
             while audio_buffer:

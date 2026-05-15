@@ -167,7 +167,9 @@ class _LiveSession:
             # Enabled by default; set input_transcription=False to skip (legacy path).
             # Wire: inputAudioTranscription: {} → server sends inputTranscription events.
             # Transcripts arrive independently of model audio turns (see notes/T9_5_2_router_design.md).
-            **({"input_audio_transcription": genai_types.AudioTranscriptionConfig()} if self._input_transcription else {}),
+            # T9.5.7: language_codes=['tr-TR'] — prevents short Turkish utterances
+            # from being mistranscribed as Korean (e.g. "selam" → '있었어.').
+            **({"input_audio_transcription": genai_types.AudioTranscriptionConfig(language_codes=["tr-TR"])} if self._input_transcription else {}),
         )
 
         # Live API model selection (2026-05, key listesinden doğrulandı):
@@ -285,10 +287,15 @@ class _LiveSession:
             sc = response.server_content
 
             # ── Turn complete ─────────────────────────────────────────────────────
+            # T9.5.7: break removed — narration sends a 2nd Gemini turn via
+            # send_client_content() after turn_complete.  Generator must keep
+            # running so narration audio chunks reach the caller.
+            # Generator exits naturally when the SDK iterator ends (StopAsyncIteration
+            # or 1006 close from Gemini), which falls through to normal exception handling.
             if sc and sc.turn_complete:
-                logger.info("[GeminiLive] Turn complete received")
+                logger.info("[GeminiLive] Turn complete received — continuing (narration path active)")
                 yield ("turn_complete", None)
-                break
+                # do NOT break here
 
             # ── Input transcription (T9.5.2) ─────────────────────────────────────
             if sc and sc.input_transcription is not None:

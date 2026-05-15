@@ -161,8 +161,9 @@ class LiveRouter:
         if finish_reason != "tool_calls" or not msg.tool_calls:
             return ("chat", None)
 
-        # ── Tool call detected → mute Live audio, execute tool ────────────────
-        self.mute()
+        # ── Tool call detected → execute tool (T9.5.7: mute intentionally skipped) ──
+        # live_router.mute() removed — narration audio must flow to client after tool exec.
+        # Mute plumbing (mute_flag / mute() / is_muted()) retained for cancel path callers.
 
         # Execute the FIRST tool call (router intent: one tool per turn)
         tc = msg.tool_calls[0]
