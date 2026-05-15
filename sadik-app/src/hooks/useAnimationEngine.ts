@@ -79,6 +79,11 @@ export function useAnimationEngine(
   // Pending clip to send after min-gap expires (latest wins)
   const pendingColorClipRef = useRef<string | null>(null);
   const pendingColorClipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Fallback timer: fires at 1.5× clip duration if firmware EVENT:LOCAL_CLIP_FINISHED
+  // hasn't arrived yet.  Cleared when the real event comes.
+  const clipFinishedFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Callback invoked on clip-finished (either from firmware event or fallback timer).
+  const clipFinishedCallbackRef = useRef<(() => void) | null>(null);
 
   // State-stable hold: track candidate clip + when it was first seen.
   // Clip must stay stable for STATE_STABLE_HOLD_MS before dispatching, to
@@ -114,6 +119,11 @@ export function useAnimationEngine(
         stableClipTimerRef.current = null;
       }
       stableClipCandidateRef.current = null;
+      if (clipFinishedFallbackTimerRef.current) {
+        clearTimeout(clipFinishedFallbackTimerRef.current);
+        clipFinishedFallbackTimerRef.current = null;
+      }
+      clipFinishedCallbackRef.current = null;
 
       // Canvas freeze fix: clear the preview buffer on USB disconnect so the
       // canvas doesn't hold the last streamed frame indefinitely.
@@ -138,6 +148,11 @@ export function useAnimationEngine(
         stableClipTimerRef.current = null;
       }
       stableClipCandidateRef.current = null;
+      if (clipFinishedFallbackTimerRef.current) {
+        clearTimeout(clipFinishedFallbackTimerRef.current);
+        clipFinishedFallbackTimerRef.current = null;
+      }
+      clipFinishedCallbackRef.current = null;
     }
   }, [deviceVariant]);
 
@@ -248,6 +263,8 @@ export function useAnimationEngine(
     pump();
 
     // Helper: actually send a PLAY_LOCAL command and update tracking state.
+    // Arms a 1.5× duration fallback timer so the min-gap resets even if the
+    // firmware EVENT:LOCAL_CLIP_FINISHED never arrives (e.g. USB hiccup).
     const sendColorClip = (colorClip: string, reason: string) => {
       const now = Date.now();
       const elapsed = now - lastColorClipSentAtRef.current;
@@ -259,6 +276,30 @@ export function useAnimationEngine(
       lastColorClipSentRef.current = colorClip;
       lastColorClipSentAtRef.current = now;
       deviceApi.sendCommand(`PLAY_LOCAL:${colorClip}`).catch(() => {});
+
+      // Arm fallback timer: 1.5× clip duration.
+      // Cancelled immediately if firmware event arrives first (notifyColorClipFinished).
+      if (clipFinishedFallbackTimerRef.current) {
+        clearTimeout(clipFinishedFallbackTimerRef.current);
+        clipFinishedFallbackTimerRef.current = null;
+      }
+      clipFinishedCallbackRef.current = null;
+      const clipDurationMs = getClipGapMs(colorClip);
+      const fallbackDelayMs = Math.round(clipDurationMs * 1.5);
+      clipFinishedFallbackTimerRef.current = setTimeout(() => {
+        clipFinishedFallbackTimerRef.current = null;
+        clipFinishedCallbackRef.current = null;
+        // Reset the min-gap clock to "clip just finished" so the next clip
+        // can be dispatched immediately without waiting for the full gap again.
+        lastColorClipSentAtRef.current = Date.now() - clipDurationMs;
+        console.log(`[ColorClip] fallback finish clip=${colorClip} delay=${fallbackDelayMs}ms`);
+        // Fire any deferred pending clip that arrived during playback
+        if (pendingColorClipRef.current && !pendingColorClipTimerRef.current && deviceConnectedRef.current) {
+          const next = pendingColorClipRef.current;
+          pendingColorClipRef.current = null;
+          sendColorClip(next, 'deferred-fallback');
+        }
+      }, fallbackDelayMs);
     };
 
     // dispatchColorClip: enforces min-gap (based on last clip duration) before
@@ -384,6 +425,11 @@ export function useAnimationEngine(
         clearTimeout(stableClipTimerRef.current);
         stableClipTimerRef.current = null;
       }
+      if (clipFinishedFallbackTimerRef.current) {
+        clearTimeout(clipFinishedFallbackTimerRef.current);
+        clipFinishedFallbackTimerRef.current = null;
+      }
+      clipFinishedCallbackRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -499,6 +545,42 @@ export function useAnimationEngine(
 
   const getLoadedClipNames = useCallback(() => engine.getLoadedClipNames(), []);
 
+  /**
+   * Called by AppContext when the WS 'local_clip_finished' event arrives
+   * (firmware EVENT:LOCAL_CLIP_FINISHED propagated via backend serial reader).
+   * Cancels the 1.5× fallback timer and advances the min-gap clock so the
+   * next queued clip can be dispatched immediately.
+   */
+  const notifyColorClipFinished = useCallback(() => {
+    if (clipFinishedFallbackTimerRef.current) {
+      clearTimeout(clipFinishedFallbackTimerRef.current);
+      clipFinishedFallbackTimerRef.current = null;
+    }
+    clipFinishedCallbackRef.current = null;
+    // Advance min-gap clock to "clip just finished" — next dispatch is immediate.
+    const lastClip = lastColorClipSentRef.current;
+    if (lastClip && lastClip !== '__idle__') {
+      const clipDurationMs = getClipGapMs(lastClip);
+      lastColorClipSentAtRef.current = Date.now() - clipDurationMs;
+      console.log(`[ColorClip] firmware finish ACK clip=${lastClip} — min-gap reset`);
+      // Fire any deferred pending clip that arrived during playback
+      if (pendingColorClipRef.current && !pendingColorClipTimerRef.current && deviceConnectedRef.current) {
+        const next = pendingColorClipRef.current;
+        pendingColorClipRef.current = null;
+        // Use setTimeout(0) so the ACK state settles before we dispatch.
+        setTimeout(() => {
+          if (next && deviceConnectedRef.current) {
+            lastColorClipSentRef.current = next;
+            lastColorClipSentAtRef.current = Date.now();
+            deviceApi.sendCommand(`PLAY_LOCAL:${next}`).catch(() => {});
+            console.log(`[ColorClip] dispatch (fw-ack) clip=${next} reason=deferred-fw-ack`);
+          }
+        }, 0);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return {
     engineState,
     frameBuffer: bufferRef.current,
@@ -512,5 +594,6 @@ export function useAnimationEngine(
     playModSequenceWithCallback,
     playModIntroOnce,
     getLoadedClipNames,
+    notifyColorClipFinished,
   };
 }

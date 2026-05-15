@@ -538,7 +538,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     playModSequenceWithCallback,
     playModIntroOnce,
     getLoadedClipNames,
+    notifyColorClipFinished,
   } = useAnimationEngine(deviceStatus.connected, sadikPosition, personaSlug, deviceVariant);
+  // Stable ref — safe to call from WS message callback without closure staleness.
+  const notifyColorClipFinishedRef = useRef(notifyColorClipFinished);
+  notifyColorClipFinishedRef.current = notifyColorClipFinished;
 
   // ── Wake word functions ────────────────────────────────────────────────────
 
@@ -2183,6 +2187,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           } catch { /* best-effort */ }
           getAnimationEngine().triggerEvent('return_to_idle');
           modesApi.endCurrent().then(() => setCurrentMode(null)).catch(() => {});
+          break;
+        case 'local_clip_finished':
+          // T3: firmware EVENT:LOCAL_CLIP_FINISHED — cancel 1.5× fallback timer and
+          // advance min-gap clock so the next queued clip dispatches immediately.
+          notifyColorClipFinishedRef.current();
           break;
         case 'habit_reminder': {
           console.log('[habits] WS event received', msg.data);

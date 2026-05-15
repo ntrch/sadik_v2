@@ -332,9 +332,39 @@ async def lifespan(app: FastAPI):
 
     _monitor_task = asyncio.create_task(_usb_disconnect_monitor())
 
+    # Serial event reader — polls firmware-emitted unsolicited lines (EVENT:*)
+    # and broadcasts them to WebSocket clients.
+    # Runs independently from the disconnect monitor so EVENT: lines are not
+    # swallowed by send_and_read's skip-list.
+    from app.services.serial_service import serial_service as _ss_events
+    from app.services.ws_manager import ws_manager as _ws_events
+
+    async def _serial_event_reader():
+        while True:
+            try:
+                await asyncio.sleep(0.05)  # 50 ms poll
+                line = await _ss_events.read_line()
+                if not line:
+                    continue
+                if line == "EVENT:LOCAL_CLIP_FINISHED":
+                    logger.debug("Serial event: LOCAL_CLIP_FINISHED — broadcasting WS")
+                    await _ws_events.broadcast({"type": "local_clip_finished", "data": {}})
+                # Future EVENT: lines can be dispatched here in the same pattern
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Serial event reader error: {e}")
+
+    _event_task = asyncio.create_task(_serial_event_reader())
+
     yield
 
     # Shutdown
+    _event_task.cancel()
+    try:
+        await _event_task
+    except asyncio.CancelledError:
+        pass
     _monitor_task.cancel()
     try:
         await _monitor_task
