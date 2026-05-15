@@ -782,12 +782,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const variant = connectedDevice?.variant ?? null;
     // Keep null until device_profile confirmed — pump guard relies on null meaning "unknown".
     setDeviceVariant(variant);
-    // Positive guard: only send when we KNOW it is a mini device.
-    if (connectedDevice && deviceStatus.connected && variant === 'mini') {
-      console.log('[AppContext] APP_CONNECTED → mini firmware (variant confirmed)');
+    if (connectedDevice && deviceStatus.connected && variant) {
       deviceApi.sendCommand('APP_CONNECTED').catch(() => {});
-    } else if (connectedDevice && (variant === 'color' || variant === 'color_v2')) {
-      console.log(`[AppContext] APP_CONNECTED SKIPPED — ${variant} device, would corrupt codec path`);
     }
   }, [connectedDevice, deviceStatus.connected]);
 

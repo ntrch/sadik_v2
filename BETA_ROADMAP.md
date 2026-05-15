@@ -882,8 +882,9 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 
 ### Sub-2: Serial handshake + clip playback
 - [x] **T6 baud=921600 done** — backend default 460800 → 921600, T-Display S3 firmware uyumu (main.py, privacy.py, device.py, device_manager.py, serial_service.py, sadik.db).
-- [ ] **Sub-2.1 — PLAY_LOCAL + APP_CONNECTED handshake**: variant string "color_v2", backend recognition.
+- [x] **Sub-2.1 — PLAY_LOCAL + APP_CONNECTED handshake**: variant string "color_v2", backend recognition.
   - [x] **Faz 2 — App-side color_v2 support**: `parseDeviceLine` color_v2 kabul ediyor; `DeviceVariant` union güncellendi; `DEVICE_DIMENSIONS` helper map eklendi; `OledPreview` 320×170 variant-aware (ayrı CSS boyut, doğru aspect ratio); `useAnimationEngine` + `AppContext` tip güncellemeleri. typecheck GREEN.
+  - [x] **T1 — APP_CONNECTED/DISCONNECTED color_v2 için aktif**: backend `device.py` mini-only guard kaldırıldı; `AppContext` variant guard genişletildi (tüm confirmed variant'lar için gönder). Firmware dokunulmadı.
 - [ ] **Sub-2.2 — LittleFS clip upload + playback smoke test**.
 
 **Exit criteria:** `mode_working_text` LittleFS'ten 24fps akıyor, APP_CONNECTED handshake OK, build GREEN.

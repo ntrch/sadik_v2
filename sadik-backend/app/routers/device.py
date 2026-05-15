@@ -149,36 +149,6 @@ async def send_frame(body: FrameData):
 async def send_command(body: DeviceCommand):
     logger.info(f"Device command: {body.command}")
 
-    # Hard defensive guard: APP_CONNECTED must never reach a color device, and
-    # must not be forwarded before device variant is confirmed (last_device_line
-    # is None/empty during the reconnect DEVICE? window).
-    #
-    # Block rules:
-    #   1. last_device_line is None or empty → variant not yet confirmed → BLOCK.
-    #   2. last_device_line contains 'variant=color' → BLOCK.
-    # Only allow when last_device_line is present AND confirms variant=mini.
-    if body.command == "APP_CONNECTED":
-        device_line = serial_service.last_device_line or ""
-        if not device_line:
-            logger.warning(
-                "APP_CONNECTED BLOCKED — device variant not yet confirmed "
-                "(last_device_line is empty; DEVICE? handshake still in progress or failed). "
-                "Frontend should not send APP_CONNECTED before device_profile WS arrives."
-            )
-            return {"success": False, "error": "APP_CONNECTED rejected: variant not confirmed yet"}
-        if "variant=color" in device_line:
-            logger.warning(
-                f"APP_CONNECTED BLOCKED — color device detected (last_device_line={device_line!r}). "
-                "Frontend guard should have prevented this; check AppContext useEffect."
-            )
-            return {"success": False, "error": "APP_CONNECTED rejected for color variant"}
-        if "variant=mini" not in device_line:
-            logger.warning(
-                f"APP_CONNECTED BLOCKED — unknown variant in device line (last_device_line={device_line!r}). "
-                "Refusing to send APP_CONNECTED to unrecognised device type."
-            )
-            return {"success": False, "error": "APP_CONNECTED rejected for unknown variant"}
-
     # SCREEN_SLEEP is a blocking command on firmware (plays return_to_idle animation
     # then powers display off — takes ~1 s).  Use send_command_and_read so the backend
     # waits for the OK:SCREEN_SLEEP response and logs it, making the sleep confirmed.
