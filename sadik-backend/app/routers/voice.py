@@ -390,17 +390,30 @@ async def _live_receive_loop(
     router_task: "asyncio.Task | None" = None
 
     async def _apply_router_decision(result):
-        """Router decision geldi — buffer'ı flush et veya drop et, turn_decided set et."""
+        """Router decision geldi — buffer'ı flush et veya drop et, turn_decided set et.
+
+        T9.5.7 — Tool branch artık mute YAPMIYOR.
+        - tool_result event'i frontend'e gönderilir (animation cue için).
+        - audio_buffer drop edilir (router öncesi birikmiş Gemini audio'yu temizle).
+        - live.send_narration() ile tool result text'i Gemini Live'a feed edilir.
+        - Live audio chunks gelmeye başlayınca mevcut audio forwarding (turn_decided=True
+          kabul) doğrudan client'a akıtır — kullanıcı sesli yanıt duyar.
+        """
         nonlocal turn_decided
         kind_r = result[0]
         turn_decided = True
         if kind_r == "tool":
             _, tool_name, status, data, error = result
             logger.info(
-                "[VoiceLive] tool_result tool=%s status=%s | dropping %d buffered audio chunks (early)",
+                "[VoiceLive] tool_result tool=%s status=%s | dropping %d buffered audio chunks, starting narration",
                 tool_name, status, len(audio_buffer),
             )
+            # Drop A-path audio that arrived before router decision
             audio_buffer.clear()
+            # NOTE: router.mute() intentionally NOT called (T9.5.7).
+            # Live audio is allowed to flow so narration audio reaches the client.
+
+            # 1. Send tool_result event — frontend uses for animation cue
             await websocket.send_text(json.dumps({
                 "type":      "tool_result",
                 "tool_name": tool_name,
@@ -408,6 +421,23 @@ async def _live_receive_loop(
                 "data":      data,
                 "error":     error,
             }))
+
+            # 2. Feed result text to Gemini Live → Live will speak it
+            if status == "ok":
+                result_text = data.get("result", "") if data else ""
+                narration_prompt = (
+                    f"Aşağıdaki bilgiyi kullanıcıya kısa, doğal ve Türkçe olarak söyle. "
+                    f"Bilgiyi olduğu gibi aktar, kendi yorumunu ekleme:\n\n{result_text}"
+                )
+            else:
+                # Error case: generic short Turkish message
+                narration_prompt = "Bu isteği yerine getiremedim, tekrar dener misin?"
+
+            try:
+                await live.send_narration(narration_prompt)
+                logger.info("[VoiceLive] narration sent for tool=%s status=%s", tool_name, status)
+            except Exception as narr_exc:
+                logger.error("[VoiceLive] send_narration failed: %s", narr_exc)
         else:
             # Chat — buffer'daki tüm chunk'ları flush et
             flushed = 0

@@ -430,14 +430,16 @@ export default function VoiceAssistant() {
         console.log('[Voice] tool_result', result.tool_name, result.status);
         setActiveTool(null);
         if (result.status === 'ok') {
-          // Done clip: tool succeeded
+          // Done clip: tool succeeded (plays in parallel with narration audio)
           triggerEvent('confirmation_success');
         } else {
           // Error clip: tool failed
           triggerEvent('soft_error');
         }
-        // Tool path: no audio from Gemini, go to idle
-        setTimeout(() => endSession('tool_result'), 1500);
+        // T9.5.7: do NOT fast-disconnect here.
+        // Backend feeds result text to Gemini Live → narration audio chunks will
+        // arrive → onAudio fires → state transitions to 'speaking'.
+        // Session ends naturally on turn_complete (onTurnComplete handler below).
       },
 
       onError: (detail: string) => {

@@ -317,6 +317,31 @@ class _LiveSession:
             if response.text:
                 logger.debug("[GeminiLive] model text: %s", response.text[:80])
 
+    # ── Narration (T9.5.7) ────────────────────────────────────────────────────
+
+    async def send_narration(self, text: str) -> None:
+        """Send a text prompt to Gemini Live so it speaks the result aloud.
+
+        Used by the tool-result path (B-path) to narrate tool results via Live
+        instead of going silent after tool execution.  The session must already
+        be open (called from within an active `async with service.session():`
+        block).
+
+        The caller is responsible for NOT calling this when the session has
+        already been closed or when privacy Local-only mode is active.
+        """
+        if self._session is None:
+            raise RuntimeError("Session not open")
+        from google.genai import types as genai_types
+        await self._session.send_client_content(
+            turns=genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=text)],
+            ),
+            turn_complete=True,
+        )
+        logger.info("[GeminiLive] send_narration sent (%d chars)", len(text))
+
     # ── Echo test ──────────────────────────────────────────────────────────────
 
     async def echo_test(self, prompt_text: str = "Merhaba, beni duyuyor musun?") -> bytes:

@@ -662,8 +662,12 @@ Exit criteria check: Gemini Live proxy çalışıyor; B-first router tool/konuş
 
 **T9.5.6 — Voice V2 Frontend Entegrasyonu (sprint genişletme)**
 - [x] **T9.5.6** — Electron app `/api/voice/live` WS bağlantısı, mic stream (16k int16), 24k playback, V1 dead code sökme, voice_v2_enabled flag kaldırma, continuous mode multi-turn, animation (success→done, fail→error). Cost discipline: API call sadece wakeword/mic-tap sonrası.
+- [x] **T9.5.7** — Tool result narration via Live (B-path artık sesli). Tool execute sonrası result text `send_narration()` ile Gemini Live'a feed edilir → Live audio yanıtı kullanıcıya akıtılır. `gemini_live_service._LiveSession.send_narration(text)` public API eklendi. `_apply_router_decision` tool branch'inde `router.mute()` kaldırıldı, narration tetiklendi. Frontend `onToolResult`'ta fast-disconnect kaldırıldı; session `turn_complete` bekleniyor. Error case: kısa Türkçe mesaj. Mevcut session içinde extra çağrı yok (cost discipline korundu).
 
 **Exit criteria:** Wakeword→ilk ses A hattında <1s (p50), B hattında <5s; mevcut 12 tool çalışıyor; tool path'te ses çıkmıyor (yalnız MJPEG); TTS dependency'leri silindi.
+
+**S9.5 sonrası backlog (ek):**
+- [ ] **T9.5.x-followup** Privacy Local-only: tool narration kapatma (Live KAPALI ise tool result chat'e yazılır)
 
 ---
 
