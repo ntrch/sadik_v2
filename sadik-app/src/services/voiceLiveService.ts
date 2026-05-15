@@ -38,8 +38,13 @@ export type VoiceLiveCallbacks = {
   onClose:       () => void;
 };
 
+// Max pending audio chunks to buffer while WS is not yet ready.
+// 50 chunks × 100ms = ~5s capacity; overflow drops oldest (VAD speech-active only).
+const PENDING_AUDIO_CAP = 50;
+
 export class VoiceLiveService {
   private ws: WebSocket | null = null;
+  private wsReady = false;
   private callbacks: VoiceLiveCallbacks | null = null;
   private audioCtx: AudioContext | null = null;
   // Playback queue: each item is a 24kHz Int16Array chunk waiting to play.
@@ -49,6 +54,9 @@ export class VoiceLiveService {
   private triggerSource: 'wakeword' | 'mic_tap' = 'wakeword';
   // Resolved when playback queue drains to idle (isPlayingAudio=false, queue empty).
   private playbackIdleResolve: (() => void) | null = null;
+  // Early-speech buffer: PCM chunks arriving while WS is not yet ready.
+  // Flushed in order when 'ready' is received.
+  private pendingAudioQueue: Int16Array[] = [];
 
   /**
    * Open a new Gemini Live WS session.
@@ -64,6 +72,8 @@ export class VoiceLiveService {
     this.callbacks = callbacks;
     this.playbackQueue = [];
     this.isPlayingAudio = false;
+    this.wsReady = false;
+    this.pendingAudioQueue = [];
 
     const url = `${WS_BASE}/api/voice/live?voice=${VOICE_NAME}`;
     console.log(`[VoiceLive] Opening WS (trigger=${triggerSource}): ${url}`);
@@ -87,7 +97,14 @@ export class VoiceLiveService {
     };
 
     this.ws.onclose = (ev) => {
-      console.log(`[VoiceLive] WS closed code=${ev.code} reason=${ev.reason}`);
+      if (ev.code === 1000) {
+        console.log('[VoiceLive] WS closed gracefully (1000)');
+      } else if (ev.code === 1006 && !ev.reason) {
+        // Gemini Live preview model closes the session after turn_complete — normal behaviour.
+        console.debug('[VoiceLive] WS closed code=1006 (server closed first — preview model behaviour)');
+      } else {
+        console.warn(`[VoiceLive] WS closed unexpectedly code=${ev.code} reason=${ev.reason}`);
+      }
       this._teardown();
       this.callbacks?.onClose();
     };
@@ -96,9 +113,23 @@ export class VoiceLiveService {
   /**
    * Send a 16kHz int16 mono PCM chunk to Gemini.
    * Only call while VAD speech is active (caller gates this).
+   * If WS is not yet ready, buffers the chunk and flushes on ready.
    */
   pipeMicChunk(pcm16k: Int16Array): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws) return;
+
+    if (!this.wsReady) {
+      // Buffer for flush when WS becomes ready
+      if (this.pendingAudioQueue.length >= PENDING_AUDIO_CAP) {
+        // Drop oldest to prevent unbounded growth
+        this.pendingAudioQueue.shift();
+        console.warn('[VoiceLive] pending audio queue overflow — dropped oldest chunk');
+      }
+      this.pendingAudioQueue.push(new Int16Array(pcm16k));
+      return;
+    }
+
+    if (this.ws.readyState !== WebSocket.OPEN) return;
     const bytes = new Uint8Array(pcm16k.buffer, pcm16k.byteOffset, pcm16k.byteLength);
     const b64 = this._toBase64(bytes);
     this._send({ type: 'audio', data: b64 });
@@ -168,6 +199,17 @@ export class VoiceLiveService {
     switch (type) {
       case 'ready':
         console.log('[VoiceLive] session ready');
+        this.wsReady = true;
+        // Flush any PCM chunks that arrived during WS handshake (early speech)
+        if (this.pendingAudioQueue.length > 0) {
+          console.log(`[VoiceLive] flushed ${this.pendingAudioQueue.length} pending audio chunks (early speech)`);
+          for (const chunk of this.pendingAudioQueue) {
+            const bytes = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+            const b64 = this._toBase64(bytes);
+            this._send({ type: 'audio', data: b64 });
+          }
+          this.pendingAudioQueue = [];
+        }
         this.callbacks?.onReady();
         break;
 
@@ -295,6 +337,8 @@ export class VoiceLiveService {
 
   private _forceClose(): void {
     this._stopPlayback();
+    this.wsReady = false;
+    this.pendingAudioQueue = [];
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.onerror = null;
@@ -308,6 +352,8 @@ export class VoiceLiveService {
   private _teardown(): void {
     this._stopPlayback();
     this.ws = null;
+    this.wsReady = false;
+    this.pendingAudioQueue = [];
     this.callbacks = null;
   }
 

@@ -107,6 +107,7 @@ export default function VoiceAssistant() {
   // ── Session guards ─────────────────────────────────────────────────────────
   const wakewordGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionActiveRef      = useRef(false);   // WS session is open
+  const firstAudioReceivedRef = useRef(false);   // reset per turn; guards onAudio spam
 
   // ── AppContext ─────────────────────────────────────────────────────────────
   const {
@@ -312,8 +313,11 @@ export default function VoiceAssistant() {
               clearTimeout(postRollTimerRef.current);
               postRollTimerRef.current = null;
             }
-            // Guard: only act when we're in listening state
-            if (voiceStateRef.current !== 'listening') {
+            const st = voiceStateRef.current;
+            // Allow speech during 'listening' OR while WS is still connecting
+            // (session active but not yet ready — "waking" window).
+            const isWaking = st === 'idle' && sessionActiveRef.current;
+            if (st !== 'listening' && !isWaking) {
               console.log('[Voice] VAD speech_start ignored (not listening)');
               return;
             }
@@ -325,7 +329,9 @@ export default function VoiceAssistant() {
 
           onSpeechEnd: (_audio: Float32Array) => {
             vadSpeechActiveRef.current = false;
-            if (voiceStateRef.current !== 'listening') return;
+            const st = voiceStateRef.current;
+            const isWaking = st === 'idle' && sessionActiveRef.current;
+            if (st !== 'listening' && !isWaking) return;
             if (!speechDetectedRef.current) return;
 
             console.log(`[Voice] VAD speech_end → post-roll armed (${POST_ROLL_SILENCE_MS}ms)`);
@@ -375,6 +381,7 @@ export default function VoiceAssistant() {
 
     // ── Connect Gemini Live WS ─────────────────────────────────────────────
     sessionActiveRef.current = true;
+    firstAudioReceivedRef.current = false;
 
     voiceLiveService.connect(triggerSource, {
       onReady: () => {
@@ -394,12 +401,13 @@ export default function VoiceAssistant() {
       },
 
       onAudio: (_pcm24k: Int16Array) => {
-        // Playback is handled inside voiceLiveService; we react to first chunk
-        if (voiceStateRef.current !== 'speaking') {
-          console.log('[Voice] First audio chunk → speaking');
-          setVoiceState('speaking');
-          triggerEvent('assistant_speaking');
-        }
+        // Playback is handled inside voiceLiveService; we react to first chunk only.
+        // Guard prevents repeated state sets and log spam for every chunk.
+        if (firstAudioReceivedRef.current) return;
+        firstAudioReceivedRef.current = true;
+        console.log('[Voice] First audio chunk → speaking');
+        setVoiceState('speaking');
+        triggerEvent('assistant_speaking');
       },
 
       onTranscript: (text: string, finished: boolean) => {
@@ -411,6 +419,7 @@ export default function VoiceAssistant() {
 
       onTurnComplete: () => {
         console.log('[Voice] turn_complete');
+        firstAudioReceivedRef.current = false;  // reset for next turn
         if (continuousConversationRef.current) {
           // Multi-turn: keep WS open, suspend mic pipe, wait for next speech
           console.log('[Voice] Continuous mode: suspending pipe, arming VAD for next turn');
