@@ -1,0 +1,38 @@
+{
+  "voice.wake_word_detected": "wakeword",
+  "voice.user_speaking": "listening",
+  "voice.processing": "thinking",
+  "voice.assistant_speaking": "talking",
+  "voice.understanding_resolved": "understanding",
+  "voice.didnt_hear": "didnthear",
+  "voice.soft_error": "didnthear",
+  "voice.conversation_finished": "done",
+  "voice.return_to_idle": "return_to_idle",
+  "task.completed": "done",
+  "task.milestone.daily_five": "dancing",
+  "mode.changed.working": "mode_working",
+  "mode.changed.break": "mode_break",
+  "mode.changed.gaming": "mode_gaming",
+  "mode.changed.meeting": "mode_meeting_text",
+  "pomodoro.session.completed": "done",
+  "settings.saved": "done",
+  "workspace.action.success": "done",
+  "dashboard.action.success": "done",
+  "focus.action.success": "done",
+  "chat.confirmed": "confirming",
+  "generic.success": "done",
+
+  "_legacy_aliases": {
+    "wake_word_detected": "voice.wake_word_detected",
+    "user_speaking": "voice.user_speaking",
+    "processing": "voice.processing",
+    "assistant_speaking": "voice.assistant_speaking",
+    "understanding_resolved": "voice.understanding_resolved",
+    "didnt_hear": "voice.didnt_hear",
+    "soft_error": "voice.soft_error",
+    "conversation_finished": "voice.conversation_finished",
+    "return_to_idle": "voice.return_to_idle",
+    "confirmation_success": "generic.success",
+    "ambiguity": "voice.didnt_hear"
+  }
+}

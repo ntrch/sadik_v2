@@ -60,6 +60,8 @@ interface AppContextType {
   playModSequenceWithCallback: (intro: string, loop: string, onIntroFinish?: () => void) => void;
   playModIntroOnce: (intro: string, onFinish?: () => void) => void;
   getLoadedClipNames: () => string[];
+  /** Diagnostik overlay: set when engine emits a missing_clip event (auto-clears after 2.5s). */
+  lastMissingClipEvent: { name: string; ts: number } | null;
   // Wake word
   wakeWordEnabled: boolean;
   wakeWordActive: boolean;
@@ -192,6 +194,7 @@ export const AppContext = createContext<AppContextType>({
   playModSequenceWithCallback: () => {},
   playModIntroOnce: () => {},
   getLoadedClipNames: () => [],
+  lastMissingClipEvent: null,
   wakeWordEnabled: false,
   wakeWordActive: false,
   wakeWordPending: false,
@@ -488,6 +491,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     playModIntroOnce,
     getLoadedClipNames,
     notifyColorClipFinished,
+    lastMissingClipEvent,
   } = useAnimationEngine(deviceStatus.connected, sadikPosition, personaSlug, deviceVariant);
   // Stable ref — safe to call from WS message callback without closure staleness.
   const notifyColorClipFinishedRef = useRef(notifyColorClipFinished);
@@ -2213,6 +2217,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         playModSequenceWithCallback,
         playModIntroOnce,
         getLoadedClipNames,
+        lastMissingClipEvent,
         wakeWordEnabled,
         wakeWordActive,
         wakeWordPending,

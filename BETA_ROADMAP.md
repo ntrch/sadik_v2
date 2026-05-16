@@ -895,6 +895,9 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 ### PR-B1: Legacy purge (mini + CPP + mono asset)
 - [x] **PR-B1 [DONE: 2026-05-16]** — `sadik-app/assets/raw_cpp/` silindi; `DeviceVariant` color_v2-only; mini guard comment'leri temizlendi; `AppContext` `oled_*` ve `frameBuffer`/`frameVersion` kalıntı referansları temizlendi (zaten yoktu); `useAnimationEngine` + `AnimationEngine` + `OledPreview` + `Sidebar` + `colorClipManifest` zaten clean. Backend `oled_*` settings zaten yoktu.
 
+### PR-B2.1: Unified animation engine — JSON event map + diagnostik overlay
+- [x] **PR-B2.1 [DONE: 2026-05-16]** — `eventClipMap.json` (22 unique event + `_legacy_aliases` bloğu). `AnimationEngine.triggerEvent` JSON lookup'a yönlendirildi: alias resolve → JSON map → legacy `EVENT_TO_CLIP` fallback; eksik mapping'lerde `onMissingClip` callback tetikleniyor. `useAnimationEngine`: `lastMissingClipEvent` state + 2.5s auto-clear timer. `AppContext`: `lastMissingClipEvent` interface + provider value'ya eklendi. `OledPreview`: `NO_CLIP:<event>` diagnostik overlay (turuncu, yarı saydam, alt kenar). `MODE_ANIM_MAP` + `COLOR_CLIP_MAP` B2.2'de absorbe edilecek; mevcut 13 event ateşleyici legacy_aliases üzerinden çalışmaya devam ediyor.
+
 ---
 
 ## 6. Concurrency zones (iki hesap paralel çalışma)

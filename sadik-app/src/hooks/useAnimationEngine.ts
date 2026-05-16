@@ -4,9 +4,9 @@ import { EngineState, AnimationEventType } from '../engine/types';
 import { deviceApi } from '../api/device';
 import { COLOR_CLIP_DURATION_MS, COLOR_CLIP_FALLBACK_MS } from '../assets/colorClipManifest';
 
-// ── Color variant clip name mapping ──────────────────────────────────────────
-// Mini clip names (from eventMapping.ts / AnimationEngine) → color LittleFS names.
-// Color manifest.json clip names must match exactly what LittleFS has on device.
+// ── Clip name mapping — engine names → color_v2 LittleFS names ───────────────
+// Engine clip names (from eventMapping.ts) → LittleFS names on device.
+// LittleFS clip names must match exactly what the firmware has in /clips/.
 const COLOR_CLIP_MAP: Record<string, string> = {
   // Engine clip name      : Color LittleFS name (must match /clips/<name>.bin)
   listening               : 'listening',
@@ -33,7 +33,7 @@ const COLOR_CLIP_MAP: Record<string, string> = {
   mod_meeting_text        : 'mode_meeting_text',
 };
 
-/** Translate a mini/engine clip name to the color LittleFS clip name. Returns null if no mapping. */
+/** Translate an engine clip name to the color_v2 LittleFS clip name. Returns null if no mapping. */
 function toColorClipName(miniName: string | null): string | null {
   if (!miniName) return null;
   return COLOR_CLIP_MAP[miniName] ?? miniName; // fall back to same name if not in map
@@ -61,13 +61,12 @@ export function useAnimationEngine(
   deviceConnected: boolean,
   sadikPosition: 'left' | 'right' | 'top' = 'left',
   personaSlug: string = 'sadik',
-  deviceVariant: 'mini' | 'color' | 'color_v2' | null = null,
+  deviceVariant: 'color_v2' | null = null,
 ) {
   const engine = getAnimationEngine();
-  const bufferRef = useRef<Uint8Array>(new Uint8Array(1024));
   const [engineState, setEngineState] = useState<EngineState>(defaultEngineState);
-  // frameVersion increments to signal canvas needs a repaint
-  const [frameVersion, setFrameVersion] = useState(0);
+  const [lastMissingClipEvent, setLastMissingClipEvent] = useState<{ name: string; ts: number } | null>(null);
+  const missingClipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Track frame streaming state with refs to avoid stale closures
   const deviceConnectedRef = useRef(deviceConnected);
@@ -124,18 +123,13 @@ export function useAnimationEngine(
         clipFinishedFallbackTimerRef.current = null;
       }
       clipFinishedCallbackRef.current = null;
-
-      // Canvas freeze fix: clear the preview buffer on USB disconnect so the
-      // canvas doesn't hold the last streamed frame indefinitely.
-      bufferRef.current = new Uint8Array(1024);
-      setFrameVersion((v) => v + 1);
     }
   }, [deviceConnected]);
 
   useEffect(() => {
     deviceVariantRef.current = deviceVariant;
-    // When variant changes to non-color, reset last clip tracking
-    if (deviceVariant !== 'color' && deviceVariant !== 'color_v2') {
+    // When variant becomes null (disconnect), reset last clip tracking
+    if (deviceVariant === null) {
       lastColorClipSentRef.current = null;
       lastColorClipSentAtRef.current = 0;
       if (pendingColorClipTimerRef.current) {
@@ -157,7 +151,17 @@ export function useAnimationEngine(
   }, [deviceVariant]);
 
   useEffect(() => {
-    // Register device command handler (control commands only: APP_CONNECTED, APP_DISCONNECTED, SET_BRIGHTNESS, SLEEP, WAKE)
+    // Register missing-clip diagnostic callback
+    engine.onMissingClip((eventName: string) => {
+      if (missingClipTimerRef.current) clearTimeout(missingClipTimerRef.current);
+      setLastMissingClipEvent({ name: eventName, ts: Date.now() });
+      missingClipTimerRef.current = setTimeout(() => {
+        setLastMissingClipEvent(null);
+        missingClipTimerRef.current = null;
+      }, 2500);
+    });
+
+    // Register device command handler (control commands only: APP_CONNECTED, APP_DISCONNECTED, RETURN_TO_IDLE)
     engine.onDeviceCommand(async (cmd: string) => {
       if (!deviceConnectedRef.current) return;
       try {
@@ -166,101 +170,6 @@ export function useAnimationEngine(
         console.warn('[AnimationEngine] device command failed:', cmd, e);
       }
     });
-
-    // Two-consumer design with rate matching:
-    //   • onFrameReady stages the LATEST buffer snapshot only.
-    //   • Background pump takes the latest, sends to OLED, and on ACK bumps
-    //     the preview — so screen preview visually matches the OLED refresh
-    //     rate exactly. When disconnected, preview repaints immediately on
-    //     each engine emit (OLED path skipped entirely).
-    const latestPendingBuffer: { current: Uint8Array | null } = { current: null };
-    let frameCount = 0;
-
-    engine.onFrameReady((buffer: Uint8Array) => {
-      const snapshot = new Uint8Array(buffer);
-      latestPendingBuffer.current = snapshot;
-      if (!deviceConnectedRef.current) {
-        bufferRef.current = snapshot;
-        setFrameVersion((v) => v + 1);
-      }
-    });
-
-    let pumpAlive = true;
-    // A2.2: rate-limit drop log — track consecutive drops to emit one summary
-    // per second instead of one console.warn per frame.  Burst drops from a
-    // main-thread block (audio init, GC, dialog) can produce 1000+ warn() calls
-    // in a tight burst, which itself locks the console and amplifies jank.
-    let dropCount  = 0;
-    let dropLogAt  = Date.now(); // A2.3 fix: init to now so first drop shows real elapsed ms (not epoch offset)
-    const DROP_LOG_INTERVAL_MS = 1000;
-    const pump = async () => {
-      while (pumpAlive) {
-        // Frame streaming is ONLY active when variant is confirmed 'mini'.
-        // 'color' → firmware handles LittleFS clips via PLAY_LOCAL, no frames needed.
-        // null/'unknown' → variant not yet resolved; hold off to avoid sending frames
-        //   to a color device before the device_profile WS arrives (race condition fix).
-        if (deviceVariantRef.current !== 'mini') {
-          // Variant not yet confirmed (null=startup race) or color device.
-          // Discard any buffered frame so queue doesn't burst when variant resolves.
-          latestPendingBuffer.current = null;
-          await new Promise((r) => setTimeout(r, 30));
-          continue;
-        }
-        const buf = latestPendingBuffer.current;
-        if (!buf || !deviceConnectedRef.current) {
-          await new Promise((r) => setTimeout(r, 30));
-          continue;
-        }
-        // A2.2 newest-only: if a newer frame arrived while we were waiting, discard
-        // intermediate frames — only send the latest snapshot.  latestPendingBuffer is
-        // already "latest wins" (onFrameReady overwrites it), so consuming it here and
-        // checking again after send covers the burst-drop scenario.
-        frameCount++;
-        if (frameCount <= 5 || frameCount % 60 === 0) {
-          console.log(`[FrameStream] sending frame #${frameCount}`);
-        }
-        let delivered = false;
-        try {
-          const res = await deviceApi.sendFrame(buf);
-          delivered = !!res.success;
-          if (!delivered) {
-            // A2.2: accumulate drops; flush summary at most once per second
-            dropCount++;
-            const now = Date.now();
-            if (now - dropLogAt >= DROP_LOG_INTERVAL_MS) {
-              console.warn(`[FrameStream] dropped ${dropCount} frame(s) in last ${((now - dropLogAt) / 1000).toFixed(1)}s`);
-              dropCount  = 0;
-              dropLogAt  = now;
-            }
-          } else if (dropCount > 0) {
-            // Delivery recovered — flush any pending drop summary immediately
-            console.warn(`[FrameStream] recovered; ${dropCount} frame(s) dropped`);
-            dropCount = 0;
-            dropLogAt = Date.now();
-          }
-        } catch (e) {
-          console.warn('[FrameStream] send failed:', e);
-        }
-        if (delivered) {
-          // Preview mirrors OLED refresh cadence — only bump on successful ACK.
-          bufferRef.current = buf;
-          setFrameVersion((v) => v + 1);
-          // A2.2 newest-only: after a successful send, keep only the newest buffer.
-          // If no newer frame arrived during the send, clear to signal "idle".
-          // If a newer frame arrived, it already overwrote latestPendingBuffer —
-          // leave it so the next iteration sends it immediately (no sleep between).
-          if (latestPendingBuffer.current === buf) latestPendingBuffer.current = null;
-        }
-        // On drop: leave buf staged so next pump iteration retries the same
-        // frame. This rescues the held last-frame of non-looping clips (e.g.
-        // 'confirming' freeze) — the engine stops emitting new frames in that
-        // state, so if we cleared the buffer a drop would freeze both sides.
-        // Newer frames from onFrameReady naturally overwrite during retry.
-        // No sleep — device_manager's 250 ms serial ACK timeout is the natural
-        // rate limit, and retries must be tight to keep OLED/preview in sync.
-      }
-    };
-    pump();
 
     // Helper: actually send a PLAY_LOCAL command and update tracking state.
     // Arms a 1.5× duration fallback timer so the min-gap resets even if the
@@ -346,7 +255,7 @@ export function useAnimationEngine(
       setEngineState(state);
       // Color variant: translate clip changes to PLAY_LOCAL:<name> ASCII commands.
       // The firmware (color) manages its own LittleFS playback; we just tell it which clip.
-      if ((deviceVariantRef.current === 'color' || deviceVariantRef.current === 'color_v2') && deviceConnectedRef.current) {
+      if (deviceVariantRef.current === 'color_v2' && deviceConnectedRef.current) {
         const colorClip = toColorClipName(state.currentClipName);
         if (colorClip) {
           const isForce = COLOR_CLIP_FORCE_SET.has(colorClip);
@@ -416,7 +325,6 @@ export function useAnimationEngine(
 
     return () => {
       if (tickRef.id !== null) clearInterval(tickRef.id);
-      pumpAlive = false;
       if (pendingColorClipTimerRef.current) {
         clearTimeout(pendingColorClipTimerRef.current);
         pendingColorClipTimerRef.current = null;
@@ -430,6 +338,10 @@ export function useAnimationEngine(
         clipFinishedFallbackTimerRef.current = null;
       }
       clipFinishedCallbackRef.current = null;
+      if (missingClipTimerRef.current) {
+        clearTimeout(missingClipTimerRef.current);
+        missingClipTimerRef.current = null;
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -583,8 +495,6 @@ export function useAnimationEngine(
 
   return {
     engineState,
-    frameBuffer: bufferRef.current,
-    frameVersion,
     triggerEvent,
     showText,
     returnToIdle,
@@ -595,5 +505,6 @@ export function useAnimationEngine(
     playModIntroOnce,
     getLoadedClipNames,
     notifyColorClipFinished,
+    lastMissingClipEvent,
   };
 }

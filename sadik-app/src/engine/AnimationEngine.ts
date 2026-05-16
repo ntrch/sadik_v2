@@ -7,9 +7,16 @@ import {
   AnimationEventType,
 } from './types';
 import { EVENT_TO_CLIP, LOOPING_EVENT_CLIPS, AUTO_RETURN_CLIPS, EVENT_DISPLAY_TEXT } from './eventMapping';
-import { renderTextToBuffer } from './bitmapFont';
+import eventClipMapRaw from '../assets/eventClipMap.json';
 
-const BUFFER_SIZE = 1024; // 128 * 64 / 8
+// ── eventClipMap JSON types ───────────────────────────────────────────────────
+interface EventClipMapJson {
+  [key: string]: string | Record<string, string>;
+  _legacy_aliases: Record<string, string>;
+}
+
+const EVENT_CLIP_MAP = eventClipMapRaw as EventClipMapJson;
+const LEGACY_ALIASES: Record<string, string> = EVENT_CLIP_MAP._legacy_aliases ?? {};
 
 interface PlaybackState {
   clip: ClipData | null;
@@ -22,9 +29,6 @@ interface PlaybackState {
 
 export class AnimationEngine {
   private clips: Map<string, ClipData> = new Map();
-  private frameBuffer: Uint8Array = new Uint8Array(BUFFER_SIZE);
-  private bufferDirty = true;
-  private lastTextEmitTime = 0;
 
   private playbackMode: PlaybackMode = 'text';
   private textContent: string = 'SADIK';
@@ -48,22 +52,16 @@ export class AnimationEngine {
 
   private deviceCommandCallback: ((cmd: string) => void) | null = null;
   private stateChangeCallback: ((state: EngineState) => void) | null = null;
-  private frameReadyCallback: ((buffer: Uint8Array) => void) | null = null;
+  private missingClipCallback: ((eventName: string) => void) | null = null;
 
   // Command debounce
   private lastCommandTime = 0;
   private pendingCommand: string | null = null;
   private commandTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  private streamingEnabled = true;
-
   // ─── Focus-look state ────────────────────────────────────────────────────────
   private focusActive: boolean = false;
   private focusDirection: 'left' | 'right' | 'down' | null = null;
-
-  constructor() {
-    this.clearBuffer();
-  }
 
   // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -75,12 +73,9 @@ export class AnimationEngine {
     this.stateChangeCallback = cb;
   }
 
-  onFrameReady(cb: (buffer: Uint8Array) => void): void {
-    this.frameReadyCallback = cb;
-  }
-
-  setStreamingEnabled(enabled: boolean): void {
-    this.streamingEnabled = enabled;
+  /** Register a callback that fires when triggerEvent resolves to no clip in the JSON map. */
+  onMissingClip(cb: (eventName: string) => void): void {
+    this.missingClipCallback = cb;
   }
 
   async loadClips(personaSlug: string = 'sadik'): Promise<void> {
@@ -161,7 +156,16 @@ export class AnimationEngine {
     // Leaving idle — stop both independent timers before taking over playback
     this.cancelIdleTimers();
 
-    const clipName = EVENT_TO_CLIP[event];
+    // ── JSON-based event → clip lookup (B2.1) ────────────────────────────────
+    // 1) Resolve legacy alias → canonical event name
+    const resolved: string = LEGACY_ALIASES[event] ?? event;
+    // 2) JSON map lookup
+    const jsonClipName = typeof EVENT_CLIP_MAP[resolved] === 'string'
+      ? (EVENT_CLIP_MAP[resolved] as string)
+      : undefined;
+
+    // 3) Fallback: legacy EVENT_TO_CLIP for events not yet in JSON map
+    const clipName: string | undefined = jsonClipName ?? EVENT_TO_CLIP[event];
 
     if (clipName && this.clips.has(clipName)) {
       const shouldLoop = LOOPING_EVENT_CLIPS.has(clipName);
@@ -181,35 +185,23 @@ export class AnimationEngine {
             }
           : undefined,
       });
+    } else if (clipName && !this.clips.has(clipName)) {
+      // Clip name found in map but not loaded in engine — emit missing_clip diagnostic
+      console.warn(`[AnimationEngine] missing_clip: event="${event}" resolved clip="${clipName}" not loaded`);
+      this.missingClipCallback?.(event);
+      // Stay on current state; clip not loaded (T3 fallback timer handles color device timeout naturally)
     } else {
-      // Clip not loaded — fall back to text
+      // No mapping at all — emit missing_clip diagnostic + fall back to text
+      console.warn(`[AnimationEngine] missing_clip: event="${event}" has no clip mapping`);
+      this.missingClipCallback?.(event);
       const displayText = EVENT_DISPLAY_TEXT[event] ?? event.toUpperCase();
       this.enterTextMode(displayText);
     }
     this.emitState();
   }
 
-  /** Call this method on every requestAnimationFrame. Returns frame buffer. */
-  update(timestamp: number): Uint8Array {
-    if (this.playbackMode === 'text') {
-      if (this.bufferDirty) {
-        this.clearBuffer();
-        renderTextToBuffer(this.frameBuffer, this.textContent, { centered: true });
-        this.bufferDirty = false;
-        // Force an immediate emit on any content change.
-        this.lastTextEmitTime = 0;
-      }
-      // Re-emit at 4 Hz while showing text.  Static content doesn't need
-      // animation, but periodic re-emission guarantees that a single lost
-      // frame (ACK timeout, in-flight drop) self-heals within 250 ms instead
-      // of leaving the OLED permanently behind the preview.
-      if (this.streamingEnabled && timestamp - this.lastTextEmitTime >= 250) {
-        this.lastTextEmitTime = timestamp;
-        this.frameReadyCallback?.(this.frameBuffer);
-      }
-      return this.frameBuffer;
-    }
-
+  /** Call this method on every clock tick. Drives idle orchestration and playback state. */
+  update(timestamp: number): void {
     if (this.playbackMode === 'idle') {
       this.updateIdleOrchestration(timestamp);
     }
@@ -232,24 +224,9 @@ export class AnimationEngine {
           }
         }
 
-        this.copyFrameToBuffer(this.pb.clip.frames[this.pb.frameIndex]);
-        if (this.streamingEnabled) this.frameReadyCallback?.(this.frameBuffer);
         this.emitState();
       }
     }
-
-    return this.frameBuffer;
-  }
-
-  getFrameBuffer(): Uint8Array {
-    return this.frameBuffer;
-  }
-
-  /** Force a re-emit of the current frame on the next update() tick. Used by
-   *  the transport layer when a send failed (ACK timeout / back-pressure
-   *  drop) and the OLED needs to be resynchronised with the preview. */
-  markBufferDirty(): void {
-    this.bufferDirty = true;
   }
 
   getState(): EngineState {
@@ -422,7 +399,6 @@ export class AnimationEngine {
     this.pb.clip = null;
     this.playbackMode = 'text';
     this.textContent = text;
-    this.bufferDirty = true;
   }
 
   private playClip(name: string, opts: { loop?: boolean; onFinish?: () => void } = {}): void {
@@ -437,10 +413,6 @@ export class AnimationEngine {
     this.pb.onFinish = opts.onFinish ?? null;
     this.pb.lastFrameTime = performance.now();
     this.pb.isPlaying = true;
-
-    if (clip.frames.length > 0) {
-      this.copyFrameToBuffer(clip.frames[0]);
-    }
   }
 
   private stopClip(): void {
@@ -580,18 +552,6 @@ export class AnimationEngine {
         this.scheduleVariation();
       },
     });
-  }
-
-  // ─── Buffer helpers ───────────────────────────────────────────────────────────
-
-  private clearBuffer(): void {
-    this.frameBuffer.fill(0);
-  }
-
-  private copyFrameToBuffer(frame: number[]): void {
-    const len = Math.min(frame.length, BUFFER_SIZE);
-    for (let i = 0; i < len; i++) this.frameBuffer[i] = frame[i];
-    if (len < BUFFER_SIZE) this.frameBuffer.fill(0, len);
   }
 
   // ─── Device command ───────────────────────────────────────────────────────────
