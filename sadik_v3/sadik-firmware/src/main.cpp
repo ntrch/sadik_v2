@@ -141,7 +141,7 @@ void setup() {
 
     // ── Device profile publish (Multi-device Sprint-1 handshake) ────────────
     // App-side parser reads the first N serial lines and extracts DeviceProfile.
-    Serial.println("DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=0.7.0 caps=local_clips,mjpeg");
+    Serial.println("DEVICE:variant=color_v2 hw=esp32-s3-n16r8 display=320x170_rgb565 fw=0.7.0 caps=local_clips,mjpeg");
 
     // ── Manifest publish ─────────────────────────────────────────────────────
     // Boot'ta available clip listesini publish et; app parse edecek.
@@ -305,7 +305,7 @@ void processCommand(ParsedCommand& cmd) {
 
         // ── DEVICE? ───────────────────────────────────────────────────────────
         case CMD_DEVICE_QUERY: {
-            Serial.println("DEVICE:variant=color hw=esp32-s3-n16r8 display=160x128_rgb565 fw=0.7.0 caps=local_clips,mjpeg");
+            Serial.println("DEVICE:variant=color_v2 hw=esp32-s3-n16r8 display=320x170_rgb565 fw=0.7.0 caps=local_clips,mjpeg");
             break;
         }
 
@@ -606,7 +606,12 @@ void loop() {
         // In MODE_IDLE, AnimationEngine.update() handles transitions internally.
         if (currentMode == MODE_LOCAL_CLIP && mjpegPlayer.hasFinished()) {
             currentMode = MODE_IDLE;
-            display.clearScreen();
+            // When app is connected it drives every clip; keep last frame visible
+            // so mod-intro / focus-look slides hold until app sends the next clip.
+            // Autonomous loop clears screen itself before its own idle clips start.
+            if (!appConnected) {
+                display.clearScreen();
+            }
             markActivity("LOCAL_CLIP_DONE");
             Serial.println("EVENT:LOCAL_CLIP_FINISHED");
         }

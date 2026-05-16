@@ -904,6 +904,9 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 ### PR-B2.3: Daily-five task counter altyapı [PENDING]
 - [ ] **PR-B2.3** — Task modeline `completed_at: DateTime nullable` ekle (Alembic migration). `update_task` endpoint: status `done`'a geçişte `completed_at = now()`. Count endpoint: `COUNT WHERE status='done' AND completed_at > today_start(TZ='Europe/Istanbul')`. 5'e ulaşınca WS broadcast `{"type": "animation_event", "data": {"event": "task.milestone.daily_five"}}`. AppContext'te `animation_event` WS type handler: `triggerEvent('task.milestone.daily_five')`.
 
+### PR-B4.1: Firmware son frame freeze + DEVICE variant=color_v2
+- [x] **PR-B4.1 [DONE: 2026-05-16]** — `main.cpp`: `MODE_LOCAL_CLIP` bitince `display.clearScreen()` artık yalnızca `!appConnected` iken çağrılıyor. `appConnected` iken framebuffer'a dokunulmuyor → son frame ekranda kalıyor (mod-intro + focus-look için kritik). DEVICE handshake string'i (boot + CMD_DEVICE_QUERY) `variant=color → color_v2`, `display=160x128_rgb565 → 320x170_rgb565` olarak güncellendi. Build PASS (Flash %6.6 / RAM %45.6).
+
 ---
 
 ## 6. Concurrency zones (iki hesap paralel çalışma)
