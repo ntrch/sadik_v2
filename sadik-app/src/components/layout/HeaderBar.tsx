@@ -1,5 +1,5 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { Usb, Wifi, ChevronDown, X, RotateCw, Sun, SunDim, Mic, MicOff, Settings, Sunrise, CloudSun, Sunset, Moon, Radio, BellOff, Bell, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, Cloud, CloudFog } from 'lucide-react';
+import { Usb, Wifi, ChevronDown, X, RotateCw, Sun, Mic, MicOff, Settings, Sunrise, CloudSun, Sunset, Moon, Radio, BellOff, Bell, CloudRain, CloudDrizzle, CloudSnow, CloudLightning, Cloud, CloudFog } from 'lucide-react';
 import type { WeatherGroup } from '../../api/weather';
 import { useDevice } from '../../hooks/useDevice';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -182,25 +182,6 @@ export default function HeaderBar() {
               Sesli Asistan Aktif
             </button>
           )}
-          {(() => {
-            // OLED effectively has two usable levels (dim / full), so expose a
-            // toggle instead of a misleading 0-100 slider. Icon reflects state.
-            const isFull = oledBrightnessPercent > 50;
-            const nextValue = isFull ? 30 : 100;
-            return (
-              <button
-                onClick={() => setOledBrightness(nextValue)}
-                title={isFull ? 'Ekstra Parlaklık: Açık' : 'Ekstra Parlaklık: Kapalı'}
-                className={`p-2 rounded-full transition-all ${
-                  isFull
-                    ? 'bg-accent-yellow/20 text-accent-yellow hover:bg-accent-yellow/30'
-                    : 'bg-bg-input text-text-muted hover:text-text-secondary'
-                }`}
-              >
-                {isFull ? <Sun size={20} /> : <SunDim size={20} />}
-              </button>
-            );
-          })()}
 
           <button
             onClick={() => setDndActive(!dndActive)}

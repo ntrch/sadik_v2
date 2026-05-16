@@ -22,9 +22,9 @@ const MEETING_EXIT_GRACE_MS = 60_000;
 
 // Maps mode keys that have dedicated animation clips (intro + looping text).
 const MODE_ANIM_MAP: Record<string, { intro: string; loop: string }> = {
-  working: { intro: 'mod_working', loop: 'mod_working_text' },
-  break:   { intro: 'mod_break',   loop: 'mod_break_text'   },
-  meeting: { intro: 'mod_meeting', loop: 'mod_meeting_text' },
+  working: { intro: 'mode_working', loop: 'mode_working_text' },
+  break:   { intro: 'mode_break',   loop: 'break_text'        },
+  meeting: { intro: 'mode_meeting_text', loop: 'mode_meeting_text' },
 };
 
 // ── Focus guard ───────────────────────────────────────────────────────────────
@@ -725,13 +725,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Flag: true once enumerateDevices has been triggered (prevents double-fire).
   const enumDevicesDoneRef   = useRef(false);
 
-  // Sync deviceVariant (declared before useAnimationEngine) from connectedDevice.
-  // Keep null until device_profile confirmed — color clip dispatch guard relies on null meaning "unknown".
-  // color_v2 firmware must NEVER receive APP_CONNECTED — it activates codec_feed()
-  // which silently swallows subsequent ASCII commands (PLAY_LOCAL, etc.).
+  // Sync deviceVariant + APP_CONNECTED handshake (T1).
+  // Tek otorite: app bağlandığında firmware autonomous idle scheduler'ını durdurur,
+  // sadece app'in PLAY_LOCAL komutlarını oynatır.
   useEffect(() => {
     const variant = connectedDevice?.variant ?? null;
     setDeviceVariant(variant);
+    if (connectedDevice && deviceStatus.connected && variant) {
+      console.log(`[AppContext] APP_CONNECTED → ${variant} firmware (variant confirmed)`);
+      deviceApi.sendCommand('APP_CONNECTED').catch(() => {});
+    }
   }, [connectedDevice, deviceStatus.connected]);
 
   // ── DND state ──────────────────────────────────────────────────────────────
@@ -1594,8 +1597,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setPomodoroState(newState);
         } catch { /* best-effort */ }
       };
-      if (loaded.includes('mod_break')) {
-        engine.playModIntroOnce('mod_break', startTimer);
+      if (loaded.includes('mode_break')) {
+        engine.playModIntroOnce('mode_break', startTimer);
       } else {
         showText('MOLA');
         await startTimer();
@@ -1993,8 +1996,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const engine = getAnimationEngine();
             const loaded = getLoadedClipNames();
             const clearSuppress = () => { suppressBreakTimerDisplayRef.current = false; };
-            if (loaded.includes('mod_break')) {
-              engine.playModIntroOnce('mod_break', clearSuppress);
+            if (loaded.includes('mode_break')) {
+              engine.playModIntroOnce('mode_break', clearSuppress);
             } else {
               clearSuppress();
             }

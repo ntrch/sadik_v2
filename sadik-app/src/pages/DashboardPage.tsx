@@ -41,9 +41,9 @@ const FALLBACK_PRESET_KEYS = ['working', 'learning', 'break', 'meeting'];
 // Intro plays once on mode-enter, then the text clip loops until the user exits.
 // Maps mode keys → intro+loop clip pairs for playModSequence
 const MODE_ANIM_CLIPS: Record<string, { intro: string; loop: string }> = {
-  working: { intro: 'mod_working', loop: 'mod_working_text' },
-  break:   { intro: 'mod_break',   loop: 'mod_break_text'   },
-  meeting: { intro: 'mod_meeting', loop: 'mod_meeting_text' },
+  working: { intro: 'mode_working', loop: 'mode_working_text' },
+  break:   { intro: 'mode_break',   loop: 'break_text'        },
+  meeting: { intro: 'mode_meeting_text', loop: 'mode_meeting_text' },
 };
 
 // ── App name beautifier ──────────────────────────────────────────────────────

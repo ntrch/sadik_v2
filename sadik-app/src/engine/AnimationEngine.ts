@@ -78,55 +78,53 @@ export class AnimationEngine {
     this.missingClipCallback = cb;
   }
 
-  async loadClips(personaSlug: string = 'sadik'): Promise<void> {
-    // Use relative path so packaged Electron (file:// protocol) can resolve
-    // assets from the bundled dist/. Absolute "/animations/..." would resolve
-    // to filesystem root and fail.
-    const base = `./animations/personas/${personaSlug}`;
-    try {
-      const res = await fetch(`${base}/clips-manifest.json`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const manifest: ClipManifestEntry[] = await res.json();
+  async loadClips(_personaSlug: string = 'sadik'): Promise<void> {
+    // Browser-side render gitti (mini drop, B1). Engine artık event coordinator:
+    // clip "yüklemesi" sadece firmware MJPEG ad set'inin stub kaydı — playClip
+    // currentClipName state'i set eder, useAnimationEngine PLAY_LOCAL'i cihaza
+    // gönderir. Frames boş; render loop yok.
+    const FIRMWARE_CLIPS: { name: string; loop: boolean }[] = [
+      { name: 'idle', loop: true },
+      { name: 'blink', loop: false },
+      { name: 'break_text', loop: false },
+      { name: 'confirming', loop: false },
+      { name: 'dancing', loop: false },
+      { name: 'didnthear', loop: false },
+      { name: 'done', loop: false },
+      { name: 'idle_alt_left_look', loop: false },
+      { name: 'idle_alt_look_down', loop: false },
+      { name: 'idle_alt_right_look', loop: false },
+      { name: 'listening', loop: true },
+      { name: 'mode_break', loop: true },
+      { name: 'mode_gaming', loop: true },
+      { name: 'mode_gaming_text', loop: false },
+      { name: 'mode_meeting_text', loop: false },
+      { name: 'mode_working', loop: true },
+      { name: 'mode_working_text', loop: false },
+      { name: 'return_to_idle', loop: false },
+      { name: 'talking', loop: true },
+      { name: 'thinking', loop: true },
+      { name: 'understanding', loop: false },
+      { name: 'wakeword', loop: false },
+    ];
 
-      if (!manifest || manifest.length === 0) {
-        console.log('[AnimationEngine] No clips in manifest — text mode');
-        this.playbackMode = 'text';
-        this.textContent = 'SADIK';
-        this.emitState();
-        return;
-      }
-
-      const loadPromises = manifest.map(async (entry) => {
-        try {
-          const r = await fetch(`${base}/${entry.source}`);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const data = await r.json();
-          const clip: ClipData = {
-            name: entry.name,
-            width: data.width ?? 128,
-            height: data.height ?? 64,
-            frameCount: data.frameCount ?? (data.frames?.length ?? 0),
-            frames: data.frames ?? [],
-            fps: entry.fps ?? 12,
-            loop: entry.loop ?? false,
-          };
-          this.clips.set(entry.name, clip);
-        } catch (e) {
-          console.warn(`[AnimationEngine] Failed to load clip "${entry.name}":`, e);
-        }
+    for (const { name, loop } of FIRMWARE_CLIPS) {
+      this.clips.set(name, {
+        name,
+        width: 320,
+        height: 170,
+        frameCount: 1,
+        frames: [],
+        fps: 24,
+        loop,
       });
+    }
 
-      await Promise.all(loadPromises);
-      console.log(`[AnimationEngine] Loaded ${this.clips.size} clips`);
+    console.log(`[AnimationEngine] Registered ${this.clips.size} firmware clip stubs`);
 
-      if (this.clips.has('idle')) {
-        this.startIdleOrchestration();
-      } else {
-        this.playbackMode = 'text';
-        this.textContent = 'SADIK';
-      }
-    } catch (e) {
-      console.warn('[AnimationEngine] Could not load manifest — text mode', e);
+    if (this.clips.has('idle')) {
+      this.startIdleOrchestration();
+    } else {
       this.playbackMode = 'text';
       this.textContent = 'SADIK';
     }
@@ -206,7 +204,9 @@ export class AnimationEngine {
       this.updateIdleOrchestration(timestamp);
     }
 
-    if (this.pb.isPlaying && this.pb.clip) {
+    // Browser-side frame timing artık devre dışı (stub clip frames=[]). Cihaz
+    // EVENT:LOCAL_CLIP_FINISHED gönderdiğinde useAnimationEngine engine'i bilgilendirir.
+    if (this.pb.isPlaying && this.pb.clip && this.pb.clip.frames.length > 0) {
       const msPerFrame = 1000 / (this.pb.clip.fps || 12);
       if (timestamp - this.pb.lastFrameTime >= msPerFrame) {
         this.pb.lastFrameTime = timestamp;
@@ -534,7 +534,7 @@ export class AnimationEngine {
       dir = dir === 'left' ? 'right' : 'left';
     }
 
-    const clipName = dir === 'left' ? 'idle_alt_look_left' : 'idle_alt_look_right';
+    const clipName = dir === 'left' ? 'idle_alt_left_look' : 'idle_alt_right_look';
 
     if (!this.clips.has(clipName)) {
       // Clip not loaded — skip silently and reschedule

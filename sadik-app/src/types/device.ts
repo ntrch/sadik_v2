@@ -40,7 +40,12 @@ export function parseDeviceLine(line: string): DeviceProfile | null {
     pairs[token.slice(0, eq)] = token.slice(eq + 1);
   }
 
-  const variant = pairs['variant'];
+  const rawVariant = pairs['variant'];
+  const hw = pairs['hw'] ?? '';
+  // Firmware DEVICE string'i hâlâ "variant=color" gönderiyor (eski ST7735S için
+  // yazılmıştı). T-Display S3 hardware imzasıyla color_v2'ye normalize ediyoruz.
+  // Firmware patch'i (B4) bu alias'ı kaldıracak.
+  const variant = (rawVariant === 'color' && hw.includes('esp32-s3')) ? 'color_v2' : rawVariant;
   if (variant !== 'color_v2') return null;
 
   return {
@@ -48,7 +53,7 @@ export function parseDeviceLine(line: string): DeviceProfile | null {
     display:      pairs['display']  ?? '',
     capabilities: (pairs['caps']    ?? '').split(',').filter(Boolean),
     fwVersion:    pairs['fw']       ?? '',
-    hw:           pairs['hw']       ?? '',
+    hw,
   };
 }
 

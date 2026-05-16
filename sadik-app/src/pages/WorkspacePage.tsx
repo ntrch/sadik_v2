@@ -22,8 +22,8 @@ import { AnimationEventType } from '../engine/types';
 
 // Maps mode keys → intro+loop clip pairs for playModSequence
 const MODE_ANIM_CLIPS: Record<string, { intro: string; loop: string }> = {
-  working: { intro: 'mod_working', loop: 'mod_working_text' },
-  break:   { intro: 'mod_break',   loop: 'mod_break_text'   },
+  working: { intro: 'mode_working', loop: 'mode_working_text' },
+  break:   { intro: 'mode_break',   loop: 'break_text'        },
 };
 
 // ── Icon map ─────────────────────────────────────────────────────────────────
