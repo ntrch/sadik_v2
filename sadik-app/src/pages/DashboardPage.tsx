@@ -39,7 +39,8 @@ const FALLBACK_PRESET_KEYS = ['working', 'learning', 'break', 'meeting'];
 
 // Maps mode keys to a one-shot intro clip + a looping text clip.
 // Intro plays once on mode-enter, then the text clip loops until the user exits.
-const MODE_CLIP_MAP: Record<string, { intro: string; loop: string }> = {
+// Maps mode keys → intro+loop clip pairs for playModSequence
+const MODE_ANIM_CLIPS: Record<string, { intro: string; loop: string }> = {
   working: { intro: 'mod_working', loop: 'mod_working_text' },
   break:   { intro: 'mod_break',   loop: 'mod_break_text'   },
   meeting: { intro: 'mod_meeting', loop: 'mod_meeting_text' },
@@ -252,7 +253,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const mode = currentMode;
     if (!mode) return;
-    const clip = MODE_CLIP_MAP[mode];
+    const clip = MODE_ANIM_CLIPS[mode];
     if (!clip) return;
     let attempts = 0;
     const check = setInterval(() => {
@@ -283,7 +284,7 @@ export default function DashboardPage() {
       setCurrentMode(null);
       setDndActive(false); // no active mode → clear DND
       if (exitingActiveBreak) {
-        triggerEvent('confirmation_success');
+        triggerEvent('pomodoro.session.completed');
       } else {
         returnToIdle();
       }
@@ -312,12 +313,12 @@ export default function DashboardPage() {
       setCurrentMode(mode);
       // Auto-apply mode's DND setting
       setDndActive(getModeDnd(mode));
-      triggerEvent('confirmation_success');
+      triggerEvent(`mode.changed.${mode}` as AnimationEventType);
       showToast(`Mod değiştirildi: ${mode}`, 'success');
       if (modeReturnTimer.current) clearTimeout(modeReturnTimer.current);
 
       // Check if this mode has a dedicated animation clip
-      const clip = MODE_CLIP_MAP[mode];
+      const clip = MODE_ANIM_CLIPS[mode];
       if (clip) {
         // Brief confirmation, then play intro once → chain into looping text clip
         modeReturnTimer.current = setTimeout(

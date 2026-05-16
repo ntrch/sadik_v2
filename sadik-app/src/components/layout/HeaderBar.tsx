@@ -45,7 +45,7 @@ function getWeatherIcon(group: WeatherGroup | undefined, size = 42) {
 
 export default function HeaderBar() {
   const {
-    deviceStatus, oledBrightnessPercent, setOledBrightness,
+    deviceStatus,
     autoConnectDevice, wakeWordEnabled, wakeWordActive, toggleWakeWord,
     voiceAssistantActive, setVoiceUiVisible,
     dndActive, setDndActive,

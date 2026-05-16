@@ -35,16 +35,37 @@ export interface EngineState {
 }
 
 export type AnimationEventType =
-  | 'wake_word_detected'
-  | 'user_speaking'
-  | 'processing'
-  | 'assistant_speaking'
-  | 'confirmation_success'
-  | 'understanding_resolved'
-  | 'didnt_hear'
-  | 'soft_error'
-  | 'ambiguity'
-  | 'conversation_finished'
-  | 'return_to_idle'
+  // ── Legacy engine-internal (kept for show_text / show_timer) ─────────────
   | 'show_text'
-  | 'show_timer';
+  | 'show_timer'
+  | 'return_to_idle'
+  // ── Voice events ──────────────────────────────────────────────────────────
+  | 'voice.wake_word_detected'
+  | 'voice.user_speaking'
+  | 'voice.processing'
+  | 'voice.assistant_speaking'
+  | 'voice.understanding_resolved'
+  | 'voice.didnt_hear'
+  | 'voice.soft_error'
+  | 'voice.conversation_finished'
+  | 'voice.return_to_idle'
+  // ── Task events ───────────────────────────────────────────────────────────
+  | 'task.completed'
+  | 'task.milestone.daily_five'
+  | 'tasks.action.success'
+  // ── Chat events ───────────────────────────────────────────────────────────
+  | 'chat.confirmed'
+  // ── Mode events ───────────────────────────────────────────────────────────
+  | 'mode.changed.working'
+  | 'mode.changed.break'
+  | 'mode.changed.gaming'
+  | 'mode.changed.meeting'
+  | 'mode.changed.generic'
+  // ── Pomodoro events ───────────────────────────────────────────────────────
+  | 'pomodoro.session.completed'
+  // ── Page-level action events ──────────────────────────────────────────────
+  | 'settings.saved'
+  | 'workspace.action.success'
+  | 'dashboard.action.success'
+  | 'focus.action.success'
+  | 'generic.success';

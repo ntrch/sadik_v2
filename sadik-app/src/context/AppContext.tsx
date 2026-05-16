@@ -503,7 +503,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     wakeWordService.start(
       () => {
         setWakeWordPending(true);
-        triggerEvent('wake_word_detected');
+        triggerEvent('voice.wake_word_detected');
         lastAppActivityMsRef.current = Date.now();  // wakeword = user activity
       },
       (msg) => {
@@ -919,7 +919,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       recorder.start();
 
       // Animate listening state on OLED (user_speaking is the closest available event)
-      getAnimationEngine().triggerEvent('user_speaking');
+      getAnimationEngine().triggerEvent('voice.user_speaking');
 
       await new Promise<void>((resolve) => setTimeout(resolve, WINDOW_MS));
 
@@ -1526,13 +1526,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await modesApi.setMode(action.mode);
         setCurrentMode(action.mode);
         showToast(`${action.mode} moduna geçildi`, 'success');
-        triggerEvent('confirmation_success');
-        const clip = MODE_ANIM_MAP[action.mode];
-        if (clip) {
-          const engine = getAnimationEngine();
-          const loaded = getLoadedClipNames();
-          if (loaded.includes(clip.intro)) {
-            engine.playModSequence(clip.intro, clip.loop);
+        {
+          const modeEvent = `mode.changed.${action.mode}` as AnimationEventType;
+          triggerEvent(modeEvent);
+        }
+        {
+          const modePair = MODE_ANIM_MAP[action.mode];
+          if (modePair) {
+            const engine = getAnimationEngine();
+            const loaded = getLoadedClipNames();
+            if (loaded.includes(modePair.intro)) {
+              engine.playModSequence(modePair.intro, modePair.loop);
+            }
           }
         }
       } catch {
@@ -1560,7 +1565,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         }
         showToast(`${ws.name} başlatıldı`, 'success');
-        triggerEvent('confirmation_success');
+        triggerEvent('workspace.action.success');
       } catch (err) {
         console.error('[Proactive] open_workspace failed', err);
         showToast('Çalışma alanı başlatılamadı', 'error');
@@ -2050,7 +2055,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           showToast(`Alışkanlık: ${habitName}`, 'info');
 
           // OLED
-          getAnimationEngine().triggerEvent('confirmation_success');
+          getAnimationEngine().triggerEvent('generic.success');
 
           // Electron native notification
           try {
@@ -2136,7 +2141,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.log('[Proactive] Break cancelled early — counter reset');
       clearBreakAcceptedInsightRef.current();
       modesApi.endCurrent().then(() => setCurrentMode(null)).catch(() => {});
-      getAnimationEngine().triggerEvent('confirmation_success');
+      getAnimationEngine().triggerEvent('pomodoro.session.completed');
     }
   }, [pomodoroState.is_running, pomodoroState.phase, currentMode]);
 

@@ -20,7 +20,7 @@ export default function FocusPage() {
   const handleStart = async () => {
     try {
       await start(selectedTask ?? undefined);
-      triggerEvent('confirmation_success');
+      triggerEvent('focus.action.success');
     } catch {
       showToast('Oturum başlatılamadı', 'error');
     }
@@ -28,7 +28,7 @@ export default function FocusPage() {
 
   const handleStop = async () => {
     await stop();
-    triggerEvent('confirmation_success');
+    triggerEvent('focus.action.success');
     showToast('Pomodoro durduruldu');
   };
 

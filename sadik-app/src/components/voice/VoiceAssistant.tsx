@@ -271,7 +271,7 @@ export default function VoiceAssistant() {
     pauseWakeWord();
 
     // Fire waking animation before mic acquisition
-    triggerEvent('wake_word_detected');
+    triggerEvent('voice.wake_word_detected');
 
     // ── Acquire mic stream ─────────────────────────────────────────────────
     let stream: MediaStream;
@@ -360,7 +360,7 @@ export default function VoiceAssistant() {
               pcmAccumulatorRef.current = [];
               voiceLiveService.signalEndOfTurn();
               setVoiceState('thinking');
-              triggerEvent('processing');
+              triggerEvent('voice.processing');
             }, POST_ROLL_SILENCE_MS);
           },
 
@@ -401,7 +401,7 @@ export default function VoiceAssistant() {
       onReady: () => {
         console.log('[Voice] WS ready → listening');
         setVoiceState('listening');
-        triggerEvent('user_speaking');
+        triggerEvent('voice.user_speaking');
 
         // Cost discipline: 2s wakeword false-positive guard.
         // If VAD speech_start doesn't fire within WAKEWORD_GRACE_MS, disconnect.
@@ -421,7 +421,7 @@ export default function VoiceAssistant() {
         firstAudioReceivedRef.current = true;
         console.log('[Voice] First audio chunk → speaking');
         setVoiceState('speaking');
-        triggerEvent('assistant_speaking');
+        triggerEvent('voice.assistant_speaking');
       },
 
       onTranscript: (text: string, finished: boolean) => {
@@ -437,7 +437,7 @@ export default function VoiceAssistant() {
         // Tek-turn enforced: her turn_complete → session kapat.
         // Continuous mode beta'dan çıkarıldı; post-beta'da multi-session pattern ile re-introduce edilecek.
         endSession('turn_complete');
-        triggerEvent('conversation_finished');
+        triggerEvent('voice.conversation_finished');
       },
 
       onToolResult: (result: ToolResult) => {
@@ -446,9 +446,9 @@ export default function VoiceAssistant() {
 
         // Animation cue: confirmation or error clip
         if (result.status === 'ok') {
-          triggerEvent('confirmation_success');
+          triggerEvent('generic.success');
         } else {
-          triggerEvent('soft_error');
+          triggerEvent('voice.soft_error');
         }
 
         // T9.5.7 (revised): open a separate narration mini-session.
@@ -483,7 +483,7 @@ export default function VoiceAssistant() {
       onError: (detail: string) => {
         console.error('[Voice] server error:', detail);
         setError(detail || 'Ses oturumu hatası');
-        triggerEvent('soft_error');
+        triggerEvent('voice.soft_error');
         setTimeout(() => endSession('server_error'), 1500);
       },
 
@@ -566,7 +566,7 @@ export default function VoiceAssistant() {
       pcmAccumulatorRef.current = [];
       voiceLiveService.signalEndOfTurn();
       setVoiceState('thinking');
-      triggerEvent('processing');
+      triggerEvent('voice.processing');
     }
   };
 

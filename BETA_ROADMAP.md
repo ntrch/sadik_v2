@@ -898,6 +898,12 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 ### PR-B2.1: Unified animation engine — JSON event map + diagnostik overlay
 - [x] **PR-B2.1 [DONE: 2026-05-16]** — `eventClipMap.json` (22 unique event + `_legacy_aliases` bloğu). `AnimationEngine.triggerEvent` JSON lookup'a yönlendirildi: alias resolve → JSON map → legacy `EVENT_TO_CLIP` fallback; eksik mapping'lerde `onMissingClip` callback tetikleniyor. `useAnimationEngine`: `lastMissingClipEvent` state + 2.5s auto-clear timer. `AppContext`: `lastMissingClipEvent` interface + provider value'ya eklendi. `OledPreview`: `NO_CLIP:<event>` diagnostik overlay (turuncu, yarı saydam, alt kenar). `MODE_ANIM_MAP` + `COLOR_CLIP_MAP` B2.2'de absorbe edilecek; mevcut 13 event ateşleyici legacy_aliases üzerinden çalışmaya devam ediyor.
 
+### PR-B2.2: Event ateşleyici migration — unique dotted event'ler
+- [x] **PR-B2.2 [DONE: 2026-05-16]** — 10 dosyada 30 `triggerEvent` çağrısı yeni dotted adlara migre edildi (`confirmation_success` → context-specific; voice events → `voice.*`; mode → `mode.changed.*`; pomodoro/settings/focus → own namespaces). `AnimationEventType` union genişletildi, `ambiguity` drop edildi. `_legacy_aliases` temizlendi (boş bırakıldı). `EVENT_TO_CLIP` legacy map boşaltıldı; `tasks.action.success` JSON'a eklendi. `MODE_ANIM_MAP` (AppContext) + `MODE_CLIP_MAP` (DashboardPage, WorkspacePage) rename → `MODE_ANIM_CLIPS`, `playModSequence` pair lookup için korundu. Daily-five counter → B2.3'e ertelendi (Task modelinde `completed_at` yok; schema migration gerekiyor).
+
+### PR-B2.3: Daily-five task counter altyapı [PENDING]
+- [ ] **PR-B2.3** — Task modeline `completed_at: DateTime nullable` ekle (Alembic migration). `update_task` endpoint: status `done`'a geçişte `completed_at = now()`. Count endpoint: `COUNT WHERE status='done' AND completed_at > today_start(TZ='Europe/Istanbul')`. 5'e ulaşınca WS broadcast `{"type": "animation_event", "data": {"event": "task.milestone.daily_five"}}`. AppContext'te `animation_event` WS type handler: `triggerEvent('task.milestone.daily_five')`.
+
 ---
 
 ## 6. Concurrency zones (iki hesap paralel çalışma)

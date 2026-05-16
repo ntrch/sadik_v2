@@ -1,16 +1,5 @@
-// Maps app events to clip names
-export const EVENT_TO_CLIP: Record<string, string> = {
-  wake_word_detected: 'waking',
-  user_speaking: 'listening',
-  processing: 'thinking',
-  assistant_speaking: 'talking',
-  confirmation_success: 'confirming',
-  understanding_resolved: 'understanding',
-  didnt_hear: 'didnt_hear',
-  soft_error: 'error_soft',
-  ambiguity: 'confused',
-  conversation_finished: 'goodbye_to_idle',
-};
+// Maps app events to clip names (legacy fallback — new events use eventClipMap.json)
+export const EVENT_TO_CLIP: Record<string, string> = {};
 
 // Clips that loop while the event is active
 export const LOOPING_EVENT_CLIPS: Set<string> = new Set([
@@ -23,23 +12,29 @@ export const LOOPING_EVENT_CLIPS: Set<string> = new Set([
 export const AUTO_RETURN_CLIPS: Set<string> = new Set([
   'confirming',
   'understanding',
-  'didnt_hear',
-  'error_soft',
-  'confused',
-  'goodbye_to_idle',
-  'waking',
+  'didnthear',
+  'wakeword',
+  'done',
+  'return_to_idle',
 ]);
 
 // Fallback display text when a clip is not loaded
 export const EVENT_DISPLAY_TEXT: Record<string, string> = {
-  wake_word_detected: 'UYANMA',
-  user_speaking: 'DİNLİYOR',
-  processing: 'DÜŞÜNÜYOR',
-  assistant_speaking: 'KONUŞUYOR',
-  confirmation_success: 'TAMAM',
-  understanding_resolved: 'ANLADIM',
-  didnt_hear: 'NE DEDİN?',
-  soft_error: 'HATA',
-  ambiguity: 'KARIŞTI',
-  conversation_finished: 'GÖRÜŞÜRÜZ',
+  'voice.wake_word_detected': 'UYANMA',
+  'voice.user_speaking': 'DİNLİYOR',
+  'voice.processing': 'DÜŞÜNÜYOR',
+  'voice.assistant_speaking': 'KONUŞUYOR',
+  'voice.understanding_resolved': 'ANLADIM',
+  'voice.didnt_hear': 'NE DEDİN?',
+  'voice.soft_error': 'HATA',
+  'voice.conversation_finished': 'GÖRÜŞÜRÜZ',
+  'task.completed': 'TAMAM',
+  'tasks.action.success': 'TAMAM',
+  'chat.confirmed': 'TAMAM',
+  'settings.saved': 'KAYDEDİLDİ',
+  'workspace.action.success': 'TAMAM',
+  'dashboard.action.success': 'TAMAM',
+  'focus.action.success': 'TAMAM',
+  'pomodoro.session.completed': 'TAMAM',
+  'generic.success': 'TAMAM',
 };

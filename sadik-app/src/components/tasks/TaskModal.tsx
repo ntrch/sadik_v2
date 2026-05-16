@@ -86,7 +86,7 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
       } else {
         await tasksApi.create(data as TaskCreate);
       }
-      triggerEvent('confirmation_success');
+      triggerEvent('task.completed');
       onSaved();
       onClose();
     } catch (e) {
@@ -101,7 +101,7 @@ export default function TaskModal({ task, defaultStatus = 'todo', onClose, onSav
     setDeleting(true);
     try {
       await tasksApi.delete(task.id);
-      triggerEvent('confirmation_success');
+      triggerEvent('task.completed');
       onSaved();
       onClose();
     } catch {}

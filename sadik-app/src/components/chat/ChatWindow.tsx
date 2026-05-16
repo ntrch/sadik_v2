@@ -50,16 +50,16 @@ export default function ChatWindow() {
     };
     setMessages((prev) => [...prev, tempMsg]);
     setTyping(true);
-    triggerEvent('processing');
+    triggerEvent('voice.processing');
 
     try {
       const res = await chatApi.sendMessage(text);
       const replyText = res.response ?? '';
       if (isConfirmation(replyText)) {
-        triggerEvent('confirmation_success');
+        triggerEvent('chat.confirmed');
         await new Promise(r => setTimeout(r, 1000));
       }
-      triggerEvent('assistant_speaking');
+      triggerEvent('voice.assistant_speaking');
       const history = await chatApi.getHistory();
       setMessages(history);
       if (returnTimer.current) clearTimeout(returnTimer.current);
@@ -74,7 +74,7 @@ export default function ChatWindow() {
 
   const handleClear = async () => {
     await chatApi.clearHistory().catch(() => {});
-    triggerEvent('confirmation_success');
+    triggerEvent('chat.confirmed');
     setMessages([]);
     showToast('Sohbet geçmişi temizlendi');
   };

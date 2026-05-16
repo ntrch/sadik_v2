@@ -93,7 +93,6 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
     wakeWordEnabled, toggleWakeWord,
     wakeWordSensitivity, setWakeWordSensitivity,
     continuousConversation, setContinuousConversation,
-    oledSleepTimeoutMinutes, setOledSleepTimeout,
     audioInputDevices,
     audioOutputDevices,
     selectedAudioInputDeviceId,
@@ -125,7 +124,6 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
   const [draftWakeWordEnabled,        setDraftWakeWordEnabled]        = useState(wakeWordEnabled);
   const [draftWakeWordSensitivity,    setDraftWakeWordSensitivity]    = useState(wakeWordSensitivity);
   const [draftContinuousConversation, setDraftContinuousConversation] = useState(continuousConversation);
-  const [draftOledSleepTimeout,       setDraftOledSleepTimeout]       = useState(oledSleepTimeoutMinutes);
   const [draftAudioInputDeviceId,     setDraftAudioInputDeviceId]     = useState(selectedAudioInputDeviceId);
   const [draftAudioOutputDeviceId,    setDraftAudioOutputDeviceId]    = useState(selectedAudioOutputDeviceId);
   const [draftProactiveEnabled,       setDraftProactiveEnabled]       = useState(proactiveSuggestionsEnabled);
@@ -151,7 +149,6 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
     setDraftWakeWordEnabled(wakeWordEnabled);
     setDraftWakeWordSensitivity(wakeWordSensitivity);
     setDraftContinuousConversation(continuousConversation);
-    setDraftOledSleepTimeout(oledSleepTimeoutMinutes);
     setDraftAudioInputDeviceId(selectedAudioInputDeviceId);
     setDraftAudioOutputDeviceId(selectedAudioOutputDeviceId);
     setDraftProactiveEnabled(proactiveSuggestionsEnabled);
@@ -165,7 +162,7 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
     setDraftWeatherEnabled(weatherEnabled);
     setDraftWeatherLocationLabel(weatherLocationLabel);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wakeWordEnabled, oledSleepTimeoutMinutes, weatherEnabled]);
+  }, [wakeWordEnabled, weatherEnabled]);
 
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
   const [telemetryConsent, setTelemetryConsent] = useState(false);
@@ -292,7 +289,6 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
       draftWakeWordEnabled        !== wakeWordEnabled        ||
       draftWakeWordSensitivity    !== wakeWordSensitivity    ||
       draftContinuousConversation !== continuousConversation ||
-      draftOledSleepTimeout       !== oledSleepTimeoutMinutes ||
       draftAudioInputDeviceId     !== selectedAudioInputDeviceId ||
       draftAudioOutputDeviceId    !== selectedAudioOutputDeviceId ||
       draftProactiveEnabled       !== proactiveSuggestionsEnabled ||
@@ -315,14 +311,14 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
   }, [
     settings,
     draftWakeWordEnabled, draftWakeWordSensitivity, draftContinuousConversation,
-    draftOledSleepTimeout, draftAudioInputDeviceId, draftAudioOutputDeviceId,
+    draftAudioInputDeviceId, draftAudioOutputDeviceId,
     draftProactiveEnabled, draftProactiveQuietStart, draftProactiveQuietEnd,
     draftProactiveDailyLimit, draftProactiveCooldown, draftSpokenEnabled,
     draftSpokenDailyLimit, draftSadikPosition, draftWeatherEnabled,
     draftWeatherLocation, draftWeatherCleared, draftPrivacyTierAction,
     wakeThreshold, wakeInputGain, wakeModelPath,
     wakeWordEnabled, wakeWordSensitivity, continuousConversation,
-    oledSleepTimeoutMinutes, selectedAudioInputDeviceId, selectedAudioOutputDeviceId,
+    selectedAudioInputDeviceId, selectedAudioOutputDeviceId,
     proactiveSuggestionsEnabled, proactiveQuietHoursStart, proactiveQuietHoursEnd,
     proactiveDailyLimit, proactiveCooldownMinutes, spokenProactiveEnabled,
     spokenProactiveDailyLimit, sadikPosition, weatherEnabled,
@@ -376,7 +372,6 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
     setDraftWakeWordEnabled(wakeWordEnabled);
     setDraftWakeWordSensitivity(wakeWordSensitivity);
     setDraftContinuousConversation(continuousConversation);
-    setDraftOledSleepTimeout(oledSleepTimeoutMinutes);
     setDraftAudioInputDeviceId(selectedAudioInputDeviceId);
     setDraftAudioOutputDeviceId(selectedAudioOutputDeviceId);
     setDraftProactiveEnabled(proactiveSuggestionsEnabled);
@@ -426,7 +421,6 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
       if (draftWakeWordEnabled !== wakeWordEnabled)               tasks.push(Promise.resolve(toggleWakeWord()));
       if (draftWakeWordSensitivity !== wakeWordSensitivity)       tasks.push(Promise.resolve(setWakeWordSensitivity(draftWakeWordSensitivity)));
       if (draftContinuousConversation !== continuousConversation) tasks.push(Promise.resolve(setContinuousConversation(draftContinuousConversation)));
-      if (draftOledSleepTimeout !== oledSleepTimeoutMinutes)      tasks.push(setOledSleepTimeout(draftOledSleepTimeout));
       if (draftAudioInputDeviceId !== selectedAudioInputDeviceId) tasks.push(setSelectedAudioInputDeviceId(draftAudioInputDeviceId));
       if (draftAudioOutputDeviceId !== selectedAudioOutputDeviceId) tasks.push(setSelectedAudioOutputDeviceId(draftAudioOutputDeviceId));
       if (draftProactiveEnabled !== proactiveSuggestionsEnabled)  tasks.push(setProactiveSuggestionsEnabled(draftProactiveEnabled));
@@ -470,7 +464,7 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
         (settings.user_name      ?? '') !== prevName ||
         (settings.greeting_style ?? '') !== prevStyle;
 
-      triggerEvent('confirmation_success');
+      triggerEvent('settings.saved');
       if (personalizationChanged) {
         await chatApi.clearHistory();
         savedPersonalizationRef.current = {
@@ -769,26 +763,8 @@ export default function SettingsPage({ onOpenFeedback }: SettingsPageProps = {})
           <div className="border-t border-border pt-4 mt-2 space-y-3">
             <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Cihaz Bağlantısı</p>
             <p className="text-xs text-text-muted leading-relaxed">
-              Sadık cihazı çoğu durumda otomatik algılanır. Gerekirse portu manuel seçebilirsiniz. OLED parlaklığı soldaki yan panelden ayarlanabilir.
+              Sadık cihazı çoğu durumda otomatik algılanır. Gerekirse portu manuel seçebilirsiniz.
             </p>
-            <Field label="Ekran uyku süresi">
-              <select
-                value={String(draftOledSleepTimeout)}
-                onChange={(e) => setDraftOledSleepTimeout(Number(e.target.value))}
-                className="input-field"
-              >
-                <option value="0">Kapalı</option>
-                <option value="1">1 dakika (test)</option>
-                <option value="3">3 dakika</option>
-                <option value="5">5 dakika</option>
-                <option value="10">10 dakika</option>
-                <option value="15">15 dakika</option>
-                <option value="30">30 dakika</option>
-              </select>
-              <p className="text-[11px] text-text-muted mt-1.5">
-                OLED ekranı korumak için belirli bir süre işlem olmazsa ekran kapanır.
-              </p>
-            </Field>
             <Field label="Bağlantı Yöntemi">
               <div className="flex gap-4">
                 {['serial', 'wifi'].map((m) => (

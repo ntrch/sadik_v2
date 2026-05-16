@@ -228,7 +228,7 @@ export default function TaskDetailDrawer({ task, onClose, onSaved }: Props) {
   const handleStatusChange = (v: string) => {
     setStatus(v);
     scheduleSave({ status: v });
-    triggerEvent('confirmation_success');
+    triggerEvent('task.completed');
   };
 
   const handlePriorityChange = (v: number) => {
@@ -246,7 +246,7 @@ export default function TaskDetailDrawer({ task, onClose, onSaved }: Props) {
     setDeleting(true);
     try {
       await tasksApi.delete(task.id);
-      triggerEvent('confirmation_success');
+      triggerEvent('task.completed');
       onSaved();
       onClose();
     } catch {

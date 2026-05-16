@@ -134,7 +134,7 @@ export class AnimationEngine {
   }
 
   triggerEvent(event: AnimationEventType, payload?: { text?: string }): void {
-    if (event === 'return_to_idle') {
+    if (event === 'return_to_idle' || event === 'voice.return_to_idle') {
       this.stopClip();
       if (this.clips.has('idle')) {
         this.startIdleOrchestration();

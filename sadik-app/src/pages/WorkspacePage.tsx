@@ -16,10 +16,12 @@ import {
   nextFreeColor, PALETTE, DEFAULT_PRESET_COLORS, useModeColors,
 } from '../utils/modeColors';
 import { MODE_DISPLAY_LABELS } from './DashboardPage';
+import { AnimationEventType } from '../engine/types';
 
 // ── Mode clip map (mirrors DashboardPage) ───────────────────────────────────
 
-const MODE_CLIP_MAP: Record<string, { intro: string; loop: string }> = {
+// Maps mode keys → intro+loop clip pairs for playModSequence
+const MODE_ANIM_CLIPS: Record<string, { intro: string; loop: string }> = {
   working: { intro: 'mod_working', loop: 'mod_working_text' },
   break:   { intro: 'mod_break',   loop: 'mod_break_text'   },
 };
@@ -1053,7 +1055,7 @@ export default function WorkspacePage() {
    *  1. modesApi.setMode → backend
    *  2. setCurrentMode → AppContext state
    *  3. setDndActive → apply mode DND setting
-   *  4. triggerEvent('confirmation_success') → animation
+   *  4. triggerEvent('mode.changed.<mode>') → animation
    *  5. playModSequence / showText → OLED/preview clip
    */
   const activateMode = useCallback(async (mode: string) => {
@@ -1061,10 +1063,10 @@ export default function WorkspacePage() {
       await modesApi.setMode(mode);
       setCurrentMode(mode);
       setDndActive(getModeDnd(mode));
-      triggerEvent('confirmation_success');
+      triggerEvent(`mode.changed.${mode}` as AnimationEventType);
       if (modeReturnTimer.current) clearTimeout(modeReturnTimer.current);
 
-      const clip = MODE_CLIP_MAP[mode];
+      const clip = MODE_ANIM_CLIPS[mode];
       if (clip) {
         modeReturnTimer.current = setTimeout(
           () => playModSequence(clip.intro, clip.loop),

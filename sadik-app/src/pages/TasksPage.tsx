@@ -29,7 +29,7 @@ export default function TasksPage() {
   const handleStart = async () => {
     try {
       await start(selectedTask ?? undefined);
-      triggerEvent('confirmation_success');
+      triggerEvent('tasks.action.success');
     } catch {
       showToast('Timer başlatılamadı', 'error');
     }
@@ -37,7 +37,7 @@ export default function TasksPage() {
 
   const handleStop = async () => {
     await stop();
-    triggerEvent('confirmation_success');
+    triggerEvent('tasks.action.success');
     showToast('Pomodoro durduruldu');
   };
 
