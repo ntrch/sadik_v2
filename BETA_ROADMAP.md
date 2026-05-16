@@ -892,6 +892,11 @@ Bu sprint geçince: **Color Sprint-6** (legacy söküm) → **Multi-device Sprin
 
 ---
 
+### PR-B1: Legacy purge (mini + CPP + mono asset)
+- [x] **PR-B1 [DONE: 2026-05-16]** — `sadik-app/assets/raw_cpp/` silindi; `DeviceVariant` color_v2-only; mini guard comment'leri temizlendi; `AppContext` `oled_*` ve `frameBuffer`/`frameVersion` kalıntı referansları temizlendi (zaten yoktu); `useAnimationEngine` + `AnimationEngine` + `OledPreview` + `Sidebar` + `colorClipManifest` zaten clean. Backend `oled_*` settings zaten yoktu.
+
+---
+
 ## 6. Concurrency zones (iki hesap paralel çalışma)
 
 Her sprint içinde **zone A** ve **zone B** ayrıldı. Aynı anda iki hesap:
